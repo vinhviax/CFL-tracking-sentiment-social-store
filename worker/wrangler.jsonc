@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cfl-feedback-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cfl-feedback",
+      "database_id": "3ec76280-4616-4e4b-b343-d95d0ec432cc",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["0 0 * * *"]
+  },
+
+  "vars": {
+    "LLM_PROVIDER": "anthropic",
+    "LLM_CLASSIFY_MODEL": "claude-haiku-4-5-20251001",
+    "LLM_INSIGHT_MODEL": "claude-sonnet-5",
+    "CLASSIFY_BATCH_SIZE": "30"
+  }
+}

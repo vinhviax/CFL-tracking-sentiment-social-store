@@ -15,6 +15,14 @@
       "cwd": "frontend",
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "worker",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "worker",
+      "port": 8787,
+      "autoPort": true
     }
   ]
 }
