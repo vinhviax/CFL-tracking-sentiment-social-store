@@ -11,6 +11,7 @@ export interface Env {
   TRANSLATION_BATCH_SIZE?: string;
   LLM_BATCH_CONCURRENCY?: string;
   PROCESSING_QUEUE_CONCURRENCY?: string;
+  PROCESSING_JOB_MAX_BATCHES?: string;
   LLM_VIAX_BASE_URL?: string; // not secret - just an endpoint URL
 
   // secrets (wrangler secret put)

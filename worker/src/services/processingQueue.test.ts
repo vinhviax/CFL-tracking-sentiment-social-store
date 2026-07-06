@@ -18,6 +18,7 @@ describe("processing queue", () => {
       markDone: vi.fn(async (_env, id) => {
         calls.push(`done:${id}`);
       }),
+      requeue: vi.fn(),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => false),
@@ -72,6 +73,7 @@ describe("processing queue", () => {
     const store = {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(async () => undefined),
+      requeue: vi.fn(),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => false),
@@ -111,6 +113,7 @@ describe("processing queue", () => {
     const store = {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(),
+      requeue: vi.fn(),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => true),
@@ -143,6 +146,7 @@ describe("processing queue", () => {
     const store = {
       claimNext: vi.fn(),
       markDone: vi.fn(),
+      requeue: vi.fn(),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(),
@@ -229,5 +233,37 @@ describe("processing queue", () => {
     expect(calls[0].sql).toContain("FROM processing_queue q");
     expect(calls[0].sql).toContain("LEFT JOIN analyze_jobs p");
     expect(calls[0].args).toEqual([10]);
+  });
+
+  test("requeues incomplete analysis slices instead of holding a Worker event open", async () => {
+    const jobs: ProcessingQueueJob[] = [
+      { id: 20, job_type: "analysis", run_id: 22, progress_key: "run-22" },
+    ];
+    const store = {
+      claimNext: vi.fn(async () => jobs.shift() || null),
+      markDone: vi.fn(),
+      requeue: vi.fn(),
+      markFailed: vi.fn(),
+      markCancelled: vi.fn(),
+      isCancelled: vi.fn(async () => false),
+      cancelJob: vi.fn(),
+      enqueueJobs: vi.fn(),
+    };
+    const deps = {
+      runAnalysis: vi.fn(async () => ({ analyzed: 150, total: 15674, provider: "test", complete: false })),
+      discoverAndStoreRunMemory: vi.fn(),
+      runTranslation: vi.fn(),
+    };
+    const env = {} as any;
+
+    await drainProcessingQueue(env, deps, store, { maxConcurrentJobs: 1 });
+
+    expect(store.requeue).toHaveBeenCalledWith(env, 20);
+    expect(store.markDone).not.toHaveBeenCalled();
+    expect(deps.discoverAndStoreRunMemory).not.toHaveBeenCalled();
+    expect(store.claimNext).toHaveBeenCalledTimes(1);
+    expect(deps.runAnalysis).toHaveBeenCalledWith(env, expect.objectContaining({
+      maxBatches: 3,
+    }));
   });
 });

@@ -30,6 +30,7 @@ type QueueStore = {
   enqueueJobs(env: Env, jobs: ProcessingJobSpec[]): Promise<void>;
   claimNext(env: Env, opts?: { maxRunning?: number }): Promise<ProcessingQueueJob | null>;
   markDone(env: Env, id: number): Promise<void>;
+  requeue(env: Env, id: number): Promise<void>;
   markFailed(env: Env, id: number, error: string): Promise<void>;
   markCancelled(env: Env, id: number, error: string): Promise<void>;
   isCancelled(env: Env, id: number): Promise<boolean>;
@@ -51,6 +52,8 @@ const defaultDeps: QueueDeps = {
 const STALE_RUNNING_MS = 10 * 60 * 1000;
 const DEFAULT_QUEUE_CONCURRENCY = 2;
 const MAX_QUEUE_CONCURRENCY = 5;
+const DEFAULT_JOB_MAX_BATCHES = 3;
+const MAX_JOB_MAX_BATCHES = 10;
 const CANCELLED_ERROR = "Processing job cancelled";
 const USER_CANCELLED_ERROR = "Processing job cancelled by user";
 
@@ -63,6 +66,10 @@ export class ProcessingJobCancelledError extends Error {
 
 export function getProcessingQueueConcurrency(env: Env) {
   return parseBoundedInt(env.PROCESSING_QUEUE_CONCURRENCY, 1, MAX_QUEUE_CONCURRENCY, DEFAULT_QUEUE_CONCURRENCY);
+}
+
+export function getProcessingJobMaxBatches(env: Env) {
+  return parseBoundedInt(env.PROCESSING_JOB_MAX_BATCHES, 1, MAX_JOB_MAX_BATCHES, DEFAULT_JOB_MAX_BATCHES);
 }
 
 export async function recoverStaleProcessingJobs(env: Env, staleMs = STALE_RUNNING_MS) {
@@ -154,6 +161,13 @@ const d1QueueStore: QueueStore = {
     await env.DB.prepare(
       `UPDATE processing_queue SET status = 'done', finished_at = ?, updated_at = ? WHERE id = ?`
     ).bind(now, now, id).run();
+  },
+
+  async requeue(env, id) {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE processing_queue SET status = 'queued', updated_at = ? WHERE id = ? AND status = 'running'`
+    ).bind(now, id).run();
   },
 
   async markFailed(env, id, error) {
@@ -294,17 +308,22 @@ export async function drainProcessingQueue(
     try {
       await ensureNotCancelled();
       if (job.job_type === "analysis") {
-        await deps.runAnalysis(env, {
+        const result = await deps.runAnalysis(env, {
           jobId: job.id,
           runId: job.run_id,
           commentIds: job.comment_ids,
           progressKey: job.progress_key,
+          maxBatches: getProcessingJobMaxBatches(env),
           shouldContinue: ensureNotCancelled,
         });
+        if ((result as any)?.complete === false) {
+          await store.requeue(env, job.id);
+          return false;
+        }
         await ensureNotCancelled();
         if (job.run_id != null) await deps.discoverAndStoreRunMemory(env, { runId: job.run_id });
       } else {
-        await deps.runTranslation(env, {
+        const result = await deps.runTranslation(env, {
           jobId: job.id,
           runId: job.run_id,
           commentIds: job.comment_ids,
@@ -312,20 +331,27 @@ export async function drainProcessingQueue(
           locale: job.locale || DEFAULT_TRANSLATION_LOCALE,
           force: job.force,
           limit: job.limit,
+          maxBatches: job.force ? undefined : getProcessingJobMaxBatches(env),
           shouldContinue: ensureNotCancelled,
         });
+        if ((result as any)?.complete === false) {
+          await store.requeue(env, job.id);
+          return false;
+        }
       }
       await ensureNotCancelled();
       await store.markDone(env, job.id);
+      return true;
     } catch (e: any) {
       if (e instanceof ProcessingJobCancelledError) {
         await setProgress(env, job.progress_key, { status: "cancelled", error: CANCELLED_ERROR });
         await store.markCancelled(env, job.id, CANCELLED_ERROR);
-        return;
+        return true;
       }
       const error = e?.message || String(e);
       await setProgress(env, job.progress_key, { status: "failed", error });
       await store.markFailed(env, job.id, error);
+      return true;
     }
   }
 
@@ -337,6 +363,7 @@ export async function drainProcessingQueue(
       jobs.push(job);
     }
     if (!jobs.length) return;
-    await Promise.all(jobs.map(runJob));
+    const results = await Promise.all(jobs.map(runJob));
+    if (results.some((completed) => completed === false)) return;
   }
 }

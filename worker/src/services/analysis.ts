@@ -95,17 +95,20 @@ export async function runAnalysis(
     commentIds?: number[];
     runId?: number;
     progressKey: string;
+    maxBatches?: number;
     shouldContinue?: () => Promise<void> | void;
   }
 ) {
   const svc = new ClassifierService(env);
   await opts.shouldContinue?.();
   const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
-  const total = comments.length;
+  const previousProgress = await getProgressJob(env, opts.progressKey);
+  const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
+  const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
 
-  await setProgress(env, opts.progressKey, { status: "running", done: 0, total, provider: svc.providerName });
+  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: svc.providerName });
 
-  if (total === 0) {
+  if (comments.length === 0) {
     await setProgress(env, opts.progressKey, { status: "done" });
     return { analyzed: 0, provider: svc.providerName, total: 0 };
   }
@@ -127,8 +130,9 @@ export async function runAnalysis(
   let analyzed = 0;
   const analyzedAt = new Date().toISOString();
   const groups = chunk(comments, batchSize);
+  const groupsToProcess = opts.maxBatches == null ? groups : groups.slice(0, Math.max(1, opts.maxBatches));
 
-  await mapWithConcurrency(groups, concurrency, async (group, index) => {
+  await mapWithConcurrency(groupsToProcess, concurrency, async (group, index) => {
     await opts.shouldContinue?.();
     const batchIndex = index + 1;
     const started = Date.now();
@@ -195,7 +199,7 @@ export async function runAnalysis(
     await env.DB.batch(stmts);
 
     analyzed += group.length;
-    await setProgress(env, opts.progressKey, { done: analyzed });
+    await setProgress(env, opts.progressKey, { done: alreadyDone + analyzed });
     if (opts.jobId != null) {
       await safeAddProcessingLog(env, {
         processing_job_id: opts.jobId,
@@ -215,6 +219,11 @@ export async function runAnalysis(
     await opts.shouldContinue?.();
   });
 
+  if (analyzed < comments.length) {
+    await setProgress(env, opts.progressKey, { status: "queued" });
+    return { analyzed, provider: svc.providerName, total, complete: false };
+  }
+
   await setProgress(env, opts.progressKey, { status: "done" });
-  return { analyzed, provider: svc.providerName, total };
+  return { analyzed, provider: svc.providerName, total, complete: true };
 }

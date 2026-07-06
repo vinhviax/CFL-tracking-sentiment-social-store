@@ -171,6 +171,7 @@ export async function runTranslation(
     runId?: number;
     force?: boolean;
     limit?: number;
+    maxBatches?: number;
     shouldContinue?: () => Promise<void> | void;
   }
 ) {
@@ -187,7 +188,10 @@ export async function runTranslation(
 
   await opts.shouldContinue?.();
   const comments = await pendingTranslations(env, { ...opts, locale });
-  await setProgress(env, opts.progressKey, { status: "running", done: 0, total: comments.length, provider: providerName });
+  const previousProgress = await getProgressJob(env, opts.progressKey);
+  const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
+  const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
+  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: providerName });
 
   if (!comments.length) {
     await setProgress(env, opts.progressKey, { status: "done" });
@@ -206,9 +210,10 @@ export async function runTranslation(
   const batchSize = getTranslationBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
   const groups = chunk(comments, batchSize);
+  const groupsToProcess = opts.maxBatches == null ? groups : groups.slice(0, Math.max(1, opts.maxBatches));
 
   try {
-    await mapWithConcurrency(groups, concurrency, async (group, index) => {
+    await mapWithConcurrency(groupsToProcess, concurrency, async (group, index) => {
       await opts.shouldContinue?.();
       const batchIndex = index + 1;
       const started = Date.now();
@@ -277,7 +282,7 @@ export async function runTranslation(
       });
       await env.DB.batch(stmts);
       done += group.length;
-      await setProgress(env, opts.progressKey, { done });
+      await setProgress(env, opts.progressKey, { done: alreadyDone + done });
       if (opts.jobId != null) {
         await safeAddProcessingLog(env, {
           processing_job_id: opts.jobId,
@@ -302,6 +307,11 @@ export async function runTranslation(
     throw e;
   }
 
+  if (done < comments.length) {
+    await setProgress(env, opts.progressKey, { status: "queued" });
+    return { translated: done, total, provider: providerName, complete: false };
+  }
+
   await setProgress(env, opts.progressKey, { status: "done" });
-  return { translated: done, total: comments.length, provider: providerName };
+  return { translated: done, total, provider: providerName, complete: true };
 }
