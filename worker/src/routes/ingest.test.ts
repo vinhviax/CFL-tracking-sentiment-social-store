@@ -135,6 +135,31 @@ describe("ingestRoute automated processing", () => {
     ]);
   });
 
+  test("passes the selected Fanpage date range to Facebook ingest", async () => {
+    const testEnv = env();
+    mocks.ingestFacebook.mockResolvedValue({
+      id: 55,
+      source_type: "fb_page",
+      status: "done",
+      rows_fetched: 30,
+      rows_new: 12,
+    });
+
+    const res = await ingestRoute.request(
+      "/facebook",
+      { method: "POST", body: JSON.stringify({ since: "2026-06-29", until: "2026-07-06" }) },
+      testEnv,
+      executionCtx()
+    );
+
+    expect(res.status).toBe(200);
+    expect(mocks.ingestFacebook).toHaveBeenCalledWith(testEnv, "2026-06-29", "2026-07-07", 50, {
+      start_date: "2026-06-29",
+      end_date: "2026-07-06",
+      post_limit: 50,
+    });
+  });
+
   test("queues analysis then zh-CN translation after CSV Group upload", async () => {
     const testEnv = env();
     mocks.ingestCsv.mockResolvedValue({

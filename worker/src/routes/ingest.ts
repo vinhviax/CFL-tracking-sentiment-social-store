@@ -9,6 +9,16 @@ import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } f
 export const ingestRoute = new Hono<{ Bindings: Env }>();
 
 type IngestRunLike = { id: number; status?: string };
+const FACEBOOK_DEFAULT_POST_LIMIT = 50;
+
+function normalizeFacebookUntil(until: unknown): string | undefined {
+  if (typeof until !== "string" || !until.trim()) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) return until;
+  const date = new Date(`${until}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return until;
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
 
 async function enqueueAutomatedProcessing(c: Context<{ Bindings: Env }>, run: IngestRunLike, progressPrefix: string) {
   if (run.status === "failed") return null;
@@ -100,7 +110,14 @@ ingestRoute.post("/sensortower", async (c) => {
 
 ingestRoute.post("/facebook", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const run = await ingestFacebook(c.env, body.since, body.until, body.post_limit || 10);
+  const since = typeof body.since === "string" && body.since.trim() ? body.since : undefined;
+  const requestedUntil = typeof body.until === "string" && body.until.trim() ? body.until : undefined;
+  const postLimit = Math.max(1, Number(body.post_limit) || FACEBOOK_DEFAULT_POST_LIMIT);
+  const run = await ingestFacebook(c.env, since, normalizeFacebookUntil(requestedUntil), postLimit, {
+    start_date: since || null,
+    end_date: requestedUntil || null,
+    post_limit: postLimit,
+  });
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
   const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-facebook");
   return c.json({ ...run, auto_processing });

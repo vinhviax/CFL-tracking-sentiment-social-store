@@ -23,9 +23,17 @@ test("manual ingest follows the automatic processing queue returned by the Worke
   assert.doesNotMatch(source, /\["done", "failed", "unknown"\]/);
   assert.match(source, /uploadCsv\(file\)[\s\S]*trackAutoProcessing\(run\)/);
   assert.match(source, /ingestSensorTower\(stRange\)[\s\S]*trackAutoProcessing\(run\)/);
-  assert.match(source, /ingestFacebook\(\{\}\)[\s\S]*trackAutoProcessing\(run\)/);
+  assert.match(source, /ingestFacebook\(\{[\s\S]*since: stRange\.start_date[\s\S]*trackAutoProcessing\(run\)/);
   assert.doesNotMatch(source, /ingestSensorTower\(stRange\)[\s\S]{0,100}startAnalyze\(run\)/);
-  assert.doesNotMatch(source, /ingestFacebook\(\{\}\)[\s\S]{0,100}startAnalyze\(run\)/);
+  assert.doesNotMatch(source, /ingestFacebook\(\{[\s\S]{0,200}startAnalyze\(run\)/);
+});
+
+test("Facebook Fanpage ingest submits the selected date range", () => {
+  assert.match(source, /const FACEBOOK_POST_LIMIT = 50/);
+  assert.match(source, /ingestFacebook\(\{\s*since: stRange\.start_date/);
+  assert.match(source, /until: stRange\.end_date/);
+  assert.match(source, /post_limit: FACEBOOK_POST_LIMIT/);
+  assert.doesNotMatch(source, /ingestFacebook\(\{\}\)/);
 });
 
 test("processing area tracks multiple queued jobs instead of one overwritten key", () => {

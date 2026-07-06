@@ -93,13 +93,16 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 export async function ingestFacebook(
-  env: Env, since?: string, until?: string, postLimit = 10
+  env: Env, since?: string, until?: string, postLimit = 50, note?: Record<string, any>
 ): Promise<IngestRunRow> {
   const db = env.DB;
   const startedAt = new Date().toISOString();
+  const noteText = note
+    ? JSON.stringify(note)
+    : (since || until ? JSON.stringify({ start_date: since || null, end_date: until || null, post_limit: postLimit }) : null);
   const runInsert = await db
-    .prepare(`INSERT INTO ingest_runs (source_type, started_at, status) VALUES ('fb_page', ?, 'running')`)
-    .bind(startedAt).run();
+    .prepare(`INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('fb_page', ?, 'running', ?)`)
+    .bind(startedAt, noteText).run();
   const runId = runInsert.meta.last_row_id as number;
 
   const pageId = env.FB_PAGE_ID;
@@ -109,7 +112,7 @@ export async function ingestFacebook(
     const error = "Thiếu FB_PAGE_ID hoặc FB_ACCESS_TOKEN trong secrets";
     await db.prepare(`UPDATE ingest_runs SET status='failed', error=?, finished_at=? WHERE id=?`)
       .bind(error, finishedAt, runId).run();
-    return { id: runId, source_type: "fb_page", status: "failed", started_at: startedAt, finished_at: finishedAt, rows_fetched: 0, rows_new: 0, note: null, error };
+    return { id: runId, source_type: "fb_page", status: "failed", started_at: startedAt, finished_at: finishedAt, rows_fetched: 0, rows_new: 0, note: noteText, error };
   }
 
   let fetched = 0, newCount = 0, error: string | null = null;
@@ -176,8 +179,8 @@ export async function ingestFacebook(
 
   const finishedAt = new Date().toISOString();
   const status = error ? "failed" : "done";
-  await db.prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, error=?, finished_at=? WHERE id=?`)
-    .bind(status, fetched, newCount, error, finishedAt, runId).run();
+  await db.prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, note=?, error=?, finished_at=? WHERE id=?`)
+    .bind(status, fetched, newCount, noteText, error, finishedAt, runId).run();
 
-  return { id: runId, source_type: "fb_page", status, started_at: startedAt, finished_at: finishedAt, rows_fetched: fetched, rows_new: newCount, note: null, error };
+  return { id: runId, source_type: "fb_page", status, started_at: startedAt, finished_at: finishedAt, rows_fetched: fetched, rows_new: newCount, note: noteText, error };
 }

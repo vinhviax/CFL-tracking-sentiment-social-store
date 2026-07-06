@@ -16,6 +16,8 @@ import {
 } from "../api/client.js";
 import { StatusPill } from "../components/Badges.jsx";
 
+const FACEBOOK_POST_LIMIT = 50;
+
 function useProgressPoll(progressKey, loader) {
   const [progress, setProgress] = useState(null);
 
@@ -299,7 +301,11 @@ export default function IngestSettings() {
   const pullFacebook = () => {
     setFbBusy(true);
     setFbError(null);
-    ingestFacebook({})
+    ingestFacebook({
+      since: stRange.start_date || undefined,
+      until: stRange.end_date || undefined,
+      post_limit: FACEBOOK_POST_LIMIT,
+    })
       .then((run) => {
         setLastRun(run);
         trackAutoProcessing(run);
@@ -428,6 +434,9 @@ export default function IngestSettings() {
 
           <div>
             <h4 style={{ margin: "0 0 8px", fontSize: 13 }}>Facebook Fanpage (Graph API)</h4>
+            <p className="progress-caption" style={{ marginTop: 0 }}>
+              Dùng cùng khoảng ngày đang chọn ở trên.
+            </p>
             <button className="btn" disabled={fbBusy} onClick={pullFacebook}>
               {fbBusy ? "Đang kéo..." : "Kéo bài viết + bình luận Fanpage"}
             </button>
