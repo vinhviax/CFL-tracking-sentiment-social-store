@@ -13,3 +13,9 @@ test("Facebook comments show parent post context in the table and drawer", () =>
   assert.match(source, /selected\.post/);
   assert.match(source, /href=\{selected\.post\.permalink\}/);
 });
+
+test("comment drawer shortens provider-prefixed model names", () => {
+  assert.match(source, /function formatModelName\(model\)/);
+  assert.match(source, /formatModelName\(selected\.analysis\?\.model\)/);
+  assert.doesNotMatch(source, /selected\.analysis\?\.model \|\| "â€”"/);
+});

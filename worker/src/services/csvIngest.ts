@@ -12,6 +12,22 @@ export interface ParsedRow {
 }
 
 const EMPTY_MARKERS = new Set(["", "...", ".", "-"]);
+const CSV_D1_BIND_LIMIT = 90;
+const CSV_DEDUPE_HASHES_PER_ROW = 2;
+const CSV_POST_INSERT_BINDS_PER_ROW = 4;
+const CSV_COMMENT_INSERT_BINDS_PER_ROW = 8;
+
+export function getCsvDedupeLookupChunkSize(): number {
+  return Math.floor(CSV_D1_BIND_LIMIT / CSV_DEDUPE_HASHES_PER_ROW);
+}
+
+export function getCsvPostInsertChunkSize(): number {
+  return Math.floor(CSV_D1_BIND_LIMIT / CSV_POST_INSERT_BINDS_PER_ROW);
+}
+
+export function getCsvCommentInsertChunkSize(): number {
+  return Math.floor(CSV_D1_BIND_LIMIT / CSV_COMMENT_INSERT_BINDS_PER_ROW);
+}
 
 function normalizeIdentityPart(value?: string | null): string {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -256,7 +272,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
 
     // Fetch existing hashes once instead of one SELECT per row.
     const existing = new Set<string>();
-    for (const c of chunk(withHash, 90)) {
+    for (const c of chunk(withHash, getCsvDedupeLookupChunkSize())) {
       const hashes = c.flatMap((x) => [x.hash, x.legacyHash]);
       const placeholders = hashes.map(() => "?").join(",");
       const res = await db
@@ -317,7 +333,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     }
 
     const postsToInsert = postCandidates.filter((p) => !postCache.has(p.externalId));
-    for (const c of chunk(postsToInsert, 50)) {
+    for (const c of chunk(postsToInsert, getCsvPostInsertChunkSize())) {
       const stmts = c.map((p) =>
         db
           .prepare(`INSERT INTO posts (source_type, external_id, published_at, message) VALUES (?, ?, ?, ?)`)
@@ -328,7 +344,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     }
 
     // Insert new comments.
-    for (const c of chunk(fresh, 100)) {
+    for (const c of chunk(fresh, getCsvCommentInsertChunkSize())) {
       const stmts = c.map(({ row, hash }) => {
         const pmsg = (row.postMessage || "").trim();
         const published = (row.postPublished || "").trim();

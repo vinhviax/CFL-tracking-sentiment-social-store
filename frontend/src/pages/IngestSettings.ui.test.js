@@ -138,11 +138,14 @@ test("CSV preview makes Facebook Group filtering visible before upload", () => {
 
 test("ingest history prefers the requested pull range when it is available", () => {
   assert.match(source, /run\.source_type === "fb_page"/);
+  assert.match(source, /run\.source_type === "store"/);
   assert.match(source, /note\.start_date \|\| note\.end_date/);
   assert.match(source, /run\.data_start_date/);
   assert.match(source, /run\.data_end_date/);
   assert.ok(
     source.indexOf('run.source_type === "fb_page"') <
+      source.indexOf('run.source_type === "store"') &&
+      source.indexOf('run.source_type === "store"') <
       source.indexOf("note.start_date || note.end_date") &&
       source.indexOf("note.start_date || note.end_date") <
       source.indexOf("run.data_start_date || run.data_end_date")

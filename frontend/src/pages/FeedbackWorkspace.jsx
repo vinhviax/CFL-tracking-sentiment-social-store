@@ -199,6 +199,12 @@ function postContextLabel(row) {
   return row.post?.external_id || (permalink ? "Facebook post" : "—");
 }
 
+function formatModelName(model) {
+  if (!model) return "—";
+  const parts = String(model).split("/");
+  return parts.at(-1) || String(model);
+}
+
 function formatCount(value) {
   return Number(value || 0).toLocaleString("vi-VN");
 }
@@ -831,7 +837,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
             <p className="drawer-label">Summary</p>
             <p className="drawer-message">{selected.analysis?.summary || "—"}</p>
             <p className="drawer-label">Model</p>
-            <p className="drawer-message dim">{selected.analysis?.provider || "—"} / {selected.analysis?.model || "—"}</p>
+            <p className="drawer-message dim">{selected.analysis?.provider || "—"} / {formatModelName(selected.analysis?.model)}</p>
           </aside>
         </div>
       )}

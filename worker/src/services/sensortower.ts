@@ -21,9 +21,15 @@ async function dedupeHash(store: string, region: string, author: string, dateVal
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function parseReviewDate(value: string): string | null {
+export function parseReviewDate(value: string): string | null {
   const v = (value || "").trim();
   if (!v) return null;
+  const sourceDate = v.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}:\d{2}(?:\.\d+)?))?/);
+  if (sourceDate) {
+    const time = sourceDate[2] || "00:00:00";
+    const iso = new Date(`${sourceDate[1]}T${time}Z`);
+    if (!isNaN(iso.getTime())) return iso.toISOString();
+  }
   const iso = new Date(v.replace(" ", "T"));
   if (!isNaN(iso.getTime())) return iso.toISOString();
   return null;
