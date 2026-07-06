@@ -6,6 +6,7 @@ export interface Env {
   LLM_CLASSIFY_MODEL: string;
   LLM_INSIGHT_MODEL: string;
   CLASSIFY_BATCH_SIZE: string;
+  LLM_VIAX_BASE_URL?: string; // not secret - just an endpoint URL
 
   // secrets (wrangler secret put)
   SENSORTOWER_API_KEY?: string;
@@ -14,4 +15,5 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   LLM_BASE_URL?: string;
+  LLM_VIAX_API_KEY?: string; // custom OpenAI-compatible provider ("LLM Viax")
 }

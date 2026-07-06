@@ -10,6 +10,7 @@ import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { runAnalysis } from "./services/analysis";
 import { ingestFacebook } from "./services/facebook";
+import { buildProvider } from "./services/llm/providers";
 import { ingestSensorTower } from "./services/sensortower";
 import { PROMPT_VERSION, SENTIMENT_LABELS_VI, TOPIC_LABELS_VI, URGENCIES } from "./taxonomy";
 import type { Env } from "./types";
@@ -19,9 +20,14 @@ const app = new Hono<{ Bindings: Env }>();
 app.use("*", cors());
 
 app.get("/api/health", (c) => {
-  const llmReady =
-    c.env.LLM_PROVIDER === "anthropic" ? Boolean(c.env.ANTHROPIC_API_KEY) : Boolean(c.env.OPENAI_API_KEY || c.env.LLM_BASE_URL);
-  return c.json({ status: "ok", llm_provider: c.env.LLM_PROVIDER, llm_ready: llmReady, prompt_version: PROMPT_VERSION });
+  const provider = buildProvider(c.env.LLM_PROVIDER, c.env.LLM_CLASSIFY_MODEL, {
+    anthropicKey: c.env.ANTHROPIC_API_KEY,
+    openaiKey: c.env.OPENAI_API_KEY,
+    baseUrl: c.env.LLM_BASE_URL,
+    llmViaxKey: c.env.LLM_VIAX_API_KEY,
+    llmViaxBaseUrl: c.env.LLM_VIAX_BASE_URL,
+  });
+  return c.json({ status: "ok", llm_provider: c.env.LLM_PROVIDER, llm_ready: provider !== null, prompt_version: PROMPT_VERSION });
 });
 
 app.get("/api/meta", (c) =>

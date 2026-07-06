@@ -70,6 +70,8 @@ export class ClassifierService {
       anthropicKey: env.ANTHROPIC_API_KEY,
       openaiKey: env.OPENAI_API_KEY,
       baseUrl: env.LLM_BASE_URL,
+      llmViaxKey: env.LLM_VIAX_API_KEY,
+      llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
     });
     this.providerName = this.provider?.name ?? "fallback";
     this.model = this.provider?.model ?? null;

@@ -36,6 +36,7 @@ function buildPrompt(overview: any, sampleNegatives: string[]): [string, string]
 export async function generateSummary(env: Env, overview: any, sampleNegatives: string[]): Promise<string> {
   const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
     anthropicKey: env.ANTHROPIC_API_KEY, openaiKey: env.OPENAI_API_KEY, baseUrl: env.LLM_BASE_URL,
+    llmViaxKey: env.LLM_VIAX_API_KEY, llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
   });
   if (!provider) return fallbackSummary(overview);
   try {

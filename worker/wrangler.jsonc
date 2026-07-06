@@ -21,9 +21,10 @@
   },
 
   "vars": {
-    "LLM_PROVIDER": "anthropic",
-    "LLM_CLASSIFY_MODEL": "claude-haiku-4-5-20251001",
-    "LLM_INSIGHT_MODEL": "claude-sonnet-5",
-    "CLASSIFY_BATCH_SIZE": "30"
+    "LLM_PROVIDER": "llm_viax",
+    "LLM_CLASSIFY_MODEL": "gpt-5.4-mini",
+    "LLM_INSIGHT_MODEL": "gpt-5.4",
+    "CLASSIFY_BATCH_SIZE": "30",
+    "LLM_VIAX_BASE_URL": "https://rpi7jss.abc-tunnel.us/v1"
   }
 }

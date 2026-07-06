@@ -41,9 +41,10 @@ export class OpenAIProvider implements LLMProvider {
   name = "openai";
   private baseUrl: string;
 
-  constructor(public model: string, private apiKey: string, baseUrl?: string) {
+  constructor(public model: string, private apiKey: string, baseUrl?: string, name?: string) {
     this.baseUrl = (baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
-    if (baseUrl) this.name = "openai_compatible";
+    if (name) this.name = name;
+    else if (baseUrl) this.name = "openai_compatible";
   }
 
   private async chat(system: string, user: string, jsonMode: boolean): Promise<string> {
@@ -83,13 +84,22 @@ export class OpenAIProvider implements LLMProvider {
 export function buildProvider(
   provider: string,
   model: string,
-  opts: { anthropicKey?: string; openaiKey?: string; baseUrl?: string }
+  opts: {
+    anthropicKey?: string;
+    openaiKey?: string;
+    baseUrl?: string;
+    llmViaxKey?: string;
+    llmViaxBaseUrl?: string;
+  }
 ): LLMProvider | null {
   const p = (provider || "").toLowerCase();
   if (p === "anthropic" && opts.anthropicKey) return new AnthropicProvider(model, opts.anthropicKey);
   if (p === "openai" && opts.openaiKey) return new OpenAIProvider(model, opts.openaiKey);
   if (p === "openai_compatible" && (opts.openaiKey || opts.baseUrl)) {
     return new OpenAIProvider(model, opts.openaiKey || "", opts.baseUrl);
+  }
+  if (p === "llm_viax" && (opts.llmViaxKey || opts.llmViaxBaseUrl)) {
+    return new OpenAIProvider(model, opts.llmViaxKey || "", opts.llmViaxBaseUrl, "llm_viax");
   }
   return null;
 }
