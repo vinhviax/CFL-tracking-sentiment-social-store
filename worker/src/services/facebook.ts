@@ -1,20 +1,27 @@
-// Ported from backend/app/services/facebook.py — same API contract, fetch() instead of httpx.
+// Facebook Fanpage ingest for Cloudflare Workers.
 //
-// D1/Workers subrequest budget note: Workers cap subrequests per invocation
-// (50 on Free, 10,000 on Paid - see Cloudflare Workers limits). Both fetch()
-// calls and D1 operations count against this. Comments are collected across
-// ALL posts first, then deduped/inserted via chunked batch operations (mirrors
-// csvIngest.ts / sensortower.ts) instead of one D1 round-trip per comment.
-// Comment pagination per post is also capped to bound fetch() calls.
+// Workers count both fetch() and D1 operations toward per-invocation subrequest
+// limits, so comments are requested as a nested edge on the posts call rather
+// than one /comments request per post.
 import type { Env } from "../types";
 import type { IngestRunRow } from "./csvIngest";
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
-// Keep comments nested in the posts request so manual Fanpage pulls stay under
-// Workers' per-invocation subrequest limit. This captures the first 100 comments
-// per post in the selected range.
-const POST_FIELDS = "id,message,created_time,permalink_url,comments.limit(100){id,message,created_time,from,like_count}";
+const NESTED_COMMENT_LIMITS = [25, 10];
+
+class FacebookGraphError extends Error {
+  code: number | null;
+
+  constructor(code: number | null, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function postFields(commentLimit: number) {
+  return `id,message,created_time,permalink_url,comments.limit(${commentLimit}){id,message,created_time,from,like_count}`;
+}
 
 async function dedupeHash(source: string, externalId: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`fb|${source}|${externalId}`));
@@ -34,20 +41,27 @@ async function graphGet(url: string, params: Record<string, string>): Promise<an
   if (!res.ok || data.error) {
     const err = data.error || {};
     if (err.code === 190) {
-      throw Object.assign(new Error(`Facebook Access Token đã hết hạn hoặc không hợp lệ: ${err.message}`), { permission: true });
+      throw Object.assign(new FacebookGraphError(err.code, `Facebook access token invalid or expired: ${err.message}`), { permission: true });
     }
-    throw new Error(`Facebook Graph API lỗi (code=${err.code}): ${err.message || (await res.text().catch(() => ""))}`);
+    throw new FacebookGraphError(err.code ?? null, `Facebook Graph API error (code=${err.code}): ${err.message || ""}`);
   }
   return data;
 }
 
-async function fetchPosts(pageId: string, token: string, since?: string, until?: string, limit = 25): Promise<any[]> {
-  // `limit` is Graph API's PAGE size, not a total cap — `paging.next` keeps
-  // going through the page's entire post history regardless of it. Stop as
-  // soon as we have `limit` posts total, or this can burn through Workers'
-  // per-invocation subrequest budget on a page with a long post history.
+async function fetchPostsWithCommentLimit(
+  pageId: string,
+  token: string,
+  since: string | undefined,
+  until: string | undefined,
+  limit: number,
+  commentLimit: number
+): Promise<any[]> {
+  // `limit` is Graph API's page size, not a total cap. paging.next can keep
+  // walking history, so stop once the requested total is reached.
   const params: Record<string, string> = {
-    access_token: token, fields: POST_FIELDS, limit: String(limit),
+    access_token: token,
+    fields: postFields(commentLimit),
+    limit: String(limit),
   };
   if (since) params.since = since;
   if (until) params.until = until;
@@ -63,6 +77,19 @@ async function fetchPosts(pageId: string, token: string, since?: string, until?:
     if (!data.data?.length) break;
   }
   return posts.slice(0, limit);
+}
+
+async function fetchPosts(pageId: string, token: string, since?: string, until?: string, limit = 25): Promise<any[]> {
+  let lastError: unknown = null;
+  for (const commentLimit of NESTED_COMMENT_LIMITS) {
+    try {
+      return await fetchPostsWithCommentLimit(pageId, token, since, until, limit, commentLimit);
+    } catch (e) {
+      lastError = e;
+      if (!(e instanceof FacebookGraphError) || e.code !== 1) throw e;
+    }
+  }
+  throw lastError;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -88,7 +115,7 @@ export async function ingestFacebook(
   const token = env.FB_ACCESS_TOKEN;
   if (!pageId || !token) {
     const finishedAt = new Date().toISOString();
-    const error = "Thiếu FB_PAGE_ID hoặc FB_ACCESS_TOKEN trong secrets";
+    const error = "Missing FB_PAGE_ID or FB_ACCESS_TOKEN";
     await db.prepare(`UPDATE ingest_runs SET status='failed', error=?, finished_at=? WHERE id=?`)
       .bind(error, finishedAt, runId).run();
     return { id: runId, source_type: "fb_page", status: "failed", started_at: startedAt, finished_at: finishedAt, rows_fetched: 0, rows_new: 0, note: noteText, error };
@@ -98,7 +125,6 @@ export async function ingestFacebook(
   try {
     const posts = await fetchPosts(pageId, token, since, until, postLimit);
 
-    // Resolve posts: one batched lookup for existing rows, one batched insert for new ones.
     const postExternalIds = posts.map((p) => p.id);
     const postIdByExternal = new Map<string, number>();
     for (const idsChunk of chunk(postExternalIds, 90)) {
@@ -119,7 +145,6 @@ export async function ingestFacebook(
       results.forEach((r, idx) => postIdByExternal.set(c[idx].id, r.meta.last_row_id as number));
     }
 
-    // Collect first-page nested comments from the posts response before touching D1 again.
     const allComments: { postId: number; cm: any; hash: string }[] = [];
     for (const p of posts) {
       const comments = Array.isArray(p.comments?.data) ? p.comments.data : [];
@@ -130,7 +155,6 @@ export async function ingestFacebook(
       }
     }
 
-    // One batched dedupe check instead of a SELECT per comment.
     const existing = new Set<string>();
     for (const c of chunk(allComments, 90)) {
       const placeholders = c.map(() => "?").join(",");
