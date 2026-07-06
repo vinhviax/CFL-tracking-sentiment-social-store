@@ -1,0 +1,31 @@
+# Secrets — NEVER commit
+.env
+key_api.env
+*.env
+!.env.example
+
+# Data & outputs
+data/
+*.xlsx
+*.csv
+*.db
+*.sqlite*
+sensortower_*_log_*.txt
+*_Report_*.html
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
