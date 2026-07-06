@@ -68,3 +68,16 @@ npx wrangler secret put ANTHROPIC_API_KEY   # or OPENAI_API_KEY + set LLM_PROVID
   so a cut-off mid-run (or a very large dataset) just needs a second call.
 - **LLM provider settings UI**: no in-app form to change provider/model; edit
   `vars` in `wrangler.jsonc` + secrets, then redeploy.
+- **Workers subrequest limit (Free plan: 50/invocation, Paid: 10,000)**: `fetch()`
+  and D1 calls both count against this. `ingestFacebook()` defaults to 10 posts
+  and 2 comment-pages/post (~200 comments/post max) to stay under the Free-plan
+  cap. If the account is on Workers Paid ($5/mo), these can be raised a lot
+  (`postLimit` param, `MAX_COMMENT_PAGES_PER_POST` in `services/facebook.ts`) to
+  pull more history per run — 10,000 subrequests comfortably covers a much
+  larger Fanpage. A real bug was found and fixed here during development:
+  `fetchPosts()` originally treated the Graph API `limit` param as a total cap,
+  but it's actually a *page size* — `paging.next` keeps returning more pages
+  regardless of it, so the old code walked the page's entire post history one
+  `fetch()` at a time. Watch for the same mistake if extending Sensor Tower
+  pagination (`services/sensortower.ts` already sizes pages correctly since it
+  checks `reviews.length < limit` to stop, not a total-count cap).
