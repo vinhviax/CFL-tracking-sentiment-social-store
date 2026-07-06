@@ -4,11 +4,20 @@ Ban giao cho agent/session tiep theo.
 
 ## Trang thai moi nhat
 
-- Worker production da deploy gan nhat voi prompt taxonomy `v2`.
+- GitHub `main` va branch `codex/sensortower-zh-workspace` da duoc push len commit `d361592` trong phien nay; sau do co the co commit handoff docs moi hon, kiem tra `git log -1`.
+- Worker production da deploy voi prompt taxonomy `v2`.
+- Worker version da deploy trong phien nay: `e7a22579-4043-403a-8e05-6e86b5419bc8`.
+- Pages production da deploy bang `npx wrangler pages deploy ./dist --project-name=cfl-feedback --branch main`.
+- Pages preview/branch deploy da tao:
+  - `https://7aeb5a8d.cfl-feedback.pages.dev`
+  - `https://codex-sensortower-zh-workspa.cfl-feedback.pages.dev`
+  - production deploy URL: `https://ad82038a.cfl-feedback.pages.dev`
 - Health production da tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v2`.
+- Production Pages `https://cfl-feedback.pages.dev` da verify HTTP 200.
 - Cron Worker dang la `45 6 * * *`, tuc 13:45 GMT+7 moi ngay.
 - Frontend local dang chay o `http://127.0.0.1:5175/`.
 - User muon tu sau lam chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`, khong lam chinh tai `G:\CFM\Research\Crossfire Legends Sea` nua.
+- Repo da clone sang `J:\My Drive\CFL\Agent\Tracking Store Social` tu GitHub branch `main`.
 
 ## Viec da lam trong phien gan nhat
 
@@ -40,6 +49,8 @@ Ban giao cho agent/session tiep theo.
 4. Clone repo sang:
    `J:\My Drive\CFL\Agent\Tracking Store Social`
 5. Cap nhat prompt cho agent/session khac doc va lam tiep.
+
+Trang thai cac viec tren: da thuc hien trong phien 2026-07-06. Neu tiep tuc, lam viec tu thu muc o o J va pull latest truoc.
 
 ## Viec nen verify sau khi pull/clone
 
