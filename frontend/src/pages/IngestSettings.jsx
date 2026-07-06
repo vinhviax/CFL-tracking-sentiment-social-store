@@ -705,11 +705,21 @@ export default function IngestSettings() {
               )}
               <p className="progress-caption">Xem trước tối đa 10 dòng Group đầu tiên:</p>
               <table>
-                <thead><tr><th>Nguồn</th><th>Ngày</th><th>Bình luận</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Post Published Date</th>
+                    <th>Post Message</th>
+                    <th>Created Date</th>
+                    <th>Comment Message</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {preview.sample.map((row, index) => (
                     <tr key={index}>
                       <td>{row.source}</td>
+                      <td>{row.post_published_date}</td>
+                      <td className="msg-preview">{row.post_message}</td>
                       <td>{row.created_date}</td>
                       <td className="msg-preview">{row.comment_message}</td>
                     </tr>

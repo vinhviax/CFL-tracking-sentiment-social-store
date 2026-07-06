@@ -119,6 +119,9 @@ test("CSV preview makes Facebook Group filtering visible before upload", () => {
   assert.match(source, /preview\.group_rows === 0/);
   assert.match(source, /preview\.data_start_date/);
   assert.match(source, /preview\.data_end_date/);
+  assert.match(source, /row\.post_published_date/);
+  assert.match(source, /row\.post_message/);
+  assert.ok(source.indexOf("Post Published") < source.indexOf("Comment Message"));
 });
 
 test("ingest history prefers the requested pull range when it is available", () => {
