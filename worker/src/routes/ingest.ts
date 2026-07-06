@@ -11,6 +11,16 @@ export const ingestRoute = new Hono<{ Bindings: Env }>();
 type IngestRunLike = { id: number; status?: string };
 const FACEBOOK_DEFAULT_POST_LIMIT = 50;
 
+type SourceStatusSpec = {
+  key: string;
+  label: string;
+  sourceType: string;
+  cursorKey?: string;
+  cursor: any | null;
+  latestRun: any | null;
+  latestDataDate: string | null;
+};
+
 function normalizeFacebookUntil(until: unknown): string | undefined {
   if (typeof until !== "string" || !until.trim()) return undefined;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(until)) return until;
@@ -41,12 +51,61 @@ ingestRoute.get("/status", async (c) => {
   const cursors = await c.env.DB.prepare(`SELECT * FROM ingest_cursors WHERE key IN (?, ?) ORDER BY key`)
     .bind(SENSOR_TOWER_CURSOR_KEY, FACEBOOK_CURSOR_KEY)
     .all();
+  const dataDates = await c.env.DB.prepare(
+    `SELECT source_type, MAX(SUBSTR(created_at, 1, 10)) AS latest_data_date
+     FROM comments
+     WHERE source_type IN ('store', 'fb_page', 'fb_group_csv')
+       AND created_at IS NOT NULL
+     GROUP BY source_type`
+  ).all<{ source_type: string; latest_data_date: string | null }>();
   const latestStoreRun = await c.env.DB.prepare(
     `SELECT * FROM ingest_runs WHERE source_type = 'store' ORDER BY id DESC LIMIT 1`
   ).first();
   const latestFacebookRun = await c.env.DB.prepare(
     `SELECT * FROM ingest_runs WHERE source_type = 'fb_page' ORDER BY id DESC LIMIT 1`
   ).first();
+  const latestGroupRun = await c.env.DB.prepare(
+    `SELECT * FROM ingest_runs WHERE source_type = 'fb_group_csv' ORDER BY id DESC LIMIT 1`
+  ).first();
+  const cursorByKey = new Map((cursors.results || []).map((row: any) => [row.key, row]));
+  const dataDateBySource = new Map((dataDates.results || []).map((row: any) => [row.source_type, row.latest_data_date || null]));
+  const sourceStatus = ([
+    {
+      key: "store",
+      label: "Store",
+      sourceType: "store",
+      cursorKey: SENSOR_TOWER_CURSOR_KEY,
+      cursor: cursorByKey.get(SENSOR_TOWER_CURSOR_KEY) || null,
+      latestRun: latestStoreRun,
+      latestDataDate: dataDateBySource.get("store") || null,
+    },
+    {
+      key: "facebook_page",
+      label: "Fanpage",
+      sourceType: "fb_page",
+      cursorKey: FACEBOOK_CURSOR_KEY,
+      cursor: cursorByKey.get(FACEBOOK_CURSOR_KEY) || null,
+      latestRun: latestFacebookRun,
+      latestDataDate: dataDateBySource.get("fb_page") || null,
+    },
+    {
+      key: "facebook_group",
+      label: "Group CSV",
+      sourceType: "fb_group_csv",
+      cursor: null,
+      latestRun: latestGroupRun,
+      latestDataDate: dataDateBySource.get("fb_group_csv") || null,
+    },
+  ] satisfies SourceStatusSpec[]).map((source) => ({
+    key: source.key,
+    label: source.label,
+    source_type: source.sourceType,
+    cursor_key: source.cursorKey || null,
+    cursor_date: source.cursor?.cursor_date || null,
+    latest_data_date: source.cursor?.cursor_date || source.latestDataDate,
+    latest_comment_date: source.latestDataDate,
+    latest_run: source.latestRun,
+  }));
   return c.json({
     cron: {
       utc: "45 6 * * *",
@@ -55,10 +114,12 @@ ingestRoute.get("/status", async (c) => {
       cutoff: "today",
     },
     cursors: cursors.results,
-    sensortower_cursor: cursors.results.find((row: any) => row.key === SENSOR_TOWER_CURSOR_KEY) || null,
-    facebook_cursor: cursors.results.find((row: any) => row.key === FACEBOOK_CURSOR_KEY) || null,
+    source_status: sourceStatus,
+    sensortower_cursor: cursorByKey.get(SENSOR_TOWER_CURSOR_KEY) || null,
+    facebook_cursor: cursorByKey.get(FACEBOOK_CURSOR_KEY) || null,
     latest_store_run: latestStoreRun,
     latest_facebook_run: latestFacebookRun,
+    latest_group_run: latestGroupRun,
   });
 });
 

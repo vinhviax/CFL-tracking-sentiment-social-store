@@ -245,4 +245,59 @@ describe("ingestRoute automated processing", () => {
     expect(mocks.enqueueProcessingJobs).not.toHaveBeenCalled();
     expect(mocks.drainProcessingQueue).not.toHaveBeenCalled();
   });
+
+  test("status returns latest data date for Store, Fanpage, and Group", async () => {
+    const calls: { sql: string; args: any[] }[] = [];
+    const testEnv = {
+      DB: {
+        prepare(sql: string) {
+          calls.push({ sql, args: [] });
+          return {
+            bind(...args: any[]) {
+              calls.push({ sql, args });
+              return this;
+            },
+            async all() {
+              if (sql.includes("FROM ingest_cursors")) {
+                return {
+                  results: [
+                    { key: "facebook_page", cursor_date: "2026-07-07", last_run_id: 32 },
+                    { key: "sensortower_store", cursor_date: "2026-07-06", last_run_id: 23 },
+                  ],
+                };
+              }
+              if (sql.includes("FROM comments")) {
+                return {
+                  results: [
+                    { source_type: "store", latest_data_date: "2026-07-06" },
+                    { source_type: "fb_page", latest_data_date: "2026-07-07" },
+                    { source_type: "fb_group_csv", latest_data_date: "2026-07-05" },
+                  ],
+                };
+              }
+              return { results: [] };
+            },
+            async first() {
+              if (sql.includes("source_type = 'store'")) return { id: 23, source_type: "store", status: "done" };
+              if (sql.includes("source_type = 'fb_page'")) return { id: 32, source_type: "fb_page", status: "done" };
+              if (sql.includes("source_type = 'fb_group_csv'")) return { id: 21, source_type: "fb_group_csv", status: "done" };
+              return null;
+            },
+          };
+        },
+      },
+    } as any;
+
+    const res = await ingestRoute.request("/status", {}, testEnv, executionCtx());
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      source_status: [
+        { key: "store", label: "Store", latest_data_date: "2026-07-06", cursor_date: "2026-07-06" },
+        { key: "facebook_page", label: "Fanpage", latest_data_date: "2026-07-07", cursor_date: "2026-07-07" },
+        { key: "facebook_group", label: "Group CSV", latest_data_date: "2026-07-05", cursor_date: null },
+      ],
+    });
+    expect(calls.some((call) => call.sql.includes("GROUP BY source_type"))).toBe(true);
+  });
 });

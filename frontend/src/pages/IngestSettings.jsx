@@ -132,6 +132,28 @@ function ProgressBlock({ title, progress, color, error }) {
   );
 }
 
+const DEFAULT_SOURCE_STATUS = [
+  { key: "store", label: "Store", latest_data_date: null, cursor_date: null, latest_run: null },
+  { key: "facebook_page", label: "Fanpage", latest_data_date: null, cursor_date: null, latest_run: null },
+  { key: "facebook_group", label: "Group CSV", latest_data_date: null, cursor_date: null, latest_run: null },
+];
+
+function SourceStatusStrip({ ingestStatus }) {
+  const rows = ingestStatus?.source_status?.length ? ingestStatus.source_status : DEFAULT_SOURCE_STATUS;
+  return (
+    <div className="source-status-strip" role="status" aria-label="Trạng thái dữ liệu mới nhất">
+      <div className="source-status-title">Dữ liệu mới nhất</div>
+      {rows.map((row) => (
+        <div className="source-status-item" key={row.key}>
+          <span>{row.label}</span>
+          <b>{formatDate(row.latest_data_date || row.cursor_date) || "Chưa có dữ liệu"}</b>
+          {row.latest_run?.id && <small>Run #{row.latest_run.id} · {row.latest_run.status}</small>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function jobLabel(kind) {
   return kind === "translation" ? "dịch zh-CN" : "phân tích";
 }
@@ -189,6 +211,10 @@ export default function IngestSettings() {
     listRuns({ limit: 20 }).then(setRuns).catch(() => {});
   }, []);
 
+  const loadIngestStatus = useCallback(() => {
+    getIngestStatus().then(setIngestStatus).catch(() => {});
+  }, []);
+
   const loadTrackedJobs = useCallback(() => {
     listProcessingJobs({ limit: 20 })
       .then((jobs) => {
@@ -201,12 +227,17 @@ export default function IngestSettings() {
       .catch(() => {});
   }, []);
 
+  const refreshAfterProcessing = useCallback(() => {
+    loadRuns();
+    loadIngestStatus();
+  }, [loadRuns, loadIngestStatus]);
+
   useEffect(() => {
     loadRuns();
     loadTrackedJobs();
     getHealth().then(setHealth).catch(() => {});
-    getIngestStatus().then(setIngestStatus).catch(() => {});
-  }, [loadRuns, loadTrackedJobs]);
+    loadIngestStatus();
+  }, [loadRuns, loadTrackedJobs, loadIngestStatus]);
 
   function enqueueTrackedJobs(jobs) {
     setTrackedJobs((current) => {
@@ -248,6 +279,7 @@ export default function IngestSettings() {
         setFile(null);
         trackAutoProcessing(run);
         loadRuns();
+        loadIngestStatus();
       })
       .catch((e) => setUploadError(e?.response?.data?.detail || e.message))
       .finally(() => setUploading(false));
@@ -278,6 +310,7 @@ export default function IngestSettings() {
       .then(() => {
         if (lastRun?.id === run.id) setLastRun(null);
         loadRuns();
+        loadIngestStatus();
       })
       .catch((e) => setDeleteError(e?.response?.data?.detail || e.message))
       .finally(() => setDeletingRunId(null));
@@ -291,6 +324,7 @@ export default function IngestSettings() {
         setLastRun(run);
         trackAutoProcessing(run);
         loadRuns();
+        loadIngestStatus();
       })
       .catch((e) => setStError(e?.response?.data?.detail || e.message))
       .finally(() => setStBusy(false));
@@ -308,6 +342,7 @@ export default function IngestSettings() {
         setLastRun(run);
         trackAutoProcessing(run);
         loadRuns();
+        loadIngestStatus();
       })
       .catch((e) => setFbError(e?.response?.data?.detail || e.message))
       .finally(() => setFbBusy(false));
@@ -320,6 +355,7 @@ export default function IngestSettings() {
       <p className="queue-note">
         Sau mỗi lần kéo/upload thành công: Phân loại LLM -&gt; ghi nhớ chủ đề con -&gt; dịch zh-CN. Nút trong lịch sử chỉ dùng để chạy lại khi cần.
       </p>
+      <SourceStatusStrip ingestStatus={ingestStatus} />
 
       <div className="two-col">
         <div className="panel">
@@ -394,7 +430,7 @@ export default function IngestSettings() {
             <div className="processing-list">
               <p className="progress-caption"><b>Hàng đợi xử lý</b></p>
               {trackedJobs.map((job) => (
-                <TrackedProgressJob key={job.progressKey} job={job} onComplete={loadRuns} />
+                <TrackedProgressJob key={job.progressKey} job={job} onComplete={refreshAfterProcessing} />
               ))}
             </div>
           )}

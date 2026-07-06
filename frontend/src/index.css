@@ -270,6 +270,66 @@ code {
   font-weight: 800;
 }
 
+.source-status-strip {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(170px, 1fr));
+  gap: 1px;
+  align-items: stretch;
+  overflow: hidden;
+  margin: 0 0 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.source-status-title,
+.source-status-item {
+  display: flex;
+  align-items: center;
+  min-height: 54px;
+  background: color-mix(in srgb, var(--panel-solid) 82%, transparent);
+}
+
+.source-status-title {
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.source-status-item {
+  gap: 8px;
+  padding: 9px 12px;
+  min-width: 0;
+}
+
+.source-status-item span {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.source-status-item b {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.source-status-item small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .header-actions {
   display: flex;
   gap: 10px;
@@ -1510,6 +1570,15 @@ tbody tr {
 
   .filters-bar {
     grid-template-columns: 1fr;
+  }
+
+  .source-status-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .source-status-title,
+  .source-status-item {
+    min-height: 46px;
   }
 
   .workspace-filters input[type="text"] {

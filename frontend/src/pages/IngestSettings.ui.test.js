@@ -36,6 +36,16 @@ test("Facebook Fanpage ingest submits the selected date range", () => {
   assert.doesNotMatch(source, /ingestFacebook\(\{\}\)/);
 });
 
+test("Ingest Settings always renders latest data status for Store, Fanpage, and Group", () => {
+  assert.match(source, /function SourceStatusStrip/);
+  assert.match(source, /ingestStatus\?\.source_status/);
+  assert.match(source, /source-status-strip/);
+  assert.match(source, /Store/);
+  assert.match(source, /Fanpage/);
+  assert.match(source, /Group CSV/);
+  assert.match(source, /loadIngestStatus/);
+});
+
 test("processing area tracks multiple queued jobs instead of one overwritten key", () => {
   assert.match(source, /const \[trackedJobs, setTrackedJobs\]/);
   assert.match(source, /function enqueueTrackedJobs\(jobs\)/);
