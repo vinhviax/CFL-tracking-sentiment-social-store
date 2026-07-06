@@ -207,7 +207,7 @@ const d1QueueStore: QueueStore = {
     const row = await env.DB.prepare(
       `UPDATE processing_queue
        SET status = 'cancelled', error = ?, finished_at = COALESCE(finished_at, ?), updated_at = ?
-       WHERE id = ? AND status IN ('queued', 'running')
+       WHERE id = ? AND status IN ('queued', 'running', 'failed')
        RETURNING id, progress_key`
     ).bind(error, now, now, id).first<any>();
     if (!row) return null;

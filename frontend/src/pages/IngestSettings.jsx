@@ -204,6 +204,12 @@ function formatLogDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatLogModel(model) {
+  if (!model) return "";
+  const parts = String(model).split("/");
+  return parts.at(-1) || String(model);
+}
+
 function ProcessingLogList({ logs }) {
   if (!logs?.length) {
     return <div className="llm-log-empty">Chưa có log LLM cho task này.</div>;
@@ -218,7 +224,7 @@ function ProcessingLogList({ logs }) {
             {log.batch_index ? `Batch ${log.batch_index}/${log.batch_total || "?"}` : ""}
             {log.item_count ? ` · ${log.item_count} comment` : ""}
             {log.provider ? ` · ${log.provider}` : ""}
-            {log.model ? ` · ${log.model}` : ""}
+            {log.model ? ` · ${formatLogModel(log.model)}` : ""}
             {log.duration_ms != null ? ` · ${formatLogDuration(log.duration_ms)}` : ""}
           </span>
           {log.error && <span className="llm-log-error">{log.error}</span>}
@@ -242,7 +248,7 @@ function SourceStatusStrip({ ingestStatus }) {
       {rows.map((row) => (
         <div className="source-status-item" key={row.key}>
           <span>{row.label}</span>
-          <b>{formatDate(row.latest_data_date || row.cursor_date) || "Chưa có dữ liệu"}</b>
+          <b>{formatDate(row.latest_data_date) || "Chưa có dữ liệu"}</b>
           {row.latest_run?.id && <small>Run #{row.latest_run.id} · {row.latest_run.status}</small>}
         </div>
       ))}
@@ -263,6 +269,10 @@ function progressTitle(job, progress) {
   return `Đang ${label}: ${runTitle(job.run)}`;
 }
 
+function canCancelTrackedJob(job, progress) {
+  return Boolean(job?.id && progress && !["done", "cancelled"].includes(progress.status));
+}
+
 function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
   const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
   const progress = useProgressPoll(job.progressKey, loader);
@@ -280,7 +290,7 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
   }, [isTerminal, progress?.status, onComplete, onDone, jobId, progressKey]);
 
   if (!progress) return null;
-  const canCancel = job.id && !["done", "failed", "cancelled"].includes(progress.status);
+  const canCancel = canCancelTrackedJob(job, progress);
   return (
     <ProgressBlock
       title={progressTitle(job, progress)}

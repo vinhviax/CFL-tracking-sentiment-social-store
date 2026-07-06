@@ -168,6 +168,30 @@ describe("processing queue", () => {
     expect(store.cancelJob).toHaveBeenCalledWith(env, 12, "Processing job cancelled by user");
   });
 
+  test("can cancel failed processing jobs so users can clear error rows", async () => {
+    const statements: string[] = [];
+    const env = {
+      DB: {
+        prepare(sql: string) {
+          statements.push(sql);
+          return {
+            bind: vi.fn().mockReturnThis(),
+            first: vi.fn(async () => {
+              if (sql.includes("UPDATE processing_queue")) {
+                return { id: 13, progress_key: "ingest-store-translate-13" };
+              }
+              return { id: 99 };
+            }),
+            run: vi.fn(async () => ({})),
+          };
+        },
+      },
+    } as any;
+
+    await expect(cancelProcessingJob(env, 13)).resolves.toEqual({ id: 13, status: "cancelled" });
+    expect(statements[0]).toContain("status IN ('queued', 'running', 'failed')");
+  });
+
   test("lists active queue jobs with progress and run metadata", async () => {
     const calls: { sql: string; args: any[] }[] = [];
     const env = {

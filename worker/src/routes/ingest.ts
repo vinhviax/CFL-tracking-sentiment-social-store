@@ -102,7 +102,7 @@ ingestRoute.get("/status", async (c) => {
     source_type: source.sourceType,
     cursor_key: source.cursorKey || null,
     cursor_date: source.cursor?.cursor_date || null,
-    latest_data_date: source.cursor?.cursor_date || source.latestDataDate,
+    latest_data_date: source.latestDataDate,
     latest_comment_date: source.latestDataDate,
     latest_run: source.latestRun,
   }));

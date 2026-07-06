@@ -277,7 +277,7 @@ describe("ingestRoute automated processing", () => {
                 return {
                   results: [
                     { source_type: "store", latest_data_date: "2026-07-06" },
-                    { source_type: "fb_page", latest_data_date: "2026-07-07" },
+                    { source_type: "fb_page", latest_data_date: "2026-07-06" },
                     { source_type: "fb_group_csv", latest_data_date: "2026-07-05" },
                   ],
                 };
@@ -301,7 +301,7 @@ describe("ingestRoute automated processing", () => {
     await expect(res.json()).resolves.toMatchObject({
       source_status: [
         { key: "store", label: "Store", latest_data_date: "2026-07-06", cursor_date: "2026-07-06" },
-        { key: "facebook_page", label: "Fanpage", latest_data_date: "2026-07-07", cursor_date: "2026-07-07" },
+        { key: "facebook_page", label: "Fanpage", latest_data_date: "2026-07-06", cursor_date: "2026-07-07" },
         { key: "facebook_group", label: "Group CSV", latest_data_date: "2026-07-05", cursor_date: null },
       ],
     });

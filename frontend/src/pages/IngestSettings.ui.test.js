@@ -44,6 +44,8 @@ test("Ingest Settings always renders latest data status for Store, Fanpage, and 
   assert.match(source, /Fanpage/);
   assert.match(source, /Group CSV/);
   assert.match(source, /loadIngestStatus/);
+  assert.match(source, /formatDate\(row\.latest_data_date\)/);
+  assert.doesNotMatch(source, /row\.latest_data_date \|\| row\.cursor_date/);
 });
 
 test("processing area tracks multiple queued jobs instead of one overwritten key", () => {
@@ -69,6 +71,13 @@ test("processing queue jobs can be cancelled from each tracked row", () => {
   assert.match(source, /onCancel=\{cancelTrackedJob\}/);
 });
 
+test("failed processing queue jobs can still be cancelled from the queue view", () => {
+  assert.match(source, /function canCancelTrackedJob\(job, progress\)/);
+  assert.match(source, /!\["done", "cancelled"\]\.includes\(progress\.status\)/);
+  assert.doesNotMatch(source, /!\["done", "failed", "cancelled"\]\.includes\(progress\.status\)/);
+  assert.match(source, /const canCancel = canCancelTrackedJob\(job, progress\)/);
+});
+
 test("ingest history action labels switch to rerun after completed processing", () => {
   assert.match(source, /function analysisRunActionLabel\(run\)/);
   assert.match(source, /run\.analysis_status === "done" \? "Phân tích lại" : "Phân tích"/);
@@ -84,8 +93,11 @@ test("tracked processing rows show recent LLM batch logs", () => {
   assert.match(source, /function ProcessingLogList/);
   assert.match(source, /className="llm-log-list"/);
   assert.match(source, /formatLogDuration/);
+  assert.match(source, /function formatLogModel\(model\)/);
   assert.match(source, /log\.provider/);
   assert.match(source, /log\.batch_index/);
+  assert.match(source, /formatLogModel\(log\.model\)/);
+  assert.doesNotMatch(source, /` · \$\{log\.model\}`/);
 });
 
 test("completed tracked processing rows are removed from the queue view", () => {
