@@ -31,6 +31,8 @@ test("manual ingest follows the automatic processing queue returned by the Worke
 test("processing area tracks multiple queued jobs instead of one overwritten key", () => {
   assert.match(source, /const \[trackedJobs, setTrackedJobs\]/);
   assert.match(source, /function enqueueTrackedJobs\(jobs\)/);
+  assert.match(source, /const loadTrackedJobs = useCallback/);
+  assert.match(source, /listProcessingJobs/);
   assert.match(source, /trackedJobs\.map/);
   assert.match(source, /TrackedProgressJob/);
   assert.doesNotMatch(source, /const \[progressKey, setProgressKey\]/);

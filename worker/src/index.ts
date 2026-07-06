@@ -6,6 +6,7 @@ import { exportRoute } from "./routes/export";
 import { ingestRoute } from "./routes/ingest";
 import { insightsRoute } from "./routes/insights";
 import { postsRoute } from "./routes/posts";
+import { processingRoute } from "./routes/processing";
 import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { translateRoute } from "./routes/translate";
@@ -59,6 +60,7 @@ app.route("/api/insights", insightsRoute);
 app.route("/api/posts", postsRoute);
 app.route("/api/export", exportRoute);
 app.route("/api/translate", translateRoute);
+app.route("/api/processing", processingRoute);
 
 export default {
   fetch: app.fetch,

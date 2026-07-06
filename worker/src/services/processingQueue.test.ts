@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { drainProcessingQueue, type ProcessingQueueJob } from "./processingQueue";
+import { drainProcessingQueue, listProcessingJobs, type ProcessingQueueJob } from "./processingQueue";
 
 describe("processing queue", () => {
   test("drains queued jobs one at a time in FIFO order", async () => {
@@ -49,5 +49,68 @@ describe("processing queue", () => {
       limit: undefined,
     });
     expect(store.markFailed).not.toHaveBeenCalled();
+  });
+
+  test("lists active queue jobs with progress and run metadata", async () => {
+    const calls: { sql: string; args: any[] }[] = [];
+    const env = {
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...args: any[]) {
+              calls.push({ sql, args });
+              return this;
+            },
+            async all() {
+              return {
+                results: [
+                  {
+                    id: 5,
+                    job_type: "translation",
+                    run_id: 42,
+                    progress_key: "ingest-store-translate-42",
+                    status: "queued",
+                    locale: "zh-CN",
+                    force: 0,
+                    limit_count: 300,
+                    error: null,
+                    created_at: "2026-07-06T18:00:00Z",
+                    updated_at: "2026-07-06T18:01:00Z",
+                    started_at: null,
+                    finished_at: null,
+                    progress_status: "queued",
+                    done: 0,
+                    total: 0,
+                    provider: null,
+                    progress_error: null,
+                    source_type: "store",
+                    run_status: "done",
+                    rows_new: 8,
+                    rows_fetched: 20,
+                    data_start_date: "2026-07-01",
+                    data_end_date: "2026-07-06",
+                  },
+                ],
+              };
+            },
+          };
+        },
+      },
+    } as any;
+
+    await expect(listProcessingJobs(env, { limit: 10 })).resolves.toEqual([
+      expect.objectContaining({
+        id: 5,
+        job_type: "translation",
+        run_id: 42,
+        progress_key: "ingest-store-translate-42",
+        status: "queued",
+        progress: { status: "queued", done: 0, total: 0, provider: null, error: null },
+        run: expect.objectContaining({ id: 42, source_type: "store" }),
+      }),
+    ]);
+    expect(calls[0].sql).toContain("FROM processing_queue q");
+    expect(calls[0].sql).toContain("LEFT JOIN analyze_jobs p");
+    expect(calls[0].args).toEqual([10]);
   });
 });

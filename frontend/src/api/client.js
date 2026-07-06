@@ -83,6 +83,9 @@ export const runTranslate = (payload) =>
 export const getTranslateProgress = (progressKey) =>
   api.get(`/api/translate/progress/${progressKey}`).then((r) => r.data);
 
+export const listProcessingJobs = (params) =>
+  api.get("/api/processing/jobs", { params }).then((r) => r.data);
+
 export const exportUrl = (params) => {
   const qs = new URLSearchParams(
     Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null && v !== ""))

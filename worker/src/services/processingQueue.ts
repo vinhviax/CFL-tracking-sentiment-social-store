@@ -44,6 +44,18 @@ const defaultDeps: QueueDeps = {
   runTranslation,
 };
 
+const STALE_RUNNING_MS = 10 * 60 * 1000;
+
+export async function recoverStaleProcessingJobs(env: Env, staleMs = STALE_RUNNING_MS) {
+  const cutoff = new Date(Date.now() - staleMs).toISOString();
+  await env.DB.prepare(
+    `UPDATE processing_queue
+     SET status = 'queued', updated_at = ?, error = NULL
+     WHERE status = 'running'
+       AND updated_at < ?`
+  ).bind(new Date().toISOString(), cutoff).run();
+}
+
 const d1QueueStore: QueueStore = {
   async enqueueJobs(env, jobs) {
     const now = new Date().toISOString();
@@ -75,6 +87,7 @@ const d1QueueStore: QueueStore = {
   },
 
   async claimNext(env) {
+    await recoverStaleProcessingJobs(env);
     const now = new Date().toISOString();
     const row = await env.DB.prepare(
       `UPDATE processing_queue
@@ -116,6 +129,64 @@ const d1QueueStore: QueueStore = {
     ).bind(error, now, now, id).run();
   },
 };
+
+export async function listProcessingJobs(env: Env, opts: { limit?: number } = {}) {
+  const limit = Math.max(1, Math.min(Number(opts.limit) || 20, 100));
+  const rows = await env.DB.prepare(
+    `SELECT q.id, q.job_type, q.run_id, q.locale, q.progress_key, q.force, q.limit_count,
+            q.status, q.error, q.created_at, q.updated_at, q.started_at, q.finished_at,
+            p.status AS progress_status, p.done, p.total, p.provider, p.error AS progress_error,
+            r.source_type, r.status AS run_status, r.rows_new, r.rows_fetched, r.started_at AS run_started_at,
+            (
+              SELECT MIN(SUBSTR(c.created_at, 1, 10))
+              FROM comments c
+              WHERE c.ingest_run_id = r.id
+                AND c.created_at IS NOT NULL
+            ) AS data_start_date,
+            (
+              SELECT MAX(SUBSTR(c.created_at, 1, 10))
+              FROM comments c
+              WHERE c.ingest_run_id = r.id
+                AND c.created_at IS NOT NULL
+            ) AS data_end_date
+     FROM processing_queue q
+     LEFT JOIN analyze_jobs p ON p.progress_key = q.progress_key
+     LEFT JOIN ingest_runs r ON r.id = q.run_id
+     WHERE q.status IN ('queued', 'running', 'failed')
+     ORDER BY q.id
+     LIMIT ?`
+  ).bind(limit).all<any>();
+  return rows.results.map((row) => ({
+    id: Number(row.id),
+    job_type: row.job_type,
+    run_id: row.run_id == null ? null : Number(row.run_id),
+    locale: row.locale || null,
+    progress_key: row.progress_key,
+    status: row.status,
+    error: row.error || null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    started_at: row.started_at || null,
+    finished_at: row.finished_at || null,
+    progress: {
+      status: row.progress_status || row.status,
+      done: Number(row.done || 0),
+      total: Number(row.total || 0),
+      provider: row.provider || null,
+      error: row.progress_error || null,
+    },
+    run: row.run_id == null ? null : {
+      id: Number(row.run_id),
+      source_type: row.source_type || null,
+      status: row.run_status || null,
+      rows_new: Number(row.rows_new || 0),
+      rows_fetched: Number(row.rows_fetched || 0),
+      started_at: row.run_started_at || null,
+      data_start_date: row.data_start_date || null,
+      data_end_date: row.data_end_date || null,
+    },
+  }));
+}
 
 export function buildRunProcessingJobs(runId: number, progressPrefix: string, locale = DEFAULT_TRANSLATION_LOCALE) {
   return [

@@ -7,6 +7,7 @@ import {
   getTranslateProgress,
   ingestFacebook,
   ingestSensorTower,
+  listProcessingJobs,
   listRuns,
   previewCsv,
   runAnalyze,
@@ -188,11 +189,24 @@ export default function IngestSettings() {
     listRuns({ limit: 20 }).then(setRuns).catch(() => {});
   }, []);
 
+  const loadTrackedJobs = useCallback(() => {
+    listProcessingJobs({ limit: 20 })
+      .then((jobs) => {
+        enqueueTrackedJobs(jobs.map((job) => ({
+          kind: job.job_type === "translation" ? "translation" : "analysis",
+          progressKey: job.progress_key,
+          run: job.run || { id: job.run_id },
+        })));
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadRuns();
+    loadTrackedJobs();
     getHealth().then(setHealth).catch(() => {});
     getIngestStatus().then(setIngestStatus).catch(() => {});
-  }, [loadRuns]);
+  }, [loadRuns, loadTrackedJobs]);
 
   function enqueueTrackedJobs(jobs) {
     setTrackedJobs((current) => {
