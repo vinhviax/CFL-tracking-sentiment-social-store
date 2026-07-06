@@ -31,6 +31,9 @@ type QueueStore = {
   claimNext(env: Env, opts?: { maxRunning?: number }): Promise<ProcessingQueueJob | null>;
   markDone(env: Env, id: number): Promise<void>;
   markFailed(env: Env, id: number, error: string): Promise<void>;
+  markCancelled(env: Env, id: number, error: string): Promise<void>;
+  isCancelled(env: Env, id: number): Promise<boolean>;
+  cancelJob(env: Env, id: number, error: string): Promise<{ id: number; progress_key: string } | null>;
 };
 
 type QueueDeps = {
@@ -48,6 +51,15 @@ const defaultDeps: QueueDeps = {
 const STALE_RUNNING_MS = 10 * 60 * 1000;
 const DEFAULT_QUEUE_CONCURRENCY = 2;
 const MAX_QUEUE_CONCURRENCY = 5;
+const CANCELLED_ERROR = "Processing job cancelled";
+const USER_CANCELLED_ERROR = "Processing job cancelled by user";
+
+export class ProcessingJobCancelledError extends Error {
+  constructor(message = CANCELLED_ERROR) {
+    super(message);
+    this.name = "ProcessingJobCancelledError";
+  }
+}
 
 export function getProcessingQueueConcurrency(env: Env) {
   return parseBoundedInt(env.PROCESSING_QUEUE_CONCURRENCY, 1, MAX_QUEUE_CONCURRENCY, DEFAULT_QUEUE_CONCURRENCY);
@@ -150,6 +162,30 @@ const d1QueueStore: QueueStore = {
       `UPDATE processing_queue SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ?`
     ).bind(error, now, now, id).run();
   },
+
+  async markCancelled(env, id, error) {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE processing_queue SET status = 'cancelled', error = ?, finished_at = COALESCE(finished_at, ?), updated_at = ? WHERE id = ?`
+    ).bind(error, now, now, id).run();
+  },
+
+  async isCancelled(env, id) {
+    const row = await env.DB.prepare(`SELECT status FROM processing_queue WHERE id = ?`).bind(id).first<any>();
+    return row?.status === "cancelled";
+  },
+
+  async cancelJob(env, id, error) {
+    const now = new Date().toISOString();
+    const row = await env.DB.prepare(
+      `UPDATE processing_queue
+       SET status = 'cancelled', error = ?, finished_at = COALESCE(finished_at, ?), updated_at = ?
+       WHERE id = ? AND status IN ('queued', 'running')
+       RETURNING id, progress_key`
+    ).bind(error, now, now, id).first<any>();
+    if (!row) return null;
+    return { id: Number(row.id), progress_key: row.progress_key };
+  },
 };
 
 export async function listProcessingJobs(env: Env, opts: { limit?: number } = {}) {
@@ -228,6 +264,13 @@ export async function enqueueProcessingJobs(
   await store.enqueueJobs(env, jobs);
 }
 
+export async function cancelProcessingJob(env: Env, id: number, store: QueueStore = d1QueueStore) {
+  const cancelled = await store.cancelJob(env, id, USER_CANCELLED_ERROR);
+  if (!cancelled) return null;
+  await setProgress(env, cancelled.progress_key, { status: "cancelled", error: USER_CANCELLED_ERROR });
+  return { id: cancelled.id, status: "cancelled" };
+}
+
 export async function drainProcessingQueue(
   env: Env,
   deps: QueueDeps = defaultDeps,
@@ -242,9 +285,20 @@ export async function drainProcessingQueue(
   );
 
   async function runJob(job: ProcessingQueueJob) {
+    const ensureNotCancelled = async () => {
+      if (await store.isCancelled(env, job.id)) throw new ProcessingJobCancelledError();
+    };
+
     try {
+      await ensureNotCancelled();
       if (job.job_type === "analysis") {
-        await deps.runAnalysis(env, { runId: job.run_id, commentIds: job.comment_ids, progressKey: job.progress_key });
+        await deps.runAnalysis(env, {
+          runId: job.run_id,
+          commentIds: job.comment_ids,
+          progressKey: job.progress_key,
+          shouldContinue: ensureNotCancelled,
+        });
+        await ensureNotCancelled();
         if (job.run_id != null) await deps.discoverAndStoreRunMemory(env, { runId: job.run_id });
       } else {
         await deps.runTranslation(env, {
@@ -254,10 +308,17 @@ export async function drainProcessingQueue(
           locale: job.locale || DEFAULT_TRANSLATION_LOCALE,
           force: job.force,
           limit: job.limit,
+          shouldContinue: ensureNotCancelled,
         });
       }
+      await ensureNotCancelled();
       await store.markDone(env, job.id);
     } catch (e: any) {
+      if (e instanceof ProcessingJobCancelledError) {
+        await setProgress(env, job.progress_key, { status: "cancelled", error: CANCELLED_ERROR });
+        await store.markCancelled(env, job.id, CANCELLED_ERROR);
+        return;
+      }
       const error = e?.message || String(e);
       await setProgress(env, job.progress_key, { status: "failed", error });
       await store.markFailed(env, job.id, error);

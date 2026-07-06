@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
-import { drainProcessingQueue, listProcessingJobs, type ProcessingQueueJob } from "./processingQueue";
+import {
+  cancelProcessingJob,
+  drainProcessingQueue,
+  listProcessingJobs,
+  type ProcessingQueueJob,
+} from "./processingQueue";
 
 describe("processing queue", () => {
   test("drains queued jobs one at a time in FIFO order", async () => {
@@ -14,6 +19,9 @@ describe("processing queue", () => {
         calls.push(`done:${id}`);
       }),
       markFailed: vi.fn(),
+      markCancelled: vi.fn(),
+      isCancelled: vi.fn(async () => false),
+      cancelJob: vi.fn(),
       enqueueJobs: vi.fn(),
     };
     const deps = {
@@ -35,19 +43,21 @@ describe("processing queue", () => {
     await drainProcessingQueue(env, deps, store, { maxConcurrentJobs: 1 });
 
     expect(calls).toEqual(["analysis", "memory", "done:1", "translation", "done:2"]);
-    expect(deps.runAnalysis).toHaveBeenCalledWith(env, {
+    expect(deps.runAnalysis).toHaveBeenCalledWith(env, expect.objectContaining({
       runId: 15,
       commentIds: undefined,
       progressKey: "ingest-store-analyze-15",
-    });
-    expect(deps.runTranslation).toHaveBeenCalledWith(env, {
+      shouldContinue: expect.any(Function),
+    }));
+    expect(deps.runTranslation).toHaveBeenCalledWith(env, expect.objectContaining({
       runId: 15,
       commentIds: undefined,
       progressKey: "ingest-store-translate-15",
       locale: "zh-CN",
       force: undefined,
       limit: undefined,
-    });
+      shouldContinue: expect.any(Function),
+    }));
     expect(store.markFailed).not.toHaveBeenCalled();
   });
 
@@ -61,6 +71,9 @@ describe("processing queue", () => {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(async () => undefined),
       markFailed: vi.fn(),
+      markCancelled: vi.fn(),
+      isCancelled: vi.fn(async () => false),
+      cancelJob: vi.fn(),
       enqueueJobs: vi.fn(),
     };
     const release: Array<() => void> = [];
@@ -87,6 +100,65 @@ describe("processing queue", () => {
     await drain;
     expect(store.markDone).toHaveBeenCalledTimes(3);
     expect(store.claimNext).toHaveBeenCalledWith(env, { maxRunning: 2 });
+  });
+
+  test("marks a running job cancelled instead of done when cancellation is detected", async () => {
+    const jobs: ProcessingQueueJob[] = [
+      { id: 8, job_type: "analysis", run_id: 22, progress_key: "ingest-group-analyze-22" },
+    ];
+    const store = {
+      claimNext: vi.fn(async () => jobs.shift() || null),
+      markDone: vi.fn(),
+      markFailed: vi.fn(),
+      markCancelled: vi.fn(),
+      isCancelled: vi.fn(async () => true),
+      cancelJob: vi.fn(),
+      enqueueJobs: vi.fn(),
+    };
+    const deps = {
+      runAnalysis: vi.fn(async () => ({ analyzed: 1, total: 1, provider: "test" })),
+      discoverAndStoreRunMemory: vi.fn(async () => ({ run_id: 22, comments: 1, subtopics: 0, evidence: 0, provider: "test", model: "test" })),
+      runTranslation: vi.fn(),
+    };
+    const env = {
+      DB: {
+        prepare: vi.fn(() => ({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn(async () => ({ id: 1 })),
+          run: vi.fn(async () => ({})),
+        })),
+      },
+    } as any;
+
+    await drainProcessingQueue(env, deps, store, { maxConcurrentJobs: 1 });
+
+    expect(store.markDone).not.toHaveBeenCalled();
+    expect(store.markFailed).not.toHaveBeenCalled();
+    expect(store.markCancelled).toHaveBeenCalledWith(env, 8, "Processing job cancelled");
+  });
+
+  test("cancels queued or running processing jobs by id", async () => {
+    const store = {
+      claimNext: vi.fn(),
+      markDone: vi.fn(),
+      markFailed: vi.fn(),
+      markCancelled: vi.fn(),
+      isCancelled: vi.fn(),
+      cancelJob: vi.fn(async () => ({ id: 12, progress_key: "ingest-store-analyze-12" })),
+      enqueueJobs: vi.fn(),
+    };
+    const env = {
+      DB: {
+        prepare: vi.fn(() => ({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn(async () => ({ id: 1 })),
+          run: vi.fn(async () => ({})),
+        })),
+      },
+    } as any;
+
+    await expect(cancelProcessingJob(env, 12, store)).resolves.toEqual({ id: 12, status: "cancelled" });
+    expect(store.cancelJob).toHaveBeenCalledWith(env, 12, "Processing job cancelled by user");
   });
 
   test("lists active queue jobs with progress and run metadata", async () => {

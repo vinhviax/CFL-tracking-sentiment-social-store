@@ -169,6 +169,7 @@ export async function runTranslation(
     runId?: number;
     force?: boolean;
     limit?: number;
+    shouldContinue?: () => Promise<void> | void;
   }
 ) {
   const locale = opts.locale || DEFAULT_TRANSLATION_LOCALE;
@@ -182,6 +183,7 @@ export async function runTranslation(
   const providerName = provider?.name ?? "unavailable";
   const model = provider?.model ?? null;
 
+  await opts.shouldContinue?.();
   const comments = await pendingTranslations(env, { ...opts, locale });
   await setProgress(env, opts.progressKey, { status: "running", done: 0, total: comments.length, provider: providerName });
 
@@ -204,6 +206,7 @@ export async function runTranslation(
 
   try {
     await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
+      await opts.shouldContinue?.();
       const raw = await provider.completeJson(system, buildUser(group));
       const byId = new Map<number, TranslationResult>();
       for (const t of parseTranslationResults(raw)) byId.set(t.id, t);
@@ -233,6 +236,7 @@ export async function runTranslation(
       await env.DB.batch(stmts);
       done += group.length;
       await setProgress(env, opts.progressKey, { done });
+      await opts.shouldContinue?.();
     });
   } catch (e: any) {
     const error = e?.message || String(e);

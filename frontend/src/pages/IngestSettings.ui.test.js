@@ -57,6 +57,18 @@ test("processing area tracks multiple queued jobs instead of one overwritten key
   assert.doesNotMatch(source, /const \[translateKey, setTranslateKey\]/);
 });
 
+test("processing queue jobs can be cancelled from each tracked row", () => {
+  assert.match(source, /cancelProcessingJob/);
+  assert.match(source, /const \[cancellingJobIds, setCancellingJobIds\]/);
+  assert.match(source, /function cancelTrackedJob\(job\)/);
+  assert.match(source, /window\.confirm/);
+  assert.match(source, /cancelProcessingJob\(job\.id\)/);
+  assert.match(source, /id: job\.id/);
+  assert.match(source, /status: job\.status/);
+  assert.match(source, /className="btn btn-danger progress-cancel-button"/);
+  assert.match(source, /onCancel=\{cancelTrackedJob\}/);
+});
+
 test("manual run translation does not cap large ingest runs", () => {
   assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN" \}\)/);
   assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);

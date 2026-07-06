@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cancelProcessingJob,
   deleteIngestRun,
   getAnalyzeProgress,
   getHealth,
@@ -32,7 +33,7 @@ function useProgressPoll(progressKey, loader) {
         if (stop) return;
         setProgress(p);
         unknownTries = p.status === "unknown" ? unknownTries + 1 : 0;
-        if (!["done", "failed"].includes(p.status) && unknownTries < 20) {
+        if (!["done", "failed", "cancelled"].includes(p.status) && unknownTries < 20) {
           setTimeout(tick, 1200);
         }
       });
@@ -110,10 +111,13 @@ function ProcessingBadge({ status, progress, kind }) {
   );
 }
 
-function ProgressBlock({ title, progress, color, error }) {
+function ProgressBlock({ title, progress, color, error, action }) {
   return (
     <div className="processing-progress">
-      <p><b>{title}</b></p>
+      <div className="progress-heading">
+        <p><b>{title}</b></p>
+        {action}
+      </div>
       <p className="progress-caption">
         {progress.done ?? 0}/{progress.total ?? 0} comment
         {progress.provider ? ` · Provider: ${progress.provider}` : ""}
@@ -162,25 +166,36 @@ function progressTitle(job, progress) {
   const label = jobLabel(job.kind);
   if (progress?.status === "queued") return `Đang chờ ${label}: ${runTitle(job.run)}`;
   if (progress?.status === "done") return `Đã ${label} xong: ${runTitle(job.run)}`;
+  if (progress?.status === "cancelled") return `Đã hủy ${label}: ${runTitle(job.run)}`;
   if (progress?.status === "failed") return `${label[0].toUpperCase()}${label.slice(1)} lỗi: ${runTitle(job.run)}`;
   return `Đang ${label}: ${runTitle(job.run)}`;
 }
 
-function TrackedProgressJob({ job, onComplete }) {
+function TrackedProgressJob({ job, onComplete, onCancel, cancelling }) {
   const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
   const progress = useProgressPoll(job.progressKey, loader);
 
   useEffect(() => {
-    if (["done", "failed"].includes(progress?.status)) onComplete?.();
+    if (["done", "failed", "cancelled"].includes(progress?.status)) onComplete?.();
   }, [progress?.status, onComplete]);
 
   if (!progress) return null;
+  const canCancel = job.id && !["done", "failed", "cancelled"].includes(progress.status);
   return (
     <ProgressBlock
       title={progressTitle(job, progress)}
       progress={progress}
       color={job.kind === "translation" ? "var(--positive)" : "var(--accent)"}
       error={progress.error}
+      action={canCancel ? (
+        <button
+          className="btn btn-danger progress-cancel-button"
+          disabled={cancelling}
+          onClick={() => onCancel(job)}
+        >
+          {cancelling ? "Đang hủy..." : "Hủy"}
+        </button>
+      ) : null}
     />
   );
 }
@@ -193,6 +208,8 @@ export default function IngestSettings() {
   const [uploadError, setUploadError] = useState(null);
   const [lastRun, setLastRun] = useState(null);
   const [trackedJobs, setTrackedJobs] = useState([]);
+  const [cancellingJobIds, setCancellingJobIds] = useState(new Set());
+  const [processingError, setProcessingError] = useState(null);
 
   const [stRange, setStRange] = useState({ start_date: "", end_date: "" });
   const [stBusy, setStBusy] = useState(false);
@@ -219,8 +236,10 @@ export default function IngestSettings() {
     listProcessingJobs({ limit: 20 })
       .then((jobs) => {
         enqueueTrackedJobs(jobs.map((job) => ({
+          id: job.id,
           kind: job.job_type === "translation" ? "translation" : "analysis",
           progressKey: job.progress_key,
+          status: job.status,
           run: job.run || { id: job.run_id },
         })));
       })
@@ -242,9 +261,31 @@ export default function IngestSettings() {
   function enqueueTrackedJobs(jobs) {
     setTrackedJobs((current) => {
       const byKey = new Map(current.map((job) => [job.progressKey, job]));
-      for (const job of jobs) byKey.set(job.progressKey, job);
+      for (const job of jobs) byKey.set(job.progressKey, { ...byKey.get(job.progressKey), ...job });
       return [...byKey.values()].slice(-12);
     });
+  }
+
+  function cancelTrackedJob(job) {
+    if (!job.id) return;
+    const answer = window.confirm(`Hủy task ${jobLabel(job.kind)} cho ${runTitle(job.run)}?`);
+    if (!answer) return;
+    setProcessingError(null);
+    setCancellingJobIds((current) => new Set(current).add(job.id));
+    cancelProcessingJob(job.id)
+      .then(() => {
+        setTrackedJobs((current) => current.filter((item) => item.id !== job.id && item.progressKey !== job.progressKey));
+        loadTrackedJobs();
+        refreshAfterProcessing();
+      })
+      .catch((e) => setProcessingError(e?.response?.data?.detail || e.message))
+      .finally(() => {
+        setCancellingJobIds((current) => {
+          const next = new Set(current);
+          next.delete(job.id);
+          return next;
+        });
+      });
   }
 
   function trackAutoProcessing(run) {
@@ -278,6 +319,7 @@ export default function IngestSettings() {
         setPreview(null);
         setFile(null);
         trackAutoProcessing(run);
+        loadTrackedJobs();
         loadRuns();
         loadIngestStatus();
       })
@@ -290,13 +332,19 @@ export default function IngestSettings() {
   const startAnalyze = (run) => {
     const target = resolveRun(run);
     runAnalyze({ run_id: target.id, only_unanalyzed: true })
-      .then((r) => enqueueTrackedJobs([{ kind: "analysis", progressKey: r.progress_key, run: target }]));
+      .then((r) => {
+        enqueueTrackedJobs([{ kind: "analysis", progressKey: r.progress_key, run: target }]);
+        loadTrackedJobs();
+      });
   };
 
   const startTranslate = (run) => {
     const target = resolveRun(run);
     runTranslate({ run_id: target.id, locale: "zh-CN" })
-      .then((r) => enqueueTrackedJobs([{ kind: "translation", progressKey: r.progress_key, run: target }]));
+      .then((r) => {
+        enqueueTrackedJobs([{ kind: "translation", progressKey: r.progress_key, run: target }]);
+        loadTrackedJobs();
+      });
   };
 
   function deleteRun(run) {
@@ -323,6 +371,7 @@ export default function IngestSettings() {
       .then((run) => {
         setLastRun(run);
         trackAutoProcessing(run);
+        loadTrackedJobs();
         loadRuns();
         loadIngestStatus();
       })
@@ -341,6 +390,7 @@ export default function IngestSettings() {
       .then((run) => {
         setLastRun(run);
         trackAutoProcessing(run);
+        loadTrackedJobs();
         loadRuns();
         loadIngestStatus();
       })
@@ -429,8 +479,15 @@ export default function IngestSettings() {
           {trackedJobs.length > 0 && (
             <div className="processing-list">
               <p className="progress-caption"><b>Hàng đợi xử lý</b></p>
+              {processingError && <div className="error-banner">{processingError}</div>}
               {trackedJobs.map((job) => (
-                <TrackedProgressJob key={job.progressKey} job={job} onComplete={refreshAfterProcessing} />
+                <TrackedProgressJob
+                  key={job.progressKey}
+                  job={job}
+                  onComplete={refreshAfterProcessing}
+                  onCancel={cancelTrackedJob}
+                  cancelling={job.id ? cancellingJobIds.has(job.id) : false}
+                />
               ))}
             </div>
           )}

@@ -1365,6 +1365,22 @@ tbody tr {
   background: color-mix(in srgb, var(--panel-2) 72%, transparent);
 }
 
+.progress-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-cancel-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .processing-list {
   display: grid;
   gap: 10px;

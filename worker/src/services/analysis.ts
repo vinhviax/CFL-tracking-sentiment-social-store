@@ -88,9 +88,16 @@ export async function getProgress(env: Env, key: string) {
 }
 
 export async function runAnalysis(
-  env: Env, opts: { commentIds?: number[]; runId?: number; progressKey: string }
+  env: Env,
+  opts: {
+    commentIds?: number[];
+    runId?: number;
+    progressKey: string;
+    shouldContinue?: () => Promise<void> | void;
+  }
 ) {
   const svc = new ClassifierService(env);
+  await opts.shouldContinue?.();
   const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
   const total = comments.length;
 
@@ -119,6 +126,7 @@ export async function runAnalysis(
   const analyzedAt = new Date().toISOString();
 
   await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
+    await opts.shouldContinue?.();
     const inputs: CommentInput[] = group.map((c) => ({
       id: c.id,
       message: c.message,
@@ -146,6 +154,7 @@ export async function runAnalysis(
 
     analyzed += group.length;
     await setProgress(env, opts.progressKey, { done: analyzed });
+    await opts.shouldContinue?.();
   });
 
   await setProgress(env, opts.progressKey, { status: "done" });
