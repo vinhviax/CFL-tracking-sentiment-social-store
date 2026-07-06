@@ -97,7 +97,7 @@ function sourceName(sourceType) {
 function runScope(run) {
   if (!run) return "Chưa rõ phạm vi";
   const note = parseRunNote(run.note);
-  if (note.start_date || note.end_date) {
+  if (run.source_type === "fb_page" && (note.start_date || note.end_date)) {
     return `Yêu cầu kéo: ${formatDate(note.start_date) || "?"} → ${formatDate(note.end_date) || "?"}`;
   }
   if (run.data_start_date || run.data_end_date) {
