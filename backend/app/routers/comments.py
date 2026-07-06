@@ -22,6 +22,8 @@ def list_comments(
     sentiment: str | None = None,
     urgency: str | None = None,
     q: str | None = None,
+    post_id: int | None = None,
+    store: str | None = None,
     date_from: datetime | None = Query(None, alias="from"),
     date_to: datetime | None = Query(None, alias="to"),
     page: int = 1,
@@ -34,6 +36,10 @@ def list_comments(
 
     if source:
         stmt = stmt.where(Comment.source_type == source)
+    if post_id:
+        stmt = stmt.where(Comment.post_id == post_id)
+    if store:
+        stmt = stmt.where(Comment.store == store)
     if q:
         stmt = stmt.where(Comment.message.ilike(f"%{q}%"))
     if date_from:

@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import init_db
-from .routers import analyze, comments, ingest, runs, stats
+from .routers import analyze, comments, ingest, insights, posts, runs, stats
+from .scheduler import shutdown_scheduler, start_scheduler
 from .taxonomy import (
     PROMPT_VERSION,
     SENTIMENT_LABELS_VI,
@@ -32,11 +33,19 @@ app.include_router(analyze.router)
 app.include_router(comments.router)
 app.include_router(runs.router)
 app.include_router(stats.router)
+app.include_router(insights.router)
+app.include_router(posts.router)
 
 
 @app.on_event("startup")
 def _startup():
     init_db()
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def _shutdown():
+    shutdown_scheduler()
 
 
 @app.get("/api/health")

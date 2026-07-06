@@ -64,3 +64,8 @@ class LLMProvider(ABC):
     def complete_json(self, system: str, user: str) -> str:
         """Return the model's response as a JSON string (a JSON array)."""
         raise NotImplementedError
+
+    @abstractmethod
+    def complete_text(self, system: str, user: str) -> str:
+        """Return the model's response as free-form text (no JSON mode)."""
+        raise NotImplementedError

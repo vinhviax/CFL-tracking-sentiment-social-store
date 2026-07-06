@@ -23,6 +23,9 @@ class AnthropicProvider(LLMProvider):
         parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
         return "".join(parts)
 
+    def complete_text(self, system: str, user: str) -> str:
+        return self.complete_json(system, user)
+
 
 class OpenAIProvider(LLMProvider):
     """Works for OpenAI and any OpenAI-compatible endpoint (via base_url)."""
@@ -48,6 +51,17 @@ class OpenAIProvider(LLMProvider):
             ],
             temperature=0,
             response_format={"type": "json_object"},
+        )
+        return resp.choices[0].message.content or ""
+
+    def complete_text(self, system: str, user: str) -> str:
+        resp = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.3,
         )
         return resp.choices[0].message.content or ""
 

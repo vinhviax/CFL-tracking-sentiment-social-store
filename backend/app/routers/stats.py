@@ -109,3 +109,39 @@ def trend(
         row = series.setdefault(str(d), {"date": str(d), "negative": 0, "neutral": 0, "positive": 0})
         row[sent] = n
     return list(series.values())
+
+
+@router.get("/store")
+def store_breakdown(
+    db: Session = Depends(get_db),
+    date_from: datetime | None = Query(None, alias="from"),
+    date_to: datetime | None = Query(None, alias="to"),
+):
+    """Rating distribution + GP vs iOS split for Store reviews."""
+
+    def _store_filtered(stmt):
+        stmt = stmt.where(Comment.source_type == "store")
+        if date_from:
+            stmt = stmt.where(Comment.created_at >= date_from)
+        if date_to:
+            stmt = stmt.where(Comment.created_at <= date_to)
+        return stmt
+
+    rating_rows = db.execute(
+        _store_filtered(select(Comment.rating, func.count(Comment.id))).group_by(Comment.rating)
+    ).all()
+    rating_dist = {str(r): 0 for r in range(1, 6)}
+    for rating, n in rating_rows:
+        if rating:
+            rating_dist[str(rating)] = n
+
+    platform_rows = db.execute(
+        _store_filtered(select(Comment.store, func.count(Comment.id), func.avg(Comment.rating)))
+        .group_by(Comment.store)
+    ).all()
+    platforms = [
+        {"store": store or "unknown", "count": n, "avg_rating": round(avg or 0, 2)}
+        for store, n, avg in platform_rows
+    ]
+
+    return {"rating_distribution": rating_dist, "platforms": platforms}
