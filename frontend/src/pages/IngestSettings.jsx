@@ -149,6 +149,16 @@ function statusText(status, kind) {
   return "Không có dữ liệu";
 }
 
+function analysisRunActionLabel(run) {
+  const label = run.analysis_status === "done" ? "Phân tích lại" : "Phân tích";
+  return `${label} #${run.id}`;
+}
+
+function translationRunActionLabel(run) {
+  const label = run.translation_status === "done" ? "Dịch lại" : "Dịch";
+  return `${label} #${run.id}`;
+}
+
 function ProcessingBadge({ status, progress, kind }) {
   const className = status === "done"
     ? "processing-badge done"
@@ -838,8 +848,8 @@ export default function IngestSettings() {
                     <td className="run-actions-cell">
                       {run.status === "done" && run.rows_new > 0 && (
                         <div className="run-action-group">
-                          <button className="btn btn-secondary run-action-button" onClick={() => startAnalyze(run)}>Phân loại #{run.id}</button>
-                          <button className="btn btn-secondary run-action-button" onClick={() => startTranslate(run)}>Dịch #{run.id}</button>
+                          <button className="btn btn-secondary run-action-button" onClick={() => startAnalyze(run)}>{analysisRunActionLabel(run)}</button>
+                          <button className="btn btn-secondary run-action-button" onClick={() => startTranslate(run)}>{translationRunActionLabel(run)}</button>
                           <button className="btn btn-danger run-action-button" disabled={deletingRunId === run.id} onClick={() => deleteRun(run)}>
                             {deletingRunId === run.id ? "Đang xóa..." : `Xóa #${run.id}`}
                           </button>

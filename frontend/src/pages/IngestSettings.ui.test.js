@@ -69,6 +69,15 @@ test("processing queue jobs can be cancelled from each tracked row", () => {
   assert.match(source, /onCancel=\{cancelTrackedJob\}/);
 });
 
+test("ingest history action labels switch to rerun after completed processing", () => {
+  assert.match(source, /function analysisRunActionLabel\(run\)/);
+  assert.match(source, /run\.analysis_status === "done" \? "Phân tích lại" : "Phân tích"/);
+  assert.match(source, /function translationRunActionLabel\(run\)/);
+  assert.match(source, /run\.translation_status === "done" \? "Dịch lại" : "Dịch"/);
+  assert.match(source, /analysisRunActionLabel\(run\)/);
+  assert.match(source, /translationRunActionLabel\(run\)/);
+});
+
 test("tracked processing rows show recent LLM batch logs", () => {
   assert.match(source, /listProcessingJobLogs/);
   assert.match(source, /function useProcessingLogs\(jobId/);
