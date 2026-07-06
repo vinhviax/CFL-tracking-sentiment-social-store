@@ -3,6 +3,8 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { getOverview, getTrend, getStoreBreakdown } from "../api/client.js";
+import DateTextInput from "../components/DateTextInput.jsx";
+import { formatDisplayDate } from "../utils/dateFormat.js";
 
 export default function StorePage() {
   const [filters, setFilters] = useState({ from: "", to: "" });
@@ -42,11 +44,11 @@ export default function StorePage() {
       <div className="filters-bar">
         <label>
           Từ ngày
-          <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+          <DateTextInput value={filters.from} onChange={(value) => setFilters({ ...filters, from: value })} />
         </label>
         <label>
           Đến ngày
-          <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
+          <DateTextInput value={filters.to} onChange={(value) => setFilters({ ...filters, to: value })} />
         </label>
       </div>
 
@@ -84,9 +86,9 @@ export default function StorePage() {
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={trend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a3245" />
-                  <XAxis dataKey="date" tick={{ fill: "#9aa4b8", fontSize: 11 }} />
+                  <XAxis dataKey="date" tickFormatter={formatDisplayDate} tick={{ fill: "#9aa4b8", fontSize: 11 }} />
                   <YAxis tick={{ fill: "#9aa4b8", fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: "#1e2536", border: "1px solid #2a3245" }} />
+                  <Tooltip labelFormatter={formatDisplayDate} contentStyle={{ background: "#1e2536", border: "1px solid #2a3245" }} />
                   <Legend />
                   <Bar dataKey="negative" stackId="s" fill="#e5484d" name="Tiêu cực" />
                   <Bar dataKey="neutral" stackId="s" fill="#8a94a6" name="Trung lập" />

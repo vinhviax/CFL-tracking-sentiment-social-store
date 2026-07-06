@@ -6,6 +6,7 @@ import {
 import FiltersBar from "../components/FiltersBar.jsx";
 import useMeta from "../hooks/useMeta.js";
 import { getOverview, getTrend, getInsightsSummary, exportUrl } from "../api/client.js";
+import { formatDisplayDate } from "../utils/dateFormat.js";
 
 const SENTIMENT_COLORS = { negative: "#e5484d", neutral: "#8a94a6", positive: "#2fb872" };
 const TOPIC_COLORS = ["#4f8cff", "#2fb872", "#e5a34d", "#e5484d", "#a06cff", "#4dd0e1", "#f06292", "#9ccc65"];
@@ -110,9 +111,9 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={trend}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a3245" />
-                    <XAxis dataKey="date" tick={{ fill: "#9aa4b8", fontSize: 11 }} />
+                    <XAxis dataKey="date" tickFormatter={formatDisplayDate} tick={{ fill: "#9aa4b8", fontSize: 11 }} />
                     <YAxis tick={{ fill: "#9aa4b8", fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "#1e2536", border: "1px solid #2a3245" }} />
+                    <Tooltip labelFormatter={formatDisplayDate} contentStyle={{ background: "#1e2536", border: "1px solid #2a3245" }} />
                     <Legend />
                     <Bar dataKey="negative" stackId="s" fill={SENTIMENT_COLORS.negative} name="Tiêu cực" />
                     <Bar dataKey="neutral" stackId="s" fill={SENTIMENT_COLORS.neutral} name="Trung lập" />

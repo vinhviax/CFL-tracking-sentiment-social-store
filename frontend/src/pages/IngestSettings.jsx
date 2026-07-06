@@ -14,7 +14,9 @@ import {
   runTranslate,
   uploadCsv,
 } from "../api/client.js";
+import DateTextInput from "../components/DateTextInput.jsx";
 import { StatusPill } from "../components/Badges.jsx";
+import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 
 const FACEBOOK_POST_LIMIT = 50;
 
@@ -52,18 +54,14 @@ function parseRunNote(note) {
 }
 
 function formatDate(value) {
-  if (!value) return null;
-  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value;
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("vi-VN");
+  return value ? formatDisplayDate(value) : null;
 }
 
 function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("vi-VN");
+  return formatDisplayDateTime(value);
 }
 
 function sourceName(sourceType) {
@@ -415,15 +413,13 @@ export default function IngestSettings() {
           <div style={{ marginBottom: 20 }}>
             <h4 style={{ margin: "0 0 8px", fontSize: 13 }}>Sensor Tower (Store, VN)</h4>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input
-                type="date"
+              <DateTextInput
                 value={stRange.start_date}
-                onChange={(e) => setStRange({ ...stRange, start_date: e.target.value })}
+                onChange={(value) => setStRange({ ...stRange, start_date: value })}
               />
-              <input
-                type="date"
+              <DateTextInput
                 value={stRange.end_date}
-                onChange={(e) => setStRange({ ...stRange, end_date: e.target.value })}
+                onChange={(value) => setStRange({ ...stRange, end_date: value })}
               />
             </div>
             <button className="btn" disabled={stBusy} onClick={pullSensorTower}>

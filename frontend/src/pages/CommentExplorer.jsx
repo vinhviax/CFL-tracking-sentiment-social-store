@@ -3,6 +3,7 @@ import FiltersBar from "../components/FiltersBar.jsx";
 import { SentimentBadge, UrgencyBadge } from "../components/Badges.jsx";
 import useMeta from "../hooks/useMeta.js";
 import { listComments, exportUrl } from "../api/client.js";
+import { formatDisplayDate } from "../utils/dateFormat.js";
 
 const PAGE_SIZE = 30;
 
@@ -93,7 +94,7 @@ export default function CommentExplorer() {
             <tbody>
               {data.items.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.created_at ? new Date(c.created_at).toLocaleDateString("vi-VN") : "—"}</td>
+                  <td>{c.created_at ? formatDisplayDate(c.created_at) : "—"}</td>
                   <td>{c.source_type}</td>
                   <td className="msg-preview">{c.message}</td>
                   <td>{meta?.topics[c.analysis?.topic_main] || c.analysis?.topic_main || "—"}</td>

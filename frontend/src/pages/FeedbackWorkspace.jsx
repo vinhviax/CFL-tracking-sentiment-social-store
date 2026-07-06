@@ -3,8 +3,10 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { SentimentBadge, UrgencyBadge } from "../components/Badges.jsx";
+import DateTextInput from "../components/DateTextInput.jsx";
 import useMeta from "../hooks/useMeta.js";
 import { applyWorkspaceFilter, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
+import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 import {
   generateInsight,
   getInsightPrompt,
@@ -396,6 +398,11 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     setPage(1);
   };
 
+  const setDateFilter = (key) => (value) => {
+    setFilters((current) => applyWorkspaceFilter(current, key, value));
+    setPage(1);
+  };
+
   const resetFilters = () => {
     setFilters(getDefaultFilters());
     setPage(1);
@@ -482,7 +489,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                 <article key={item.id} className="archive-item">
                   <div>
                     <h4>{item.title}</h4>
-                    <small>{new Date(item.created_at).toLocaleString("vi-VN")} · {item.provider || "unknown"}</small>
+                    <small>{formatDisplayDateTime(item.created_at)} · {item.provider || "unknown"}</small>
                   </div>
                   <InsightMarkdown text={item.summary} emptyText={t.noData} />
                 </article>
@@ -494,8 +501,8 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         <>
 
       <div className="filters-bar workspace-filters">
-        <label>{t.from}<input type="date" value={filters.from} onChange={setFilter("from")} /></label>
-        <label>{t.to}<input type="date" value={filters.to} onChange={setFilter("to")} /></label>
+        <label>{t.from}<DateTextInput value={filters.from} onChange={setDateFilter("from")} /></label>
+        <label>{t.to}<DateTextInput value={filters.to} onChange={setDateFilter("to")} /></label>
         <label>{t.search}<input type="text" value={filters.q} onChange={setFilter("q")} placeholder="lag, hack, nạp..." /></label>
         <label>{t.sentiment}
           <select value={filters.sentiment} onChange={setFilter("sentiment")}>
@@ -624,9 +631,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={trend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-                  <XAxis dataKey="date" tick={{ fill: "var(--chart-tick)", fontSize: 11 }} />
+                  <XAxis dataKey="date" tickFormatter={formatDisplayDate} tick={{ fill: "var(--chart-tick)", fontSize: 11 }} />
                   <YAxis tick={{ fill: "var(--chart-tick)", fontSize: 11 }} />
                   <Tooltip
+                    labelFormatter={formatDisplayDate}
                     contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--border)", color: "var(--text)" }}
                     labelStyle={{ color: "var(--text)" }}
                     itemStyle={{ color: "var(--text)" }}
@@ -723,7 +731,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                 <tbody>
                   {comments.items.map((row) => (
                     <tr key={row.id} onClick={() => setSelected(row)} className="clickable-row">
-                      <td>{row.created_at ? new Date(row.created_at).toLocaleDateString("vi-VN") : "—"}</td>
+                      <td>{row.created_at ? formatDisplayDate(row.created_at) : "—"}</td>
                       <td>{sourceLabel(row, lang)}</td>
                       <td className="msg-preview">{row.message}</td>
                       <td>{topicLabels?.[row.analysis?.topic_main] || row.analysis?.topic_main || "—"}</td>

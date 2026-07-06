@@ -1,3 +1,5 @@
+import DateTextInput from "./DateTextInput.jsx";
+
 const SOURCES = [
   { value: "", label: "Tất cả nguồn" },
   { value: "store", label: "Store" },
@@ -7,16 +9,17 @@ const SOURCES = [
 
 export default function FiltersBar({ filters, onChange, meta, extra }) {
   const set = (key) => (e) => onChange({ ...filters, [key]: e.target.value });
+  const setDate = (key) => (value) => onChange({ ...filters, [key]: value });
 
   return (
     <div className="filters-bar">
       <label>
         Từ ngày
-        <input type="date" value={filters.from || ""} onChange={set("from")} />
+        <DateTextInput value={filters.from || ""} onChange={setDate("from")} />
       </label>
       <label>
         Đến ngày
-        <input type="date" value={filters.to || ""} onChange={set("to")} />
+        <DateTextInput value={filters.to || ""} onChange={setDate("to")} />
       </label>
       <label>
         Nguồn

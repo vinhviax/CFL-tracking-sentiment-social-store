@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { listPosts, listComments } from "../api/client.js";
 import { SentimentBadge, UrgencyBadge } from "../components/Badges.jsx";
+import { formatDisplayDate } from "../utils/dateFormat.js";
 
 export default function FacebookPage() {
   const [tab, setTab] = useState("fb_page");
@@ -71,7 +72,7 @@ export default function FacebookPage() {
                     onClick={() => openPost(p)}
                     style={{ cursor: "pointer", background: selectedPost?.id === p.id ? "#1e2536" : "transparent" }}
                   >
-                    <td>{p.published_at ? new Date(p.published_at).toLocaleDateString("vi-VN") : "—"}</td>
+                    <td>{p.published_at ? formatDisplayDate(p.published_at) : "—"}</td>
                     <td className="msg-preview" style={{ maxWidth: 260 }}>
                       {(p.message || "(không có nội dung)").slice(0, 100)}
                     </td>
