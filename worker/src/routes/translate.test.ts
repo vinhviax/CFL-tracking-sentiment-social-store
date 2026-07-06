@@ -3,11 +3,17 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   enqueueProcessingJobs: vi.fn(),
   drainProcessingQueue: vi.fn(),
+  getTranslationProgress: vi.fn(),
 }));
 
 vi.mock("../services/processingQueue", () => ({
   enqueueProcessingJobs: mocks.enqueueProcessingJobs,
   drainProcessingQueue: mocks.drainProcessingQueue,
+}));
+
+vi.mock("../services/translation", () => ({
+  DEFAULT_TRANSLATION_LOCALE: "zh-CN",
+  getTranslationProgress: mocks.getTranslationProgress,
 }));
 
 import { translateRoute } from "./translate";
@@ -28,6 +34,7 @@ describe("translateRoute queueing", () => {
     vi.clearAllMocks();
     mocks.enqueueProcessingJobs.mockResolvedValue(undefined);
     mocks.drainProcessingQueue.mockResolvedValue(undefined);
+    mocks.getTranslationProgress.mockResolvedValue({ status: "queued", done: 0, total: 120 });
   });
 
   test("manual run enqueues translation behind earlier jobs", async () => {
@@ -55,6 +62,19 @@ describe("translateRoute queueing", () => {
         limit: 300,
       },
     ]);
+    expect(ctx.scheduled).toHaveLength(1);
+    await Promise.all(ctx.scheduled);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+  });
+
+  test("progress polling kicks the queue drainer", async () => {
+    const env = { DB: {} } as any;
+    const ctx = executionCtx();
+
+    const res = await translateRoute.request("/progress/translate-run-22-zh-CN", {}, env, ctx);
+
+    await expect(res.json()).resolves.toEqual({ status: "queued", done: 0, total: 120 });
+    expect(mocks.getTranslationProgress).toHaveBeenCalledWith(env, "translate-run-22-zh-CN");
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
     expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);

@@ -31,5 +31,12 @@ analyzeRoute.post("/run", async (c) => {
 
 analyzeRoute.get("/progress/:key", async (c) => {
   const progress = await getProgress(c.env, c.req.param("key"));
+  const status = (progress as any)?.status;
+  if (!["done", "failed", "cancelled"].includes(status)) {
+    c.executionCtx.waitUntil(
+      drainProcessingQueue(c.env)
+        .catch((e) => console.error(`analysis queue failed while polling ${c.req.param("key")}`, e))
+    );
+  }
   return c.json(progress);
 });

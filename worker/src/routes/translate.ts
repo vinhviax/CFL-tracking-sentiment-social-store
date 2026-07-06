@@ -34,5 +34,12 @@ translateRoute.post("/run", async (c) => {
 
 translateRoute.get("/progress/:key", async (c) => {
   const progress = await getTranslationProgress(c.env, c.req.param("key"));
+  const status = (progress as any)?.status;
+  if (!["done", "failed", "cancelled"].includes(status)) {
+    c.executionCtx.waitUntil(
+      drainProcessingQueue(c.env)
+        .catch((e) => console.error(`translation queue failed while polling ${c.req.param("key")}`, e))
+    );
+  }
   return c.json(progress);
 });
