@@ -97,11 +97,11 @@ function sourceName(sourceType) {
 function runScope(run) {
   if (!run) return "Chưa rõ phạm vi";
   const note = parseRunNote(run.note);
-  if (run.data_start_date || run.data_end_date) {
-    return `Dữ liệu: ${formatDate(run.data_start_date) || "?"} → ${formatDate(run.data_end_date) || "?"}`;
-  }
   if (note.start_date || note.end_date) {
     return `Yêu cầu kéo: ${formatDate(note.start_date) || "?"} → ${formatDate(note.end_date) || "?"}`;
+  }
+  if (run.data_start_date || run.data_end_date) {
+    return `Dữ liệu: ${formatDate(run.data_start_date) || "?"} → ${formatDate(run.data_end_date) || "?"}`;
   }
   if (note.text) return note.text;
   return `Ngày kéo: ${formatDate(run.started_at) || "—"}`;

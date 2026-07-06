@@ -199,6 +199,7 @@ describe("processing queue", () => {
                     run_status: "done",
                     rows_new: 8,
                     rows_fetched: 20,
+                    run_note: "{\"start_date\":\"2026-06-29\",\"end_date\":\"2026-07-05\"}",
                     data_start_date: "2026-07-01",
                     data_end_date: "2026-07-06",
                   },
@@ -218,7 +219,11 @@ describe("processing queue", () => {
         progress_key: "ingest-store-translate-42",
         status: "queued",
         progress: { status: "queued", done: 0, total: 0, provider: null, error: null },
-        run: expect.objectContaining({ id: 42, source_type: "store" }),
+        run: expect.objectContaining({
+          id: 42,
+          source_type: "store",
+          note: "{\"start_date\":\"2026-06-29\",\"end_date\":\"2026-07-05\"}",
+        }),
       }),
     ]);
     expect(calls[0].sql).toContain("FROM processing_queue q");

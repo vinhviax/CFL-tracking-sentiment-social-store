@@ -34,6 +34,26 @@ function parseFbDate(value?: string | null): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function facebookLocalDateKey(value?: string | null): string | null {
+  const iso = parseFbDate(value);
+  if (!iso) return null;
+  return new Date(new Date(iso).getTime() + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+export function isFacebookCommentInDateRange(
+  createdTime: string | null | undefined,
+  range?: { startDate?: string | null; endDate?: string | null }
+) {
+  if (!range?.startDate && !range?.endDate) return true;
+  const dateKey = facebookLocalDateKey(createdTime);
+  if (!dateKey) return false;
+  if (range.startDate && dateKey < range.startDate) return false;
+  if (range.endDate && dateKey > range.endDate) return false;
+  return true;
+}
+
 async function graphGet(url: string, params: Record<string, string>): Promise<any> {
   const full = params && Object.keys(params).length ? `${url}?${new URLSearchParams(params)}` : url;
   const res = await fetch(full, { signal: AbortSignal.timeout(20000) });
@@ -99,7 +119,12 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 export async function ingestFacebook(
-  env: Env, since?: string, until?: string, postLimit = 50, note?: Record<string, any>
+  env: Env,
+  since?: string,
+  until?: string,
+  postLimit = 50,
+  note?: Record<string, any>,
+  commentDateRange?: { startDate?: string | null; endDate?: string | null }
 ): Promise<IngestRunRow> {
   const db = env.DB;
   const startedAt = new Date().toISOString();
@@ -147,7 +172,8 @@ export async function ingestFacebook(
 
     const allComments: { postId: number; cm: any; hash: string }[] = [];
     for (const p of posts) {
-      const comments = Array.isArray(p.comments?.data) ? p.comments.data : [];
+      const comments = (Array.isArray(p.comments?.data) ? p.comments.data : [])
+        .filter((cm: any) => isFacebookCommentInDateRange(cm.created_time, commentDateRange));
       fetched += comments.length;
       const postId = postIdByExternal.get(p.id)!;
       for (const cm of comments) {

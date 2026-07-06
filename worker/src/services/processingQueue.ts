@@ -195,6 +195,7 @@ export async function listProcessingJobs(env: Env, opts: { limit?: number } = {}
             q.status, q.error, q.created_at, q.updated_at, q.started_at, q.finished_at,
             p.status AS progress_status, p.done, p.total, p.provider, p.error AS progress_error,
             r.source_type, r.status AS run_status, r.rows_new, r.rows_fetched, r.started_at AS run_started_at,
+            r.note AS run_note,
             (
               SELECT MIN(SUBSTR(c.created_at, 1, 10))
               FROM comments c
@@ -240,6 +241,7 @@ export async function listProcessingJobs(env: Env, opts: { limit?: number } = {}
       rows_new: Number(row.rows_new || 0),
       rows_fetched: Number(row.rows_fetched || 0),
       started_at: row.run_started_at || null,
+      note: row.run_note || null,
       data_start_date: row.data_start_date || null,
       data_end_date: row.data_end_date || null,
     },

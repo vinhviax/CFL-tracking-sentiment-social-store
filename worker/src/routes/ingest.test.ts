@@ -158,11 +158,18 @@ describe("ingestRoute automated processing", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(mocks.ingestFacebook).toHaveBeenCalledWith(testEnv, "2026-06-29", "2026-07-07", 50, {
-      start_date: "2026-06-29",
-      end_date: "2026-07-06",
-      post_limit: 50,
-    });
+    expect(mocks.ingestFacebook).toHaveBeenCalledWith(
+      testEnv,
+      "2026-06-29",
+      "2026-07-07",
+      50,
+      {
+        start_date: "2026-06-29",
+        end_date: "2026-07-06",
+        post_limit: 50,
+      },
+      { startDate: "2026-06-29", endDate: "2026-07-06" }
+    );
     expect(mocks.upsertSourceCursor).toHaveBeenCalledWith(testEnv, "facebook_page", "2026-07-06", 55);
   });
 

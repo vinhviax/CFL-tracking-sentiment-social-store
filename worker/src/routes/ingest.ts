@@ -185,7 +185,7 @@ ingestRoute.post("/facebook", async (c) => {
     start_date: since || null,
     end_date: requestedUntil || null,
     post_limit: postLimit,
-  });
+  }, { startDate: since || null, endDate: requestedUntil || null });
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
   if (requestedUntil) await upsertSourceCursor(c.env, FACEBOOK_CURSOR_KEY, requestedUntil, run.id);
   const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-facebook");
