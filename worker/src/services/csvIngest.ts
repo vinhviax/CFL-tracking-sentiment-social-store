@@ -14,19 +14,19 @@ export interface ParsedRow {
 const EMPTY_MARKERS = new Set(["", "...", ".", "-"]);
 const CSV_D1_BIND_LIMIT = 90;
 const CSV_DEDUPE_HASHES_PER_ROW = 2;
-const CSV_POST_INSERT_BINDS_PER_ROW = 4;
-const CSV_COMMENT_INSERT_BINDS_PER_ROW = 8;
+const CSV_POST_INSERT_BATCH_SIZE = 100;
+const CSV_COMMENT_INSERT_BATCH_SIZE = 100;
 
 export function getCsvDedupeLookupChunkSize(): number {
   return Math.floor(CSV_D1_BIND_LIMIT / CSV_DEDUPE_HASHES_PER_ROW);
 }
 
 export function getCsvPostInsertChunkSize(): number {
-  return Math.floor(CSV_D1_BIND_LIMIT / CSV_POST_INSERT_BINDS_PER_ROW);
+  return CSV_POST_INSERT_BATCH_SIZE;
 }
 
 export function getCsvCommentInsertChunkSize(): number {
-  return Math.floor(CSV_D1_BIND_LIMIT / CSV_COMMENT_INSERT_BINDS_PER_ROW);
+  return CSV_COMMENT_INSERT_BATCH_SIZE;
 }
 
 function normalizeIdentityPart(value?: string | null): string {

@@ -30,10 +30,13 @@ describe("filterFreshUniqueHashes", () => {
 });
 
 describe("Facebook Group CSV guardrails", () => {
-  test("keeps D1 CSV chunks under the SQL variable limit", () => {
+  test("keeps CSV dedupe lookups under the SQL variable limit", () => {
     expect(getCsvDedupeLookupChunkSize() * 2).toBeLessThanOrEqual(90);
-    expect(getCsvPostInsertChunkSize() * 4).toBeLessThanOrEqual(90);
-    expect(getCsvCommentInsertChunkSize() * 8).toBeLessThanOrEqual(90);
+  });
+
+  test("keeps CSV insert batches large enough to avoid Worker subrequest limits", () => {
+    expect(getCsvPostInsertChunkSize()).toBeGreaterThanOrEqual(50);
+    expect(getCsvCommentInsertChunkSize()).toBeGreaterThanOrEqual(100);
   });
 
   test("parses Facebook Group CSV using columns A to E only", () => {
