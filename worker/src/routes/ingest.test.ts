@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   parseRows: vi.fn(),
   ingestFacebook: vi.fn(),
   ingestSensorTower: vi.fn(),
-  processAutomatedFeedbackRun: vi.fn(),
+  enqueueProcessingJobs: vi.fn(),
+  drainProcessingQueue: vi.fn(),
 }));
 
 vi.mock("../services/csvIngest", () => ({
@@ -34,8 +35,13 @@ vi.mock("../services/sensortower", () => ({
 vi.mock("../services/sensortowerCursor", () => ({
   SENSOR_TOWER_CURSOR_KEY: "sensortower_store",
 }));
-vi.mock("../services/automatedProcessing", () => ({
-  processAutomatedFeedbackRun: mocks.processAutomatedFeedbackRun,
+vi.mock("../services/processingQueue", () => ({
+  buildRunProcessingJobs: (runId: number, progressPrefix: string, locale = "zh-CN") => [
+    { job_type: "analysis", run_id: runId, progress_key: `${progressPrefix}-analyze-${runId}` },
+    { job_type: "translation", run_id: runId, progress_key: `${progressPrefix}-translate-${runId}`, locale },
+  ],
+  enqueueProcessingJobs: mocks.enqueueProcessingJobs,
+  drainProcessingQueue: mocks.drainProcessingQueue,
 }));
 
 import { ingestRoute } from "./ingest";
@@ -62,11 +68,8 @@ async function flushScheduled(ctx: ReturnType<typeof executionCtx>) {
 describe("ingestRoute automated processing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.processAutomatedFeedbackRun.mockResolvedValue({
-      analysis: { analyzed: 1, total: 1, provider: "test" },
-      memory: { run_id: 0, comments: 1, subtopics: 0, evidence: 0, provider: "test", model: "test" },
-      translation: { translated: 1, total: 1, provider: "test" },
-    });
+    mocks.enqueueProcessingJobs.mockResolvedValue(undefined);
+    mocks.drainProcessingQueue.mockResolvedValue(undefined);
   });
 
   test("queues analysis then zh-CN translation after manual Store ingest", async () => {
@@ -98,10 +101,11 @@ describe("ingestRoute automated processing", () => {
     });
     expect(ctx.scheduled).toHaveLength(1);
     await flushScheduled(ctx);
-    expect(mocks.processAutomatedFeedbackRun).toHaveBeenCalledWith(testEnv, {
-      runId: 51,
-      progressPrefix: "ingest-store",
-    });
+    expect(mocks.enqueueProcessingJobs).toHaveBeenCalledWith(testEnv, [
+      { job_type: "analysis", run_id: 51, progress_key: "ingest-store-analyze-51" },
+      { job_type: "translation", run_id: 51, progress_key: "ingest-store-translate-51", locale: "zh-CN" },
+    ]);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(testEnv);
   });
 
   test("queues analysis then zh-CN translation after manual Facebook ingest", async () => {
@@ -125,10 +129,10 @@ describe("ingestRoute automated processing", () => {
     expect(res.status).toBe(200);
     expect(ctx.scheduled).toHaveLength(1);
     await flushScheduled(ctx);
-    expect(mocks.processAutomatedFeedbackRun).toHaveBeenCalledWith(testEnv, {
-      runId: 52,
-      progressPrefix: "ingest-facebook",
-    });
+    expect(mocks.enqueueProcessingJobs).toHaveBeenCalledWith(testEnv, [
+      { job_type: "analysis", run_id: 52, progress_key: "ingest-facebook-analyze-52" },
+      { job_type: "translation", run_id: 52, progress_key: "ingest-facebook-translate-52", locale: "zh-CN" },
+    ]);
   });
 
   test("queues analysis then zh-CN translation after CSV Group upload", async () => {
@@ -154,10 +158,10 @@ describe("ingestRoute automated processing", () => {
     expect(res.status).toBe(200);
     expect(ctx.scheduled).toHaveLength(1);
     await flushScheduled(ctx);
-    expect(mocks.processAutomatedFeedbackRun).toHaveBeenCalledWith(testEnv, {
-      runId: 53,
-      progressPrefix: "ingest-fb-group",
-    });
+    expect(mocks.enqueueProcessingJobs).toHaveBeenCalledWith(testEnv, [
+      { job_type: "analysis", run_id: 53, progress_key: "ingest-fb-group-analyze-53" },
+      { job_type: "translation", run_id: 53, progress_key: "ingest-fb-group-translate-53", locale: "zh-CN" },
+    ]);
   });
 
   test("CSV preview counts only Group rows as importable", async () => {
@@ -207,6 +211,7 @@ describe("ingestRoute automated processing", () => {
 
     expect(res.status).toBe(502);
     expect(ctx.scheduled).toHaveLength(0);
-    expect(mocks.processAutomatedFeedbackRun).not.toHaveBeenCalled();
+    expect(mocks.enqueueProcessingJobs).not.toHaveBeenCalled();
+    expect(mocks.drainProcessingQueue).not.toHaveBeenCalled();
   });
 });

@@ -16,8 +16,9 @@ test("ingest history uses a compact horizontal action group", () => {
 test("manual ingest follows the automatic processing queue returned by the Worker", () => {
   assert.match(source, /function trackAutoProcessing\(run\)/);
   assert.match(source, /run\?\.auto_processing/);
-  assert.match(source, /setProgressKey\(auto\.analysis_progress_key\)/);
-  assert.match(source, /setQueuedTranslateKey\(auto\.translation_progress_key \|\| null\)/);
+  assert.match(source, /enqueueTrackedJobs/);
+  assert.match(source, /auto\.analysis_progress_key/);
+  assert.match(source, /auto\.translation_progress_key/);
   assert.match(source, /unknownTries/);
   assert.doesNotMatch(source, /\["done", "failed", "unknown"\]/);
   assert.match(source, /uploadCsv\(file\)[\s\S]*trackAutoProcessing\(run\)/);
@@ -25,6 +26,15 @@ test("manual ingest follows the automatic processing queue returned by the Worke
   assert.match(source, /ingestFacebook\(\{\}\)[\s\S]*trackAutoProcessing\(run\)/);
   assert.doesNotMatch(source, /ingestSensorTower\(stRange\)[\s\S]{0,100}startAnalyze\(run\)/);
   assert.doesNotMatch(source, /ingestFacebook\(\{\}\)[\s\S]{0,100}startAnalyze\(run\)/);
+});
+
+test("processing area tracks multiple queued jobs instead of one overwritten key", () => {
+  assert.match(source, /const \[trackedJobs, setTrackedJobs\]/);
+  assert.match(source, /function enqueueTrackedJobs\(jobs\)/);
+  assert.match(source, /trackedJobs\.map/);
+  assert.match(source, /TrackedProgressJob/);
+  assert.doesNotMatch(source, /const \[progressKey, setProgressKey\]/);
+  assert.doesNotMatch(source, /const \[translateKey, setTranslateKey\]/);
 });
 
 test("CSV preview makes Facebook Group filtering visible before upload", () => {

@@ -4,23 +4,25 @@ import { filterGroupCsvRows, getCsvDateRange, ingestCsv, parseRows } from "../se
 import { ingestFacebook } from "../services/facebook";
 import { ingestSensorTower } from "../services/sensortower";
 import { SENSOR_TOWER_CURSOR_KEY } from "../services/sensortowerCursor";
-import { processAutomatedFeedbackRun } from "../services/automatedProcessing";
+import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
 
 export const ingestRoute = new Hono<{ Bindings: Env }>();
 
 type IngestRunLike = { id: number; status?: string };
 
-function enqueueAutomatedProcessing(c: Context<{ Bindings: Env }>, run: IngestRunLike, progressPrefix: string) {
+async function enqueueAutomatedProcessing(c: Context<{ Bindings: Env }>, run: IngestRunLike, progressPrefix: string) {
   if (run.status === "failed") return null;
+  const jobs = buildRunProcessingJobs(run.id, progressPrefix);
+  await enqueueProcessingJobs(c.env, jobs);
   const autoProcessing = {
     queued: true,
-    analysis_progress_key: `${progressPrefix}-analyze-${run.id}`,
-    translation_progress_key: `${progressPrefix}-translate-${run.id}`,
+    analysis_progress_key: jobs[0].progress_key,
+    translation_progress_key: jobs[1].progress_key,
     locale: "zh-CN",
   };
   c.executionCtx.waitUntil(
-    processAutomatedFeedbackRun(c.env, { runId: run.id, progressPrefix })
-      .catch((e) => console.error(`post-ingest automated processing failed for run ${run.id}`, e))
+    drainProcessingQueue(c.env)
+      .catch((e) => console.error(`post-ingest processing queue failed for run ${run.id}`, e))
   );
   return autoProcessing;
 }
@@ -52,7 +54,7 @@ ingestRoute.post("/upload-csv", async (c) => {
   if (buf.byteLength === 0) return c.json({ detail: "Empty file" }, 400);
   try {
     const run = await ingestCsv(c.env, buf, file.name);
-    const auto_processing = enqueueAutomatedProcessing(c, run, "ingest-fb-group");
+    const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-fb-group");
     return c.json({ ...run, auto_processing });
   } catch (e: any) {
     return c.json({ detail: `Lỗi khi nạp file CSV: ${e.message || e}` }, 422);
@@ -92,7 +94,7 @@ ingestRoute.post("/sensortower", async (c) => {
   const start = body.start_date || new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
   const run = await ingestSensorTower(c.env, start, end, body.countries);
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
-  const auto_processing = enqueueAutomatedProcessing(c, run, "ingest-store");
+  const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-store");
   return c.json({ ...run, auto_processing });
 });
 
@@ -100,6 +102,6 @@ ingestRoute.post("/facebook", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const run = await ingestFacebook(c.env, body.since, body.until, body.post_limit || 10);
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
-  const auto_processing = enqueueAutomatedProcessing(c, run, "ingest-facebook");
+  const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-facebook");
   return c.json({ ...run, auto_processing });
 });

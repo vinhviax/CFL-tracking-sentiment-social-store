@@ -131,6 +131,37 @@ function ProgressBlock({ title, progress, color, error }) {
   );
 }
 
+function jobLabel(kind) {
+  return kind === "translation" ? "dịch zh-CN" : "phân tích";
+}
+
+function progressTitle(job, progress) {
+  const label = jobLabel(job.kind);
+  if (progress?.status === "queued") return `Đang chờ ${label}: ${runTitle(job.run)}`;
+  if (progress?.status === "done") return `Đã ${label} xong: ${runTitle(job.run)}`;
+  if (progress?.status === "failed") return `${label[0].toUpperCase()}${label.slice(1)} lỗi: ${runTitle(job.run)}`;
+  return `Đang ${label}: ${runTitle(job.run)}`;
+}
+
+function TrackedProgressJob({ job, onComplete }) {
+  const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
+  const progress = useProgressPoll(job.progressKey, loader);
+
+  useEffect(() => {
+    if (["done", "failed"].includes(progress?.status)) onComplete?.();
+  }, [progress?.status, onComplete]);
+
+  if (!progress) return null;
+  return (
+    <ProgressBlock
+      title={progressTitle(job, progress)}
+      progress={progress}
+      color={job.kind === "translation" ? "var(--positive)" : "var(--accent)"}
+      error={progress.error}
+    />
+  );
+}
+
 export default function IngestSettings() {
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null);
@@ -138,11 +169,7 @@ export default function IngestSettings() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [lastRun, setLastRun] = useState(null);
-  const [progressKey, setProgressKey] = useState(null);
-  const [translateKey, setTranslateKey] = useState(null);
-  const [queuedTranslateKey, setQueuedTranslateKey] = useState(null);
-  const [analysisTarget, setAnalysisTarget] = useState(null);
-  const [translationTarget, setTranslationTarget] = useState(null);
+  const [trackedJobs, setTrackedJobs] = useState([]);
 
   const [stRange, setStRange] = useState({ start_date: "", end_date: "" });
   const [stBusy, setStBusy] = useState(false);
@@ -157,9 +184,6 @@ export default function IngestSettings() {
   const [health, setHealth] = useState(null);
   const [ingestStatus, setIngestStatus] = useState(null);
 
-  const progress = useProgressPoll(progressKey, getAnalyzeProgress);
-  const translateProgress = useProgressPoll(translateKey, getTranslateProgress);
-
   const loadRuns = useCallback(() => {
     listRuns({ limit: 20 }).then(setRuns).catch(() => {});
   }, []);
@@ -170,30 +194,23 @@ export default function IngestSettings() {
     getIngestStatus().then(setIngestStatus).catch(() => {});
   }, [loadRuns]);
 
-  useEffect(() => {
-    if (["done", "failed"].includes(progress?.status)) loadRuns();
-  }, [progress?.status, loadRuns]);
-
-  useEffect(() => {
-    if (progress?.status === "done" && queuedTranslateKey) {
-      setTranslateKey(queuedTranslateKey);
-      setQueuedTranslateKey(null);
-    }
-    if (progress?.status === "failed") setQueuedTranslateKey(null);
-  }, [progress?.status, queuedTranslateKey]);
-
-  useEffect(() => {
-    if (["done", "failed"].includes(translateProgress?.status)) loadRuns();
-  }, [translateProgress?.status, loadRuns]);
+  function enqueueTrackedJobs(jobs) {
+    setTrackedJobs((current) => {
+      const byKey = new Map(current.map((job) => [job.progressKey, job]));
+      for (const job of jobs) byKey.set(job.progressKey, job);
+      return [...byKey.values()].slice(-12);
+    });
+  }
 
   function trackAutoProcessing(run) {
     const auto = run?.auto_processing;
     if (!auto?.queued) return false;
-    setAnalysisTarget(run);
-    setTranslationTarget(run);
-    setProgressKey(auto.analysis_progress_key);
-    setTranslateKey(null);
-    setQueuedTranslateKey(auto.translation_progress_key || null);
+    enqueueTrackedJobs([
+      { kind: "analysis", progressKey: auto.analysis_progress_key, run },
+      ...(auto.translation_progress_key
+        ? [{ kind: "translation", progressKey: auto.translation_progress_key, run }]
+        : []),
+    ]);
     return true;
   }
 
@@ -226,18 +243,14 @@ export default function IngestSettings() {
 
   const startAnalyze = (run) => {
     const target = resolveRun(run);
-    setAnalysisTarget(target);
-    setQueuedTranslateKey(null);
     runAnalyze({ run_id: target.id, only_unanalyzed: true })
-      .then((r) => setProgressKey(r.progress_key));
+      .then((r) => enqueueTrackedJobs([{ kind: "analysis", progressKey: r.progress_key, run: target }]));
   };
 
   const startTranslate = (run) => {
     const target = resolveRun(run);
-    setTranslationTarget(target);
-    setQueuedTranslateKey(null);
     runTranslate({ run_id: target.id, locale: "zh-CN", limit: 300 })
-      .then((r) => setTranslateKey(r.progress_key));
+      .then((r) => enqueueTrackedJobs([{ kind: "translation", progressKey: r.progress_key, run: target }]));
   };
 
   function deleteRun(run) {
@@ -359,29 +372,13 @@ export default function IngestSettings() {
             </div>
           )}
 
-          {progressKey && progress && (
-            <ProgressBlock
-              title={`${progress.status === "done" ? "Đã phân tích xong" : "Đang phân tích"}: ${runTitle(analysisTarget)}`}
-              progress={progress}
-              color="var(--accent)"
-              error={progress.error}
-            />
-          )}
-
-          {queuedTranslateKey && progress?.status !== "done" && (
-            <div className="processing-progress queued">
-              <p><b>Đã xếp hàng dịch zh-CN</b></p>
-              <p className="progress-caption">Sẽ tự chạy sau khi phân tích xong: {runTitle(translationTarget)}</p>
+          {trackedJobs.length > 0 && (
+            <div className="processing-list">
+              <p className="progress-caption"><b>Hàng đợi xử lý</b></p>
+              {trackedJobs.map((job) => (
+                <TrackedProgressJob key={job.progressKey} job={job} onComplete={loadRuns} />
+              ))}
             </div>
-          )}
-
-          {translateKey && translateProgress && (
-            <ProgressBlock
-              title={`${translateProgress.status === "done" ? "Đã dịch xong zh-CN" : "Đang dịch zh-CN"}: ${runTitle(translationTarget)}`}
-              progress={translateProgress}
-              color="var(--positive)"
-              error={translateProgress.error}
-            />
           )}
         </div>
 

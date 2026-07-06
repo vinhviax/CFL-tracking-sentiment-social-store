@@ -9,9 +9,9 @@ import { postsRoute } from "./routes/posts";
 import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { translateRoute } from "./routes/translate";
-import { processAutomatedFeedbackRun, processScheduledPendingFeedback } from "./services/automatedProcessing";
 import { ingestFacebook } from "./services/facebook";
 import { buildProvider } from "./services/llm/providers";
+import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "./services/processingQueue";
 import { ingestSensorTower } from "./services/sensortower";
 import { buildSensorTowerCatchupDates, seedSensorTowerCursor, upsertSensorTowerCursor } from "./services/sensortowerCursor";
 import {
@@ -78,10 +78,8 @@ async function dailyJob(env: Env) {
       if (run.status !== "done") break;
       await upsertSensorTowerCursor(env, date, run.id);
       if (run.rows_new > 0) {
-        await processAutomatedFeedbackRun(env, {
-          runId: run.id,
-          progressPrefix: "scheduled-store",
-        });
+        await enqueueProcessingJobs(env, buildRunProcessingJobs(run.id, "scheduled-store"));
+        await drainProcessingQueue(env);
       }
     }
   } catch (e) {
@@ -92,20 +90,20 @@ async function dailyJob(env: Env) {
     const run = await ingestFacebook(env);
     console.log(`facebook: status=${run.status} new=${run.rows_new}`);
     if (run.status === "done" && run.rows_new > 0) {
-      await processAutomatedFeedbackRun(env, {
-        runId: run.id,
-        progressPrefix: "scheduled-facebook",
-      });
+      await enqueueProcessingJobs(env, buildRunProcessingJobs(run.id, "scheduled-facebook"));
+      await drainProcessingQueue(env);
     }
   } catch (e) {
     console.error("facebook scheduled ingest failed", e);
   }
 
   try {
-    await processScheduledPendingFeedback(env, {
-      progressPrefix: "scheduled-pending",
-      translationLimit: 1000,
-    });
+    const suffix = new Date().toISOString().slice(0, 10);
+    await enqueueProcessingJobs(env, [
+      { job_type: "analysis", progress_key: `scheduled-pending-analyze-${suffix}` },
+      { job_type: "translation", progress_key: `scheduled-pending-translate-${suffix}`, locale: "zh-CN", limit: 1000 },
+    ]);
+    await drainProcessingQueue(env);
   } catch (e) {
     console.error("scheduled pending analysis/translation failed", e);
   }

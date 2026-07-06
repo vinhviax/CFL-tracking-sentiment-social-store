@@ -61,8 +61,9 @@ describe("deleteIngestRun", () => {
       .map((call: any) => call.sql.replace(/\s+/g, " ").trim());
 
     expect(runSqls[0]).toContain("DELETE FROM analyze_jobs");
-    expect(runSqls[1]).toContain("UPDATE ingest_cursors");
+    expect(runSqls[1]).toContain("DELETE FROM processing_queue");
     expect(runSqls).toEqual(expect.arrayContaining([
+      expect.stringContaining("UPDATE ingest_cursors"),
       expect.stringContaining("DELETE FROM memory_evidence WHERE memory_id IN"),
       expect.stringContaining("DELETE FROM memory_evidence WHERE comment_id IN"),
       expect.stringContaining("DELETE FROM feedback_memories WHERE run_id = ?"),

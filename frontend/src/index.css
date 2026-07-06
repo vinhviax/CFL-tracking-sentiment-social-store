@@ -1251,6 +1251,16 @@ tbody tr {
   background: color-mix(in srgb, var(--panel-2) 72%, transparent);
 }
 
+.processing-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.processing-list .processing-progress {
+  margin-top: 0;
+}
+
 .processing-progress.queued {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   background: color-mix(in srgb, var(--accent-soft) 76%, transparent);

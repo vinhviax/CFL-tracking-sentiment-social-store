@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
-import { DEFAULT_TRANSLATION_LOCALE, getTranslationProgress, runTranslation } from "../services/translation";
+import { DEFAULT_TRANSLATION_LOCALE, getTranslationProgress } from "../services/translation";
+import { drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
 
 export const translateRoute = new Hono<{ Bindings: Env }>();
 
@@ -11,14 +12,22 @@ translateRoute.post("/run", async (c) => {
   const locale = body.locale || DEFAULT_TRANSLATION_LOCALE;
   const progressKey = runId ? `translate-run-${runId}-${locale}` : `translate-${Date.now()}`;
 
-  c.executionCtx.waitUntil(runTranslation(c.env, {
-    progressKey,
-    locale,
-    runId,
-    commentIds,
-    force: Boolean(body.force),
-    limit: body.limit,
-  }));
+  await enqueueProcessingJobs(c.env, [
+    {
+      job_type: "translation",
+      ...(runId != null ? { run_id: runId } : {}),
+      ...(commentIds?.length ? { comment_ids: commentIds } : {}),
+      progress_key: progressKey,
+      locale,
+      force: Boolean(body.force),
+      limit: body.limit,
+    },
+  ]);
+
+  c.executionCtx.waitUntil(
+    drainProcessingQueue(c.env)
+      .catch((e) => console.error(`translation queue failed for ${progressKey}`, e))
+  );
 
   return c.json({ progress_key: progressKey, status: "queued" });
 });

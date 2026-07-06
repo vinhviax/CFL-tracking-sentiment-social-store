@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
-import { getProgress, runAnalysis } from "../services/analysis";
-import { discoverAndStoreRunMemory } from "../services/taxonomyMemory";
+import { getProgress } from "../services/analysis";
+import { drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
 
 export const analyzeRoute = new Hono<{ Bindings: Env }>();
 
@@ -12,10 +12,18 @@ analyzeRoute.post("/run", async (c) => {
 
   const progressKey = runId ? `run-${runId}` : `adhoc-${Date.now()}`;
 
-  // Background: continue processing after the response is sent.
+  await enqueueProcessingJobs(c.env, [
+    {
+      job_type: "analysis",
+      ...(runId != null ? { run_id: runId } : {}),
+      ...(commentIds?.length ? { comment_ids: commentIds } : {}),
+      progress_key: progressKey,
+    },
+  ]);
+
   c.executionCtx.waitUntil(
-    runAnalysis(c.env, { commentIds, runId, progressKey })
-      .then(() => runId ? discoverAndStoreRunMemory(c.env, { runId }) : null)
+    drainProcessingQueue(c.env)
+      .catch((e) => console.error(`analysis queue failed for ${progressKey}`, e))
   );
 
   return c.json({ progress_key: progressKey, status: "queued" });

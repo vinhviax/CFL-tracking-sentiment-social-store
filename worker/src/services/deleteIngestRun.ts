@@ -68,6 +68,20 @@ export async function deleteIngestRun(db: D1Database, runId: number): Promise<De
     `%-analyze-${runId}`,
     `%-translate-${runId}`
   );
+  await runDelete(
+    db,
+    `DELETE FROM processing_queue
+     WHERE run_id = ?
+        OR progress_key = ?
+        OR progress_key LIKE ?
+        OR progress_key LIKE ?
+        OR progress_key LIKE ?`,
+    runId,
+    `run-${runId}`,
+    `translate-run-${runId}-%`,
+    `%-analyze-${runId}`,
+    `%-translate-${runId}`
+  );
 
   await runDelete(db, `UPDATE ingest_cursors SET last_run_id = NULL WHERE last_run_id = ?`, runId);
   await runDelete(db, `DELETE FROM memory_evidence WHERE memory_id IN (${RUN_MEMORIES})`, runId);
