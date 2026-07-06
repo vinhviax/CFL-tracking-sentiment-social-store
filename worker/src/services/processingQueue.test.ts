@@ -3,6 +3,7 @@ import {
   cancelProcessingJob,
   drainProcessingQueue,
   listProcessingJobs,
+  recoverStaleProcessingJobs,
   type ProcessingQueueJob,
 } from "./processingQueue";
 
@@ -233,6 +234,31 @@ describe("processing queue", () => {
     expect(calls[0].sql).toContain("FROM processing_queue q");
     expect(calls[0].sql).toContain("LEFT JOIN analyze_jobs p");
     expect(calls[0].args).toEqual([10]);
+  });
+
+  test("recoverStaleProcessingJobs marks queue rows done when their progress is already done", async () => {
+    const calls: { sql: string; args: any[] }[] = [];
+    const env = {
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...args: any[]) {
+              calls.push({ sql, args });
+              return this;
+            },
+            async run() {
+              return {};
+            },
+          };
+        },
+      },
+    } as any;
+
+    await recoverStaleProcessingJobs(env, 600000);
+
+    expect(calls[0].sql).toContain("EXISTS");
+    expect(calls[0].sql).toContain("p.status = 'done'");
+    expect(calls[1].sql).toContain("SET status = 'queued'");
   });
 
   test("requeues incomplete analysis slices instead of holding a Worker event open", async () => {

@@ -73,6 +73,19 @@ export function getProcessingJobMaxBatches(env: Env) {
 }
 
 export async function recoverStaleProcessingJobs(env: Env, staleMs = STALE_RUNNING_MS) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE processing_queue
+     SET status = 'done', finished_at = COALESCE(finished_at, ?), updated_at = ?
+     WHERE status = 'running'
+       AND EXISTS (
+         SELECT 1
+         FROM analyze_jobs p
+         WHERE p.progress_key = processing_queue.progress_key
+           AND p.status = 'done'
+       )`
+  ).bind(now, now).run();
+
   const cutoff = new Date(Date.now() - staleMs).toISOString();
   await env.DB.prepare(
     `UPDATE processing_queue
