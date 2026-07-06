@@ -79,6 +79,14 @@ test("tracked processing rows show recent LLM batch logs", () => {
   assert.match(source, /log\.batch_index/);
 });
 
+test("completed tracked processing rows are removed from the queue view", () => {
+  assert.match(source, /function hideCompletedTrackedJob\(job\)/);
+  assert.match(source, /progress\?\.status === "done"/);
+  assert.match(source, /setTimeout\(\(\) => onDone\?\.\(/);
+  assert.match(source, /onDone=\{hideCompletedTrackedJob\}/);
+  assert.match(source, /item\.progressKey !== job\.progressKey/);
+});
+
 test("Ingest Settings exposes LLM Agent configuration for reasoning and simple slots", () => {
   assert.match(source, /getLlmAgentConfig/);
   assert.match(source, /saveLlmAgentConfig/);

@@ -253,15 +253,21 @@ function progressTitle(job, progress) {
   return `Đang ${label}: ${runTitle(job.run)}`;
 }
 
-function TrackedProgressJob({ job, onComplete, onCancel, cancelling }) {
+function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
   const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
   const progress = useProgressPoll(job.progressKey, loader);
   const isTerminal = ["done", "failed", "cancelled"].includes(progress?.status);
   const logs = useProcessingLogs(job.id, !isTerminal);
+  const jobId = job.id;
+  const progressKey = job.progressKey;
 
   useEffect(() => {
-    if (isTerminal) onComplete?.();
-  }, [isTerminal, onComplete]);
+    if (!isTerminal) return;
+    onComplete?.();
+    if (progress?.status !== "done") return;
+    const timer = setTimeout(() => onDone?.({ id: jobId, progressKey }), 800);
+    return () => clearTimeout(timer);
+  }, [isTerminal, progress?.status, onComplete, onDone, jobId, progressKey]);
 
   if (!progress) return null;
   const canCancel = job.id && !["done", "failed", "cancelled"].includes(progress.status);
@@ -521,6 +527,12 @@ export default function IngestSettings() {
       });
   }
 
+  function hideCompletedTrackedJob(job) {
+    setTrackedJobs((current) => (
+      current.filter((item) => item.id !== job.id && item.progressKey !== job.progressKey)
+    ));
+  }
+
   function trackAutoProcessing(run) {
     const auto = run?.auto_processing;
     if (!auto?.queued) return false;
@@ -718,6 +730,7 @@ export default function IngestSettings() {
                   key={job.progressKey}
                   job={job}
                   onComplete={refreshAfterProcessing}
+                  onDone={hideCompletedTrackedJob}
                   onCancel={cancelTrackedJob}
                   cancelling={job.id ? cancellingJobIds.has(job.id) : false}
                 />
