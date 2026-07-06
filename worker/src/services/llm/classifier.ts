@@ -23,12 +23,17 @@ TRẢ VỀ DUY NHẤT một JSON object có key "results" là mảng, mỗi ph�
 id, topic_main, topics_sub, sentiment, urgency, summary, other_suggested, confidence.
 Giữ nguyên id đã cho. Không thêm giải thích ngoài JSON.`;
 
-function buildUser(items: CommentInput[]): string {
+export function buildClassifierUserPrompt(items: CommentInput[]): string {
   const lines = ["Phân loại các bình luận sau:\n"];
+  lines.push(
+    "Nếu có bối cảnh bài viết/post, hãy đọc bối cảnh trước rồi mới phân loại các bình luận ngắn hoặc mơ hồ."
+  );
   for (const it of items) {
     const block = [`[id=${it.id}]`];
     if (it.rating != null) block.push(`(rating store: ${it.rating}/5 sao)`);
-    if (it.context) block.push(`Bối cảnh bài viết: ${it.context.slice(0, 300)}`);
+    if (it.context) {
+      block.push(`Bối cảnh bài viết/post chứa bình luận:\n${it.context.slice(0, 600)}`);
+    }
     block.push(`Bình luận: ${it.message.slice(0, 1500)}`);
     lines.push(block.join("\n"));
     lines.push("---");
@@ -85,7 +90,7 @@ export class ClassifierService {
   private async classifyBatchLlm(items: CommentInput[]): Promise<Map<number, Classification>> {
     const out = new Map<number, Classification>();
     if (!this.provider) return out;
-    const raw = await this.provider.completeJson(SYSTEM, buildUser(items));
+    const raw = await this.provider.completeJson(SYSTEM, buildClassifierUserPrompt(items));
     for (const rec of parseResults(raw)) {
       const c = validateClassification(rec);
       if (c) out.set(c.id, c);

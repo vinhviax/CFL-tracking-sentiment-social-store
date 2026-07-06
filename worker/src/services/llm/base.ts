@@ -3,7 +3,7 @@ import { isSentiment, isTopic, isUrgency, TOPICS } from "../../taxonomy";
 export interface CommentInput {
   id: number;
   message: string;
-  context?: string | null; // parent post message (truncated), for context
+  context?: string | null; // parent post metadata/message, for context
   rating?: number | null;  // store reviews: 1..5
 }
 

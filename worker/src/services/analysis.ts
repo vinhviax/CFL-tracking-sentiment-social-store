@@ -15,6 +15,22 @@ interface PendingComment {
   post_id: number | null;
 }
 
+interface PostContextRow {
+  source_type: string | null;
+  published_at: string | null;
+  permalink: string | null;
+  message: string | null;
+}
+
+export function buildPostContext(post: PostContextRow) {
+  const lines: string[] = [];
+  if (post.source_type) lines.push(`Nguồn post: ${post.source_type}`);
+  if (post.published_at) lines.push(`Ngày đăng post: ${post.published_at}`);
+  if (post.permalink) lines.push(`Link post: ${post.permalink}`);
+  if (post.message) lines.push(`Nội dung post: ${post.message}`);
+  return lines.join("\n");
+}
+
 async function pendingComments(
   env: Env, opts: { commentIds?: number[]; runId?: number }
 ): Promise<PendingComment[]> {
@@ -73,15 +89,15 @@ export async function runAnalysis(
     return { analyzed: 0, provider: svc.providerName, total: 0 };
   }
 
-  // Resolve post messages once for context (batch, avoid N+1 queries).
+  // Resolve parent post context once for better classification of short or ambiguous comments.
   const postIds = [...new Set(comments.map((c) => c.post_id).filter((x): x is number => x != null))];
-  const postMessages = new Map<number, string>();
+  const postContexts = new Map<number, string>();
   if (postIds.length) {
     for (const idsChunk of chunk(postIds, 90)) {
       const res = await env.DB.prepare(
-        `SELECT id, message FROM posts WHERE id IN (${idsChunk.map(() => "?").join(",")})`
-      ).bind(...idsChunk).all<{ id: number; message: string }>();
-      for (const r of res.results) postMessages.set(r.id, r.message);
+        `SELECT id, source_type, published_at, permalink, message FROM posts WHERE id IN (${idsChunk.map(() => "?").join(",")})`
+      ).bind(...idsChunk).all<{ id: number } & PostContextRow>();
+      for (const r of res.results) postContexts.set(r.id, buildPostContext(r));
     }
   }
 
@@ -93,7 +109,7 @@ export async function runAnalysis(
     const inputs: CommentInput[] = group.map((c) => ({
       id: c.id,
       message: c.message,
-      context: c.post_id != null ? postMessages.get(c.post_id) ?? null : null,
+      context: c.post_id != null ? postContexts.get(c.post_id) ?? null : null,
       rating: c.rating,
     }));
 
