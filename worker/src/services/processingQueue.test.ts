@@ -47,12 +47,14 @@ describe("processing queue", () => {
       runId: 15,
       commentIds: undefined,
       progressKey: "ingest-store-analyze-15",
+      jobId: 1,
       shouldContinue: expect.any(Function),
     }));
     expect(deps.runTranslation).toHaveBeenCalledWith(env, expect.objectContaining({
       runId: 15,
       commentIds: undefined,
       progressKey: "ingest-store-translate-15",
+      jobId: 2,
       locale: "zh-CN",
       force: undefined,
       limit: undefined,

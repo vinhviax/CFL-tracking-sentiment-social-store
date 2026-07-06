@@ -69,6 +69,16 @@ test("processing queue jobs can be cancelled from each tracked row", () => {
   assert.match(source, /onCancel=\{cancelTrackedJob\}/);
 });
 
+test("tracked processing rows show recent LLM batch logs", () => {
+  assert.match(source, /listProcessingJobLogs/);
+  assert.match(source, /function useProcessingLogs\(jobId/);
+  assert.match(source, /function ProcessingLogList/);
+  assert.match(source, /className="llm-log-list"/);
+  assert.match(source, /formatLogDuration/);
+  assert.match(source, /log\.provider/);
+  assert.match(source, /log\.batch_index/);
+});
+
 test("manual run translation does not cap large ingest runs", () => {
   assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN" \}\)/);
   assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);

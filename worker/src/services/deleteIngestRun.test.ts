@@ -53,6 +53,7 @@ describe("deleteIngestRun", () => {
         translations: 6,
         comment_subtopics: 5,
         feedback_memories: 3,
+        processing_logs: 1,
       },
     });
 
@@ -60,8 +61,9 @@ describe("deleteIngestRun", () => {
       .filter((call: any) => call.op === "run")
       .map((call: any) => call.sql.replace(/\s+/g, " ").trim());
 
-    expect(runSqls[0]).toContain("DELETE FROM analyze_jobs");
-    expect(runSqls[1]).toContain("DELETE FROM processing_queue");
+    expect(runSqls[0]).toContain("DELETE FROM processing_logs");
+    expect(runSqls[1]).toContain("DELETE FROM analyze_jobs");
+    expect(runSqls[2]).toContain("DELETE FROM processing_queue");
     expect(runSqls).toEqual(expect.arrayContaining([
       expect.stringContaining("UPDATE ingest_cursors"),
       expect.stringContaining("DELETE FROM memory_evidence WHERE memory_id IN"),

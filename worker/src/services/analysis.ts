@@ -7,6 +7,7 @@ import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { CommentInput } from "./llm/base";
 import { ClassifierService } from "./llm/classifier";
+import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
 interface PendingComment {
@@ -90,6 +91,7 @@ export async function getProgress(env: Env, key: string) {
 export async function runAnalysis(
   env: Env,
   opts: {
+    jobId?: number;
     commentIds?: number[];
     runId?: number;
     progressKey: string;
@@ -124,9 +126,27 @@ export async function runAnalysis(
   const concurrency = getLlmBatchConcurrency(env);
   let analyzed = 0;
   const analyzedAt = new Date().toISOString();
+  const groups = chunk(comments, batchSize);
 
-  await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
+  await mapWithConcurrency(groups, concurrency, async (group, index) => {
     await opts.shouldContinue?.();
+    const batchIndex = index + 1;
+    const started = Date.now();
+    if (opts.jobId != null) {
+      await safeAddProcessingLog(env, {
+        processing_job_id: opts.jobId,
+        progress_key: opts.progressKey,
+        job_type: "analysis",
+        level: "info",
+        phase: "llm_batch",
+        message: `Analysis batch ${batchIndex}/${groups.length} started`,
+        batch_index: batchIndex,
+        batch_total: groups.length,
+        item_count: group.length,
+        provider: svc.providerName,
+        model: svc.model,
+      });
+    }
     const inputs: CommentInput[] = group.map((c) => ({
       id: c.id,
       message: c.message,
@@ -134,7 +154,29 @@ export async function runAnalysis(
       rating: c.rating,
     }));
 
-    const results = await svc.classify(inputs);
+    let results: Awaited<ReturnType<ClassifierService["classify"]>>;
+    try {
+      results = await svc.classify(inputs);
+    } catch (e: any) {
+      if (opts.jobId != null) {
+        await safeAddProcessingLog(env, {
+          processing_job_id: opts.jobId,
+          progress_key: opts.progressKey,
+          job_type: "analysis",
+          level: "error",
+          phase: "llm_batch",
+          message: `Analysis batch ${batchIndex}/${groups.length} failed`,
+          batch_index: batchIndex,
+          batch_total: groups.length,
+          item_count: group.length,
+          provider: svc.providerName,
+          model: svc.model,
+          duration_ms: Date.now() - started,
+          error: e?.message || String(e),
+        });
+      }
+      throw e;
+    }
 
     const stmts = results.map((r) =>
       env.DB.prepare(
@@ -154,6 +196,22 @@ export async function runAnalysis(
 
     analyzed += group.length;
     await setProgress(env, opts.progressKey, { done: analyzed });
+    if (opts.jobId != null) {
+      await safeAddProcessingLog(env, {
+        processing_job_id: opts.jobId,
+        progress_key: opts.progressKey,
+        job_type: "analysis",
+        level: "success",
+        phase: "llm_batch",
+        message: `Analysis batch ${batchIndex}/${groups.length} completed`,
+        batch_index: batchIndex,
+        batch_total: groups.length,
+        item_count: group.length,
+        provider: svc.providerName,
+        model: svc.model,
+        duration_ms: Date.now() - started,
+      });
+    }
     await opts.shouldContinue?.();
   });
 

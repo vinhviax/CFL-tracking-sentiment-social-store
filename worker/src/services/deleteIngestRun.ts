@@ -13,6 +13,7 @@ export interface DeleteIngestRunResult {
     feedback_memories: number;
     orphan_posts: number;
     progress_jobs: number;
+    processing_logs: number;
   };
 }
 
@@ -54,8 +55,27 @@ export async function deleteIngestRun(db: D1Database, runId: number): Promise<De
     feedback_memories: await countFirst(db, `SELECT COUNT(*) AS n FROM feedback_memories WHERE run_id = ?`, runId),
     orphan_posts: 0,
     progress_jobs: 0,
+    processing_logs: 0,
   };
 
+  deleted.processing_logs = await runDelete(
+    db,
+    `DELETE FROM processing_logs
+     WHERE processing_job_id IN (
+       SELECT id
+       FROM processing_queue
+       WHERE run_id = ?
+          OR progress_key = ?
+          OR progress_key LIKE ?
+          OR progress_key LIKE ?
+          OR progress_key LIKE ?
+     )`,
+    runId,
+    `run-${runId}`,
+    `translate-run-${runId}-%`,
+    `%-analyze-${runId}`,
+    `%-translate-${runId}`
+  );
   deleted.progress_jobs = await runDelete(
     db,
     `DELETE FROM analyze_jobs

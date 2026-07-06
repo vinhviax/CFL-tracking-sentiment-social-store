@@ -86,6 +86,9 @@ export const getTranslateProgress = (progressKey) =>
 export const listProcessingJobs = (params) =>
   api.get("/api/processing/jobs", { params }).then((r) => r.data);
 
+export const listProcessingJobLogs = (id, params) =>
+  api.get(`/api/processing/jobs/${id}/logs`, { params }).then((r) => r.data);
+
 export const cancelProcessingJob = (id) =>
   api.post(`/api/processing/jobs/${id}/cancel`).then((r) => r.data);
 

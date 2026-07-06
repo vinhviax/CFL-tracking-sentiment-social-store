@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { buildProvider } from "./llm/providers";
+import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
 export const DEFAULT_TRANSLATION_LOCALE = "zh-CN";
@@ -163,6 +164,7 @@ function normalizeTranslation(raw: any): TranslationResult | null {
 export async function runTranslation(
   env: Env,
   opts: {
+    jobId?: number;
     progressKey: string;
     locale?: string;
     commentIds?: number[];
@@ -203,11 +205,51 @@ export async function runTranslation(
   let done = 0;
   const batchSize = getTranslationBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
+  const groups = chunk(comments, batchSize);
 
   try {
-    await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
+    await mapWithConcurrency(groups, concurrency, async (group, index) => {
       await opts.shouldContinue?.();
-      const raw = await provider.completeJson(system, buildUser(group));
+      const batchIndex = index + 1;
+      const started = Date.now();
+      if (opts.jobId != null) {
+        await safeAddProcessingLog(env, {
+          processing_job_id: opts.jobId,
+          progress_key: opts.progressKey,
+          job_type: "translation",
+          level: "info",
+          phase: "llm_batch",
+          message: `Translation batch ${batchIndex}/${groups.length} started`,
+          batch_index: batchIndex,
+          batch_total: groups.length,
+          item_count: group.length,
+          provider: providerName,
+          model,
+        });
+      }
+      let raw: string;
+      try {
+        raw = await provider.completeJson(system, buildUser(group));
+      } catch (e: any) {
+        if (opts.jobId != null) {
+          await safeAddProcessingLog(env, {
+            processing_job_id: opts.jobId,
+            progress_key: opts.progressKey,
+            job_type: "translation",
+            level: "error",
+            phase: "llm_batch",
+            message: `Translation batch ${batchIndex}/${groups.length} failed`,
+            batch_index: batchIndex,
+            batch_total: groups.length,
+            item_count: group.length,
+            provider: providerName,
+            model,
+            duration_ms: Date.now() - started,
+            error: e?.message || String(e),
+          });
+        }
+        throw e;
+      }
       const byId = new Map<number, TranslationResult>();
       for (const t of parseTranslationResults(raw)) byId.set(t.id, t);
 
@@ -236,6 +278,22 @@ export async function runTranslation(
       await env.DB.batch(stmts);
       done += group.length;
       await setProgress(env, opts.progressKey, { done });
+      if (opts.jobId != null) {
+        await safeAddProcessingLog(env, {
+          processing_job_id: opts.jobId,
+          progress_key: opts.progressKey,
+          job_type: "translation",
+          level: "success",
+          phase: "llm_batch",
+          message: `Translation batch ${batchIndex}/${groups.length} completed`,
+          batch_index: batchIndex,
+          batch_total: groups.length,
+          item_count: group.length,
+          provider: providerName,
+          model,
+          duration_ms: Date.now() - started,
+        });
+      }
       await opts.shouldContinue?.();
     });
   } catch (e: any) {

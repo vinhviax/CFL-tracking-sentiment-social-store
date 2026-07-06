@@ -8,6 +8,7 @@ import {
   getTranslateProgress,
   ingestFacebook,
   ingestSensorTower,
+  listProcessingJobLogs,
   listProcessingJobs,
   listRuns,
   previewCsv,
@@ -43,6 +44,27 @@ function useProgressPoll(progressKey, loader) {
   }, [progressKey, loader]);
 
   return progress;
+}
+
+function useProcessingLogs(jobId, active) {
+  const [logs, setLogs] = useState([]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    let stop = false;
+    const tick = () => {
+      listProcessingJobLogs(jobId, { limit: 8 })
+        .then((items) => {
+          if (!stop) setLogs(items);
+        })
+        .catch(() => {});
+      if (active) setTimeout(tick, 2500);
+    };
+    tick();
+    return () => { stop = true; };
+  }, [jobId, active]);
+
+  return logs;
 }
 
 function parseRunNote(note) {
@@ -111,7 +133,7 @@ function ProcessingBadge({ status, progress, kind }) {
   );
 }
 
-function ProgressBlock({ title, progress, color, error, action }) {
+function ProgressBlock({ title, progress, color, error, action, children }) {
   return (
     <div className="processing-progress">
       <div className="progress-heading">
@@ -132,6 +154,37 @@ function ProgressBlock({ title, progress, color, error, action }) {
         />
       </div>
       {error && <div className="error-banner" style={{ marginTop: 8 }}>{error}</div>}
+      {children}
+    </div>
+  );
+}
+
+function formatLogDuration(ms) {
+  if (ms == null) return "";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function ProcessingLogList({ logs }) {
+  if (!logs?.length) {
+    return <div className="llm-log-empty">Chưa có log LLM cho task này.</div>;
+  }
+  return (
+    <div className="llm-log-list">
+      {logs.map((log) => (
+        <div className={`llm-log-row ${log.level}`} key={log.id}>
+          <span className="llm-log-time">{formatDateTime(log.created_at)}</span>
+          <span className="llm-log-message">{log.message}</span>
+          <span className="llm-log-meta">
+            {log.batch_index ? `Batch ${log.batch_index}/${log.batch_total || "?"}` : ""}
+            {log.item_count ? ` · ${log.item_count} comment` : ""}
+            {log.provider ? ` · ${log.provider}` : ""}
+            {log.model ? ` · ${log.model}` : ""}
+            {log.duration_ms != null ? ` · ${formatLogDuration(log.duration_ms)}` : ""}
+          </span>
+          {log.error && <span className="llm-log-error">{log.error}</span>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -174,10 +227,12 @@ function progressTitle(job, progress) {
 function TrackedProgressJob({ job, onComplete, onCancel, cancelling }) {
   const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
   const progress = useProgressPoll(job.progressKey, loader);
+  const isTerminal = ["done", "failed", "cancelled"].includes(progress?.status);
+  const logs = useProcessingLogs(job.id, !isTerminal);
 
   useEffect(() => {
-    if (["done", "failed", "cancelled"].includes(progress?.status)) onComplete?.();
-  }, [progress?.status, onComplete]);
+    if (isTerminal) onComplete?.();
+  }, [isTerminal, onComplete]);
 
   if (!progress) return null;
   const canCancel = job.id && !["done", "failed", "cancelled"].includes(progress.status);
@@ -196,7 +251,9 @@ function TrackedProgressJob({ job, onComplete, onCancel, cancelling }) {
           {cancelling ? "Đang hủy..." : "Hủy"}
         </button>
       ) : null}
-    />
+    >
+      {job.id && <ProcessingLogList logs={logs} />}
+    </ProgressBlock>
   );
 }
 

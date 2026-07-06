@@ -293,6 +293,7 @@ export async function drainProcessingQueue(
       await ensureNotCancelled();
       if (job.job_type === "analysis") {
         await deps.runAnalysis(env, {
+          jobId: job.id,
           runId: job.run_id,
           commentIds: job.comment_ids,
           progressKey: job.progress_key,
@@ -302,6 +303,7 @@ export async function drainProcessingQueue(
         if (job.run_id != null) await deps.discoverAndStoreRunMemory(env, { runId: job.run_id });
       } else {
         await deps.runTranslation(env, {
+          jobId: job.id,
           runId: job.run_id,
           commentIds: job.comment_ids,
           progressKey: job.progress_key,

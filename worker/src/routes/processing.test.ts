@@ -2,6 +2,7 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   cancelProcessingJob: vi.fn(),
+  listProcessingJobLogs: vi.fn(),
   listProcessingJobs: vi.fn(),
   drainProcessingQueue: vi.fn(),
 }));
@@ -10,6 +11,10 @@ vi.mock("../services/processingQueue", () => ({
   cancelProcessingJob: mocks.cancelProcessingJob,
   listProcessingJobs: mocks.listProcessingJobs,
   drainProcessingQueue: mocks.drainProcessingQueue,
+}));
+
+vi.mock("../services/processingLogs", () => ({
+  listProcessingJobLogs: mocks.listProcessingJobLogs,
 }));
 
 import { processingRoute } from "./processing";
@@ -29,6 +34,7 @@ describe("processingRoute", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cancelProcessingJob.mockResolvedValue({ id: 7, status: "cancelled" });
+    mocks.listProcessingJobLogs.mockResolvedValue([]);
     mocks.listProcessingJobs.mockResolvedValue([]);
     mocks.drainProcessingQueue.mockResolvedValue(undefined);
   });
@@ -74,5 +80,20 @@ describe("processingRoute", () => {
 
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ detail: "Processing job not found or already finished" });
+  });
+
+  test("lists LLM logs for a processing job", async () => {
+    const env = { DB: {} } as any;
+    mocks.listProcessingJobLogs.mockResolvedValue([
+      { id: 3, processing_job_id: 7, level: "success", message: "Batch 1 done", duration_ms: 1200 },
+    ]);
+
+    const res = await processingRoute.request("/jobs/7/logs?limit=10", {}, env, executionCtx());
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual([
+      { id: 3, processing_job_id: 7, level: "success", message: "Batch 1 done", duration_ms: 1200 },
+    ]);
+    expect(mocks.listProcessingJobLogs).toHaveBeenCalledWith(env, 7, { limit: 10 });
   });
 });
