@@ -3,7 +3,7 @@ import type { Env } from "../types";
 import { filterGroupCsvRows, getCsvDateRange, ingestCsv, parseRows } from "../services/csvIngest";
 import { ingestFacebook } from "../services/facebook";
 import { ingestSensorTower } from "../services/sensortower";
-import { SENSOR_TOWER_CURSOR_KEY } from "../services/sensortowerCursor";
+import { FACEBOOK_CURSOR_KEY, SENSOR_TOWER_CURSOR_KEY, upsertSourceCursor } from "../services/sensortowerCursor";
 import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
 
 export const ingestRoute = new Hono<{ Bindings: Env }>();
@@ -38,21 +38,27 @@ async function enqueueAutomatedProcessing(c: Context<{ Bindings: Env }>, run: In
 }
 
 ingestRoute.get("/status", async (c) => {
-  const cursor = await c.env.DB.prepare(`SELECT * FROM ingest_cursors WHERE key = ?`)
-    .bind(SENSOR_TOWER_CURSOR_KEY)
-    .first();
+  const cursors = await c.env.DB.prepare(`SELECT * FROM ingest_cursors WHERE key IN (?, ?) ORDER BY key`)
+    .bind(SENSOR_TOWER_CURSOR_KEY, FACEBOOK_CURSOR_KEY)
+    .all();
   const latestStoreRun = await c.env.DB.prepare(
     `SELECT * FROM ingest_runs WHERE source_type = 'store' ORDER BY id DESC LIMIT 1`
+  ).first();
+  const latestFacebookRun = await c.env.DB.prepare(
+    `SELECT * FROM ingest_runs WHERE source_type = 'fb_page' ORDER BY id DESC LIMIT 1`
   ).first();
   return c.json({
     cron: {
       utc: "45 6 * * *",
       bangkok_time: "13:45",
       timezone: "Asia/Bangkok",
-      cutoff: "yesterday",
+      cutoff: "today",
     },
-    sensortower_cursor: cursor,
+    cursors: cursors.results,
+    sensortower_cursor: cursors.results.find((row: any) => row.key === SENSOR_TOWER_CURSOR_KEY) || null,
+    facebook_cursor: cursors.results.find((row: any) => row.key === FACEBOOK_CURSOR_KEY) || null,
     latest_store_run: latestStoreRun,
+    latest_facebook_run: latestFacebookRun,
   });
 });
 
@@ -104,6 +110,7 @@ ingestRoute.post("/sensortower", async (c) => {
   const start = body.start_date || new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
   const run = await ingestSensorTower(c.env, start, end, body.countries);
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
+  await upsertSourceCursor(c.env, SENSOR_TOWER_CURSOR_KEY, end, run.id);
   const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-store");
   return c.json({ ...run, auto_processing });
 });
@@ -119,6 +126,7 @@ ingestRoute.post("/facebook", async (c) => {
     post_limit: postLimit,
   });
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
+  if (requestedUntil) await upsertSourceCursor(c.env, FACEBOOK_CURSOR_KEY, requestedUntil, run.id);
   const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-facebook");
   return c.json({ ...run, auto_processing });
 });

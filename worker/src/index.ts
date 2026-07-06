@@ -14,7 +14,14 @@ import { ingestFacebook } from "./services/facebook";
 import { buildProvider } from "./services/llm/providers";
 import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "./services/processingQueue";
 import { ingestSensorTower } from "./services/sensortower";
-import { buildSensorTowerCatchupDates, seedSensorTowerCursor, upsertSensorTowerCursor } from "./services/sensortowerCursor";
+import {
+  addDays,
+  buildCursorCatchupRange,
+  FACEBOOK_CURSOR_KEY,
+  seedSourceCursor,
+  SENSOR_TOWER_CURSOR_KEY,
+  upsertSourceCursor,
+} from "./services/sensortowerCursor";
 import {
   PROMPT_VERSION,
   SENTIMENT_LABELS_VI,
@@ -70,15 +77,20 @@ export default {
   },
 };
 
-async function dailyJob(env: Env) {
+export async function dailyJob(env: Env) {
   try {
-    const cursor = await seedSensorTowerCursor(env);
-    const dates = buildSensorTowerCatchupDates(cursor);
-    for (const date of dates) {
-      const run = await ingestSensorTower(env, date, date, undefined, { mode: "scheduled_cursor", cursor_key: "sensortower_store" });
-      console.log(`sensortower: date=${date} status=${run.status} new=${run.rows_new}`);
-      if (run.status !== "done") break;
-      await upsertSensorTowerCursor(env, date, run.id);
+    const cursor = await seedSourceCursor(env, { key: SENSOR_TOWER_CURSOR_KEY, sourceType: "store" });
+    const range = buildCursorCatchupRange(cursor);
+    if (range) {
+      const run = await ingestSensorTower(env, range.startDate, range.endDate, undefined, {
+        mode: "scheduled_cursor",
+        cursor_key: SENSOR_TOWER_CURSOR_KEY,
+        start_date: range.startDate,
+        end_date: range.endDate,
+      });
+      console.log(`sensortower: range=${range.startDate}..${range.endDate} status=${run.status} new=${run.rows_new}`);
+      if (run.status !== "done") throw new Error(run.error || "Sensor Tower scheduled ingest failed");
+      await upsertSourceCursor(env, SENSOR_TOWER_CURSOR_KEY, range.endDate, run.id);
       if (run.rows_new > 0) {
         await enqueueProcessingJobs(env, buildRunProcessingJobs(run.id, "scheduled-store"));
         await drainProcessingQueue(env);
@@ -89,11 +101,23 @@ async function dailyJob(env: Env) {
   }
 
   try {
-    const run = await ingestFacebook(env);
-    console.log(`facebook: status=${run.status} new=${run.rows_new}`);
-    if (run.status === "done" && run.rows_new > 0) {
-      await enqueueProcessingJobs(env, buildRunProcessingJobs(run.id, "scheduled-facebook"));
-      await drainProcessingQueue(env);
+    const cursor = await seedSourceCursor(env, { key: FACEBOOK_CURSOR_KEY, sourceType: "fb_page" });
+    const range = buildCursorCatchupRange(cursor);
+    if (range) {
+      const run = await ingestFacebook(env, range.startDate, addDays(range.endDate, 1), 50, {
+        mode: "scheduled_cursor",
+        cursor_key: FACEBOOK_CURSOR_KEY,
+        start_date: range.startDate,
+        end_date: range.endDate,
+        post_limit: 50,
+      });
+      console.log(`facebook: range=${range.startDate}..${range.endDate} status=${run.status} new=${run.rows_new}`);
+      if (run.status !== "done") throw new Error(run.error || "Facebook scheduled ingest failed");
+      await upsertSourceCursor(env, FACEBOOK_CURSOR_KEY, range.endDate, run.id);
+      if (run.rows_new > 0) {
+        await enqueueProcessingJobs(env, buildRunProcessingJobs(run.id, "scheduled-facebook"));
+        await drainProcessingQueue(env);
+      }
     }
   } catch (e) {
     console.error("facebook scheduled ingest failed", e);

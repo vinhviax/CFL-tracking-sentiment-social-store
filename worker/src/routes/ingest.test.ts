@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   parseRows: vi.fn(),
   ingestFacebook: vi.fn(),
   ingestSensorTower: vi.fn(),
+  upsertSourceCursor: vi.fn(),
   enqueueProcessingJobs: vi.fn(),
   drainProcessingQueue: vi.fn(),
 }));
@@ -34,6 +35,8 @@ vi.mock("../services/sensortower", () => ({
 }));
 vi.mock("../services/sensortowerCursor", () => ({
   SENSOR_TOWER_CURSOR_KEY: "sensortower_store",
+  FACEBOOK_CURSOR_KEY: "facebook_page",
+  upsertSourceCursor: mocks.upsertSourceCursor,
 }));
 vi.mock("../services/processingQueue", () => ({
   buildRunProcessingJobs: (runId: number, progressPrefix: string, locale = "zh-CN") => [
@@ -70,6 +73,7 @@ describe("ingestRoute automated processing", () => {
     vi.clearAllMocks();
     mocks.enqueueProcessingJobs.mockResolvedValue(undefined);
     mocks.drainProcessingQueue.mockResolvedValue(undefined);
+    mocks.upsertSourceCursor.mockResolvedValue(undefined);
   });
 
   test("queues analysis then zh-CN translation after manual Store ingest", async () => {
@@ -106,6 +110,7 @@ describe("ingestRoute automated processing", () => {
       { job_type: "translation", run_id: 51, progress_key: "ingest-store-translate-51", locale: "zh-CN" },
     ]);
     expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(testEnv);
+    expect(mocks.upsertSourceCursor).toHaveBeenCalledWith(testEnv, "sensortower_store", "2026-07-06", 51);
   });
 
   test("queues analysis then zh-CN translation after manual Facebook ingest", async () => {
@@ -158,6 +163,7 @@ describe("ingestRoute automated processing", () => {
       end_date: "2026-07-06",
       post_limit: 50,
     });
+    expect(mocks.upsertSourceCursor).toHaveBeenCalledWith(testEnv, "facebook_page", "2026-07-06", 55);
   });
 
   test("queues analysis then zh-CN translation after CSV Group upload", async () => {
