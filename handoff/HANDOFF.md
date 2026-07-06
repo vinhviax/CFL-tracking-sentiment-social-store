@@ -15,6 +15,14 @@ Ban giao cho agent/session tiep theo.
 - Cron Worker dang la `45 6 * * *`, tuc 13:45 GMT+7 moi ngay.
 - LLM provider production dang cau hinh `llm_viax`; classify model `ag/gemini-3-flash-agent`; insight model `codex-lb/gpt-5.4`.
 - Neu can commit/deploy moi, chay test/build/typecheck truoc, sau do commit, push, deploy Worker, deploy Pages va verify production.
+- Code commit da push va deploy trong phien nay: `1567359` (`Improve feedback filters and ingest controls`).
+- Worker version da deploy: `543e820f-f406-4d29-8bcc-cbadec938b5a`.
+- Pages deployment URL da tao: `https://25642ba6.cfl-feedback.pages.dev`.
+- Production verify luc 2026-07-06 23:00 GMT+7:
+  - Worker health tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v2`.
+  - Worker meta tra `prompt_version: v2`.
+  - DELETE `/api/runs/0` tra HTTP `400`, xac nhan route delete moi da co va khong xoa du lieu that.
+  - `https://cfl-feedback.pages.dev` tra HTTP `200`.
 
 ## Viec da lam trong phien nay
 
@@ -30,6 +38,11 @@ Ban giao cho agent/session tiep theo.
 - Da kiem tra production read-only cho ingest #1 va #7: #1 co ca `fb_group_csv` va `fb_page`, #7 la `fb_page`, khong thay overlap duplicate giua #1 va #7 theo hash hoac created_at + message.
 - Ingest Settings co nut xoa tung ingest run. Backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
 - Da them/cap nhat test cho stats Store, helper filter UI, CSV guardrail/duplicate, auto enqueue sau ingest va delete ingest run.
+- Kiem chung truoc deploy tren clean temp copy:
+  - Worker `npm test`: 14 file test, 36 test pass.
+  - Worker `npm run typecheck`: pass.
+  - Frontend `node --test src/pages/FeedbackWorkspace.helpers.test.js src/pages/IngestSettings.ui.test.js`: 8 test pass.
+  - Frontend `npm run build`: pass, chi co warning chunk size cua Vite.
 
 ## Luu y quan trong
 
