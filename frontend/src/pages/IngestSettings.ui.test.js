@@ -79,6 +79,18 @@ test("tracked processing rows show recent LLM batch logs", () => {
   assert.match(source, /log\.batch_index/);
 });
 
+test("Ingest Settings exposes LLM Agent configuration for reasoning and simple slots", () => {
+  assert.match(source, /getLlmAgentConfig/);
+  assert.match(source, /saveLlmAgentConfig/);
+  assert.match(source, /function LlmAgentConfigDialog/);
+  assert.match(source, /Cấu hình LLM Agent/);
+  assert.match(source, /reasoning/);
+  assert.match(source, /simple/);
+  assert.match(source, /providerOptions/);
+  assert.match(source, /api_key/);
+  assert.match(source, /endpoint_url/);
+});
+
 test("manual run translation does not cap large ingest runs", () => {
   assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN" \}\)/);
   assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);

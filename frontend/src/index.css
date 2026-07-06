@@ -1579,6 +1579,122 @@ tbody tr {
   font-weight: 800;
 }
 
+.system-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0 0 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 42px 18px;
+  overflow-y: auto;
+  background: color-mix(in srgb, #000000 42%, transparent);
+}
+
+.modal-panel {
+  width: min(860px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0 0 4px;
+}
+
+.modal-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.llm-config-stack {
+  display: grid;
+  gap: 14px;
+  padding: 16px 20px 20px;
+}
+
+.llm-config-slot {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.llm-config-slot-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.llm-config-slot-head h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.llm-config-slot-head small,
+.llm-config-actions span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.llm-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.llm-config-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.llm-config-grid input,
+.llm-config-grid select {
+  min-width: 0;
+}
+
+.llm-config-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 @keyframes surfaceIn {
   from {
     opacity: 0;
@@ -1668,5 +1784,16 @@ tbody tr {
 
   .rating-row {
     grid-template-columns: 58px minmax(0, 1fr) 46px;
+  }
+
+  .modal-header,
+  .llm-config-slot-head,
+  .llm-config-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .llm-config-grid {
+    grid-template-columns: 1fr;
   }
 }

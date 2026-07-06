@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
-import { buildProvider } from "./llm/providers";
+import { resolveLlmProvider } from "./llmAgentConfig";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
@@ -176,13 +176,7 @@ export async function runTranslation(
   }
 ) {
   const locale = opts.locale || DEFAULT_TRANSLATION_LOCALE;
-  const provider = buildProvider(env.LLM_PROVIDER, getTranslationModel(env), {
-    anthropicKey: env.ANTHROPIC_API_KEY,
-    openaiKey: env.OPENAI_API_KEY,
-    baseUrl: env.LLM_BASE_URL,
-    llmViaxKey: env.LLM_VIAX_API_KEY,
-    llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-  });
+  const provider = await resolveLlmProvider(env, "simple");
   const providerName = provider?.name ?? "unavailable";
   const model = provider?.model ?? null;
 

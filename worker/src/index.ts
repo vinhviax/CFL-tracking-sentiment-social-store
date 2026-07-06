@@ -5,6 +5,7 @@ import { commentsRoute } from "./routes/comments";
 import { exportRoute } from "./routes/export";
 import { ingestRoute } from "./routes/ingest";
 import { insightsRoute } from "./routes/insights";
+import { llmConfigRoute } from "./routes/llmConfig";
 import { postsRoute } from "./routes/posts";
 import { processingRoute } from "./routes/processing";
 import { runsRoute } from "./routes/runs";
@@ -59,6 +60,7 @@ app.get("/api/meta", (c) =>
 );
 
 app.route("/api/ingest", ingestRoute);
+app.route("/api/llm-config", llmConfigRoute);
 app.route("/api/analyze", analyzeRoute);
 app.route("/api/comments", commentsRoute);
 app.route("/api/runs", runsRoute);

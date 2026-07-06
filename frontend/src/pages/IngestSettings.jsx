@@ -5,6 +5,7 @@ import {
   getAnalyzeProgress,
   getHealth,
   getIngestStatus,
+  getLlmAgentConfig,
   getTranslateProgress,
   ingestFacebook,
   ingestSensorTower,
@@ -13,6 +14,7 @@ import {
   listRuns,
   previewCsv,
   runAnalyze,
+  saveLlmAgentConfig,
   runTranslate,
   uploadCsv,
 } from "../api/client.js";
@@ -21,6 +23,33 @@ import { StatusPill } from "../components/Badges.jsx";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 
 const FACEBOOK_POST_LIMIT = 50;
+const providerOptions = [
+  { value: "openai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "gemini", label: "Gemini" },
+  { value: "custom", label: "Custom" },
+];
+
+const slotLabels = {
+  reasoning: "Suy luận",
+  simple: "Đơn giản",
+};
+
+function defaultSlotState(slot, llmConfig) {
+  const saved = llmConfig?.configs?.find((item) => item.slot === slot);
+  const fallback = llmConfig?.defaults?.[slot] || {};
+  return {
+    enabled: saved?.enabled || false,
+    provider: saved?.provider || "custom",
+    endpoint_url: saved?.endpoint_url || "",
+    model: saved?.model || fallback.model || "",
+    api_key: "",
+    api_key_masked: saved?.api_key_masked || "",
+    has_api_key: saved?.has_api_key || false,
+    fallback_provider: fallback.provider || "",
+    fallback_model: fallback.model || "",
+  };
+}
 
 function useProgressPoll(progressKey, loader) {
   const [progress, setProgress] = useState(null);
@@ -257,6 +286,124 @@ function TrackedProgressJob({ job, onComplete, onCancel, cancelling }) {
   );
 }
 
+function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave }) {
+  const [form, setForm] = useState(() => defaultSlotState(slot, llmConfig));
+
+  useEffect(() => {
+    setForm(defaultSlotState(slot, llmConfig));
+  }, [slot, llmConfig]);
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const submit = (event) => {
+    event.preventDefault();
+    onSave(slot, {
+      enabled: form.enabled,
+      provider: form.provider,
+      endpoint_url: form.endpoint_url,
+      model: form.model,
+      ...(form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
+    });
+  };
+
+  return (
+    <form className="llm-config-slot" onSubmit={submit}>
+      <div className="llm-config-slot-head">
+        <div>
+          <h4>{slotLabels[slot]}</h4>
+          <small>Default: {form.fallback_provider || "worker"} · {form.fallback_model || "—"}</small>
+        </div>
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(event) => update("enabled", event.target.checked)}
+          />
+          <span>Bật override</span>
+        </label>
+      </div>
+
+      <div className="llm-config-grid">
+        <label>
+          <span>Provider</span>
+          <select value={form.provider} onChange={(event) => update("provider", event.target.value)}>
+            {providerOptions.map((option) => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Model</span>
+          <input value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="model-name" />
+        </label>
+        <label>
+          <span>Endpoint</span>
+          <input
+            value={form.endpoint_url}
+            onChange={(event) => update("endpoint_url", event.target.value)}
+            placeholder={form.provider === "custom" ? "https://host/v1" : "Mặc định provider"}
+          />
+        </label>
+        <label>
+          <span>API key</span>
+          <input
+            type="password"
+            value={form.api_key}
+            onChange={(event) => update("api_key", event.target.value)}
+            placeholder={form.api_key_masked || "Giữ trống để không đổi"}
+            autoComplete="off"
+          />
+        </label>
+      </div>
+
+      {error && <div className="error-banner">{error}</div>}
+      <div className="llm-config-actions">
+        <span>{form.has_api_key ? `Đã lưu key ${form.api_key_masked}` : "Chưa có key riêng"}</span>
+        <button className="btn btn-secondary" disabled={saving} type="submit">
+          {saving ? "Đang lưu..." : `Lưu ${slotLabels[slot]}`}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onClose, onSave }) {
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-panel llm-config-dialog" role="dialog" aria-modal="true" aria-label="Cấu hình LLM Agent">
+        <div className="modal-header">
+          <div>
+            <h3>Cấu hình LLM Agent</h3>
+            <p>Phân tích dùng Suy luận; dịch zh-CN dùng Đơn giản.</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
+        </div>
+        {loading ? (
+          <div className="empty-state">Đang tải cấu hình...</div>
+        ) : (
+          <div className="llm-config-stack">
+            <LlmAgentSlotForm
+              slot="reasoning"
+              llmConfig={llmConfig}
+              saving={savingSlot === "reasoning"}
+              error={error?.slot === "reasoning" ? error.message : null}
+              onSave={onSave}
+            />
+            <LlmAgentSlotForm
+              slot="simple"
+              llmConfig={llmConfig}
+              saving={savingSlot === "simple"}
+              error={error?.slot === "simple" ? error.message : null}
+              onSave={onSave}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function IngestSettings() {
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null);
@@ -280,6 +427,11 @@ export default function IngestSettings() {
   const [deleteError, setDeleteError] = useState(null);
   const [health, setHealth] = useState(null);
   const [ingestStatus, setIngestStatus] = useState(null);
+  const [llmConfigOpen, setLlmConfigOpen] = useState(false);
+  const [llmConfig, setLlmConfig] = useState(null);
+  const [llmConfigLoading, setLlmConfigLoading] = useState(false);
+  const [llmSavingSlot, setLlmSavingSlot] = useState(null);
+  const [llmConfigError, setLlmConfigError] = useState(null);
 
   const loadRuns = useCallback(() => {
     listRuns({ limit: 20 }).then(setRuns).catch(() => {});
@@ -287,6 +439,14 @@ export default function IngestSettings() {
 
   const loadIngestStatus = useCallback(() => {
     getIngestStatus().then(setIngestStatus).catch(() => {});
+  }, []);
+
+  const loadLlmConfig = useCallback(() => {
+    setLlmConfigLoading(true);
+    getLlmAgentConfig()
+      .then(setLlmConfig)
+      .catch((e) => setLlmConfigError({ slot: "global", message: e?.response?.data?.detail || e.message }))
+      .finally(() => setLlmConfigLoading(false));
   }, []);
 
   const loadTrackedJobs = useCallback(() => {
@@ -313,7 +473,23 @@ export default function IngestSettings() {
     loadTrackedJobs();
     getHealth().then(setHealth).catch(() => {});
     loadIngestStatus();
-  }, [loadRuns, loadTrackedJobs, loadIngestStatus]);
+    loadLlmConfig();
+  }, [loadRuns, loadTrackedJobs, loadIngestStatus, loadLlmConfig]);
+
+  function openLlmConfig() {
+    setLlmConfigError(null);
+    setLlmConfigOpen(true);
+    loadLlmConfig();
+  }
+
+  function saveLlmConfigSlot(slot, payload) {
+    setLlmSavingSlot(slot);
+    setLlmConfigError(null);
+    saveLlmAgentConfig(slot, payload)
+      .then(() => loadLlmConfig())
+      .catch((e) => setLlmConfigError({ slot, message: e?.response?.data?.detail || e.message }))
+      .finally(() => setLlmSavingSlot(null));
+  }
 
   function enqueueTrackedJobs(jobs) {
     setTrackedJobs((current) => {
@@ -592,6 +768,11 @@ export default function IngestSettings() {
           <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
 
           <h3 style={{ marginTop: 0 }}>Trạng thái hệ thống</h3>
+          <div className="system-actions">
+            <button className="btn btn-secondary" type="button" onClick={openLlmConfig}>
+              Cấu hình LLM Agent
+            </button>
+          </div>
           {health ? (
             <table>
               <tbody>
@@ -666,6 +847,15 @@ export default function IngestSettings() {
           </div>
         )}
       </div>
+      <LlmAgentConfigDialog
+        open={llmConfigOpen}
+        llmConfig={llmConfig}
+        loading={llmConfigLoading}
+        savingSlot={llmSavingSlot}
+        error={llmConfigError}
+        onClose={() => setLlmConfigOpen(false)}
+        onSave={saveLlmConfigSlot}
+      />
     </>
   );
 }

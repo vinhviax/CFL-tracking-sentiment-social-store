@@ -1,6 +1,6 @@
 import { isTopic, TOPIC_LABELS_VI, type Topic } from "../taxonomy";
 import type { Env } from "../types";
-import { buildProvider } from "./llm/providers";
+import { resolveLlmProvider } from "./llmAgentConfig";
 import { isGenericMajorTopicKeyword, normalizeTopicText } from "./topicKeywords";
 
 export const MEMORY_ACTIVE_EVIDENCE_THRESHOLD = 3;
@@ -275,13 +275,7 @@ async function loadExistingSubtopics(env: Env, parentTopics: string[]): Promise<
 async function discoverCandidates(env: Env, comments: RunCommentForMemory[]): Promise<{ candidates: SubtopicCandidate[]; provider: string; model: string | null }> {
   const parentTopics = [...new Set(comments.map((c) => c.topic_main).filter(isTopic))];
   const existing = await loadExistingSubtopics(env, parentTopics);
-  const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
-    anthropicKey: env.ANTHROPIC_API_KEY,
-    openaiKey: env.OPENAI_API_KEY,
-    baseUrl: env.LLM_BASE_URL,
-    llmViaxKey: env.LLM_VIAX_API_KEY,
-    llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-  });
+  const provider = await resolveLlmProvider(env, "reasoning");
 
   if (!provider) return { candidates: fallbackCandidates(comments), provider: "fallback", model: null };
 

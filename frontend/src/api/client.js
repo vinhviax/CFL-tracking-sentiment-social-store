@@ -6,6 +6,10 @@ const api = axios.create({
 
 export const getHealth = () => api.get("/api/health").then((r) => r.data);
 export const getMeta = () => api.get("/api/meta").then((r) => r.data);
+export const getLlmAgentConfig = () =>
+  api.get("/api/llm-config").then((r) => r.data);
+export const saveLlmAgentConfig = (slot, payload) =>
+  api.put(`/api/llm-config/${slot}`, payload).then((r) => r.data);
 
 export const getOverview = (params) =>
   api.get("/api/stats/overview", { params }).then((r) => r.data);

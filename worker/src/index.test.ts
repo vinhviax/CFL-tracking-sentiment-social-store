@@ -15,6 +15,7 @@ vi.mock("./routes/comments", () => ({ commentsRoute: { routes: [] } }));
 vi.mock("./routes/export", () => ({ exportRoute: { routes: [] } }));
 vi.mock("./routes/ingest", () => ({ ingestRoute: { routes: [] } }));
 vi.mock("./routes/insights", () => ({ insightsRoute: { routes: [] } }));
+vi.mock("./routes/llmConfig", () => ({ llmConfigRoute: { routes: [] } }));
 vi.mock("./routes/posts", () => ({ postsRoute: { routes: [] } }));
 vi.mock("./routes/processing", () => ({ processingRoute: { routes: [] } }));
 vi.mock("./routes/runs", () => ({ runsRoute: { routes: [] } }));

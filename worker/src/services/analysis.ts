@@ -7,6 +7,7 @@ import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { CommentInput } from "./llm/base";
 import { ClassifierService } from "./llm/classifier";
+import { resolveLlmProvider } from "./llmAgentConfig";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
@@ -99,7 +100,8 @@ export async function runAnalysis(
     shouldContinue?: () => Promise<void> | void;
   }
 ) {
-  const svc = new ClassifierService(env);
+  const provider = await resolveLlmProvider(env, "reasoning");
+  const svc = new ClassifierService(env, provider);
   await opts.shouldContinue?.();
   const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
   const previousProgress = await getProgressJob(env, opts.progressKey);

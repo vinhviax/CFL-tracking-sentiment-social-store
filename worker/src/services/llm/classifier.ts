@@ -4,6 +4,7 @@ import { TOPIC_KEYWORD_HINTS } from "../topicKeywords";
 import { Classification, CommentInput, validateClassification } from "./base";
 import { classifyFallback } from "./fallback";
 import { buildProvider } from "./providers";
+import type { LLMProvider } from "./base";
 
 const SYSTEM = `Bạn là chuyên gia phân tích phản hồi người chơi cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Người chơi bình luận bằng tiếng Việt, nhiều teencode/viết tắt. Một số quy ước: "văng"/"vang" = crash, "hút máu"/"p2w" = pay-to-win, "dis" = mất kết nối, "nạp" = nạp tiền, "gà"/"noob" = chơi kém, "acc"/"nick" = tài khoản.
 
@@ -74,14 +75,16 @@ export class ClassifierService {
   private provider;
   private batchSize: number;
 
-  constructor(env: Env) {
-    this.provider = buildProvider(env.LLM_PROVIDER, env.LLM_CLASSIFY_MODEL, {
-      anthropicKey: env.ANTHROPIC_API_KEY,
-      openaiKey: env.OPENAI_API_KEY,
-      baseUrl: env.LLM_BASE_URL,
-      llmViaxKey: env.LLM_VIAX_API_KEY,
-      llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-    });
+  constructor(env: Env, providerOverride?: LLMProvider | null) {
+    this.provider = providerOverride === undefined
+      ? buildProvider(env.LLM_PROVIDER, env.LLM_CLASSIFY_MODEL, {
+        anthropicKey: env.ANTHROPIC_API_KEY,
+        openaiKey: env.OPENAI_API_KEY,
+        baseUrl: env.LLM_BASE_URL,
+        llmViaxKey: env.LLM_VIAX_API_KEY,
+        llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
+      })
+      : providerOverride;
     this.providerName = this.provider?.name ?? "fallback";
     this.model = this.provider?.model ?? null;
     this.batchSize = Number(env.CLASSIFY_BATCH_SIZE) || 30;
