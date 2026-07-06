@@ -53,7 +53,7 @@ ingestRoute.post("/sensortower", async (c) => {
 
 ingestRoute.post("/facebook", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const run = await ingestFacebook(c.env, body.since, body.until, body.post_limit || 25);
+  const run = await ingestFacebook(c.env, body.since, body.until, body.post_limit || 10);
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
   return c.json(run);
 });
