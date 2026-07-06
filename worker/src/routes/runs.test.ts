@@ -1,5 +1,15 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  deleteIngestRun: vi.fn(),
+}));
+
+vi.mock("../services/deleteIngestRun", () => ({
+  deleteIngestRun: mocks.deleteIngestRun,
+}));
+
 import { mapRunRow } from "./runs";
+import { runsRoute } from "./runs";
 
 describe("mapRunRow", () => {
   test("adds analysis and zh-CN translation status for completed runs", () => {
@@ -38,5 +48,33 @@ describe("mapRunRow", () => {
 
     expect(got.analysis_status).toBe("partial");
     expect(got.translation_status).toBe("not_started");
+  });
+});
+
+describe("runsRoute delete", () => {
+  test("deletes an ingest run and returns deleted counts", async () => {
+    const env = { DB: {} } as any;
+    mocks.deleteIngestRun.mockResolvedValue({
+      id: 13,
+      source_type: "store",
+      deleted: { comments: 141, analyses: 141, translations: 141 },
+    });
+
+    const res = await runsRoute.request("/13", { method: "DELETE" }, env);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      id: 13,
+      deleted: { comments: 141 },
+    });
+    expect(mocks.deleteIngestRun).toHaveBeenCalledWith(env.DB, 13);
+  });
+
+  test("returns 404 when deleting a missing ingest run", async () => {
+    mocks.deleteIngestRun.mockResolvedValue(null);
+
+    const res = await runsRoute.request("/999", { method: "DELETE" }, { DB: {} } as any);
+
+    expect(res.status).toBe(404);
   });
 });

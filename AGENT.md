@@ -33,7 +33,7 @@ Khong them README/BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nh
 ## Git va deploy
 
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
-- Branch lam viec hien tai: `codex/sensortower-zh-workspace`
+- Branch lam viec hien tai: `main`
 - Khi user yeu cau push/deploy:
   - Chay test/build lien quan truoc.
   - Commit ro noi dung.

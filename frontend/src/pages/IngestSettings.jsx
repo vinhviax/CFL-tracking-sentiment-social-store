@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteIngestRun,
   getAnalyzeProgress,
   getHealth,
   getIngestStatus,
@@ -20,11 +21,13 @@ function useProgressPoll(progressKey, loader) {
   useEffect(() => {
     if (!progressKey) return;
     let stop = false;
+    let unknownTries = 0;
     const tick = () => {
       loader(progressKey).then((p) => {
         if (stop) return;
         setProgress(p);
-        if (!["done", "failed", "unknown"].includes(p.status)) {
+        unknownTries = p.status === "unknown" ? unknownTries + 1 : 0;
+        if (!["done", "failed"].includes(p.status) && unknownTries < 20) {
           setTimeout(tick, 1200);
         }
       });
@@ -134,6 +137,7 @@ export default function IngestSettings() {
   const [lastRun, setLastRun] = useState(null);
   const [progressKey, setProgressKey] = useState(null);
   const [translateKey, setTranslateKey] = useState(null);
+  const [queuedTranslateKey, setQueuedTranslateKey] = useState(null);
   const [analysisTarget, setAnalysisTarget] = useState(null);
   const [translationTarget, setTranslationTarget] = useState(null);
 
@@ -145,6 +149,8 @@ export default function IngestSettings() {
   const [fbError, setFbError] = useState(null);
 
   const [runs, setRuns] = useState([]);
+  const [deletingRunId, setDeletingRunId] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
   const [health, setHealth] = useState(null);
   const [ingestStatus, setIngestStatus] = useState(null);
 
@@ -166,8 +172,27 @@ export default function IngestSettings() {
   }, [progress?.status, loadRuns]);
 
   useEffect(() => {
+    if (progress?.status === "done" && queuedTranslateKey) {
+      setTranslateKey(queuedTranslateKey);
+      setQueuedTranslateKey(null);
+    }
+    if (progress?.status === "failed") setQueuedTranslateKey(null);
+  }, [progress?.status, queuedTranslateKey]);
+
+  useEffect(() => {
     if (["done", "failed"].includes(translateProgress?.status)) loadRuns();
   }, [translateProgress?.status, loadRuns]);
+
+  function trackAutoProcessing(run) {
+    const auto = run?.auto_processing;
+    if (!auto?.queued) return false;
+    setAnalysisTarget(run);
+    setTranslationTarget(run);
+    setProgressKey(auto.analysis_progress_key);
+    setTranslateKey(null);
+    setQueuedTranslateKey(auto.translation_progress_key || null);
+    return true;
+  }
 
   const onFileSelect = (selectedFile) => {
     if (!selectedFile) return;
@@ -187,6 +212,7 @@ export default function IngestSettings() {
         setLastRun(run);
         setPreview(null);
         setFile(null);
+        trackAutoProcessing(run);
         loadRuns();
       })
       .catch((e) => setUploadError(e?.response?.data?.detail || e.message))
@@ -198,6 +224,7 @@ export default function IngestSettings() {
   const startAnalyze = (run) => {
     const target = resolveRun(run);
     setAnalysisTarget(target);
+    setQueuedTranslateKey(null);
     runAnalyze({ run_id: target.id, only_unanalyzed: true })
       .then((r) => setProgressKey(r.progress_key));
   };
@@ -205,15 +232,36 @@ export default function IngestSettings() {
   const startTranslate = (run) => {
     const target = resolveRun(run);
     setTranslationTarget(target);
+    setQueuedTranslateKey(null);
     runTranslate({ run_id: target.id, locale: "zh-CN", limit: 300 })
       .then((r) => setTranslateKey(r.progress_key));
   };
+
+  function deleteRun(run) {
+    const answer = window.prompt(
+      `Xóa Ingest #${run.id} sẽ xóa toàn bộ comment, phân tích, dịch zh-CN và memory/subtopic gắn với run này.\nGõ XOA để xác nhận.`
+    );
+    if (answer !== "XOA") return;
+    setDeletingRunId(run.id);
+    setDeleteError(null);
+    deleteIngestRun(run.id)
+      .then(() => {
+        if (lastRun?.id === run.id) setLastRun(null);
+        loadRuns();
+      })
+      .catch((e) => setDeleteError(e?.response?.data?.detail || e.message))
+      .finally(() => setDeletingRunId(null));
+  }
 
   const pullSensorTower = () => {
     setStBusy(true);
     setStError(null);
     ingestSensorTower(stRange)
-      .then((run) => { loadRuns(); startAnalyze(run); })
+      .then((run) => {
+        setLastRun(run);
+        trackAutoProcessing(run);
+        loadRuns();
+      })
       .catch((e) => setStError(e?.response?.data?.detail || e.message))
       .finally(() => setStBusy(false));
   };
@@ -222,7 +270,11 @@ export default function IngestSettings() {
     setFbBusy(true);
     setFbError(null);
     ingestFacebook({})
-      .then((run) => { loadRuns(); startAnalyze(run); })
+      .then((run) => {
+        setLastRun(run);
+        trackAutoProcessing(run);
+        loadRuns();
+      })
       .catch((e) => setFbError(e?.response?.data?.detail || e.message))
       .finally(() => setFbBusy(false));
   };
@@ -230,7 +282,10 @@ export default function IngestSettings() {
   return (
     <>
       <h2 className="page-title">Ingest &amp; Cài đặt</h2>
-      <p className="page-subtitle">Nạp dữ liệu mới, phân loại LLM và dịch zh-CN có kiểm soát.</p>
+      <p className="page-subtitle">Nạp dữ liệu mới; hệ thống tự xếp hàng phân loại LLM rồi dịch zh-CN.</p>
+      <p className="queue-note">
+        Sau mỗi lần kéo/upload thành công: Phân loại LLM -&gt; ghi nhớ chủ đề con -&gt; dịch zh-CN. Nút trong lịch sử chỉ dùng để chạy lại khi cần.
+      </p>
 
       <div className="two-col">
         <div className="panel">
@@ -255,7 +310,20 @@ export default function IngestSettings() {
 
           {preview && (
             <>
-              <p>Tổng <b>{preview.total_rows}</b> dòng. Xem trước 10 dòng đầu:</p>
+              <p>
+                Tổng <b>{preview.total_rows}</b> dòng; sẽ nhập <b>{preview.group_rows ?? preview.total_rows}</b> dòng Facebook Group.
+              </p>
+              {preview.skipped_non_group_rows > 0 && (
+                <div className="warning-banner">
+                  Bỏ qua {preview.skipped_non_group_rows} dòng không có cột A = Group (ví dụ Fanpage).
+                </div>
+              )}
+              {preview.group_rows === 0 && (
+                <div className="error-banner">
+                  File này không có dòng Group hợp lệ, nên không thể nạp vào Facebook Group CSV.
+                </div>
+              )}
+              <p className="progress-caption">Xem trước tối đa 10 dòng Group đầu tiên:</p>
               <table>
                 <thead><tr><th>Nguồn</th><th>Ngày</th><th>Bình luận</th></tr></thead>
                 <tbody>
@@ -268,17 +336,17 @@ export default function IngestSettings() {
                   ))}
                 </tbody>
               </table>
-              <button className="btn" disabled={uploading} onClick={confirmUpload} style={{ marginTop: 12 }}>
-                {uploading ? "Đang nạp..." : "Xác nhận nạp dữ liệu"}
+              <button className="btn" disabled={uploading || preview.group_rows === 0} onClick={confirmUpload} style={{ marginTop: 12 }}>
+                {uploading ? "Đang nạp..." : preview.group_rows === 0 ? "Không có dòng Group để nạp" : "Xác nhận nạp dữ liệu Group"}
               </button>
             </>
           )}
 
           {lastRun && (
             <div style={{ marginTop: 14 }}>
-              <p>Đã nạp {lastRun.rows_new}/{lastRun.rows_fetched} dòng mới ({runTitle(lastRun)}).</p>
+              <p>Đã nạp {lastRun.rows_new}/{lastRun.rows_fetched} dòng mới ({runTitle(lastRun)}). Hệ thống đã tự xếp hàng phân loại rồi dịch zh-CN.</p>
               <button className="btn btn-secondary" onClick={() => startAnalyze(lastRun)}>
-                Chạy phân loại AI cho {runTitle(lastRun)}
+                Chạy lại phân loại AI cho {runTitle(lastRun)}
               </button>
             </div>
           )}
@@ -290,6 +358,13 @@ export default function IngestSettings() {
               color="var(--accent)"
               error={progress.error}
             />
+          )}
+
+          {queuedTranslateKey && progress?.status !== "done" && (
+            <div className="processing-progress queued">
+              <p><b>Đã xếp hàng dịch zh-CN</b></p>
+              <p className="progress-caption">Sẽ tự chạy sau khi phân tích xong: {runTitle(translationTarget)}</p>
+            </div>
           )}
 
           {translateKey && translateProgress && (
@@ -358,6 +433,7 @@ export default function IngestSettings() {
 
       <div className="panel">
         <h3>Lịch sử Ingest</h3>
+        {deleteError && <div className="error-banner">{deleteError}</div>}
         {runs.length === 0 ? (
           <div className="empty-state">Chưa có lần nạp dữ liệu nào.</div>
         ) : (
@@ -375,7 +451,7 @@ export default function IngestSettings() {
                   <th>Phân tích</th>
                   <th>Dịch zh-CN</th>
                   <th>Lỗi</th>
-                  <th></th>
+                  <th className="run-actions-head">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
@@ -391,11 +467,21 @@ export default function IngestSettings() {
                     <td><ProcessingBadge status={run.analysis_status} progress={run.analysis_progress} kind="analysis" /></td>
                     <td><ProcessingBadge status={run.translation_status} progress={run.translation_progress} kind="translation" /></td>
                     <td style={{ color: "var(--negative)", fontSize: 12 }}>{run.error || ""}</td>
-                    <td>
+                    <td className="run-actions-cell">
                       {run.status === "done" && run.rows_new > 0 && (
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <button className="btn btn-secondary" onClick={() => startAnalyze(run)}>Phân loại run #{run.id}</button>
-                          <button className="btn btn-secondary" onClick={() => startTranslate(run)}>Dịch run #{run.id}</button>
+                        <div className="run-action-group">
+                          <button className="btn btn-secondary run-action-button" onClick={() => startAnalyze(run)}>Phân loại #{run.id}</button>
+                          <button className="btn btn-secondary run-action-button" onClick={() => startTranslate(run)}>Dịch #{run.id}</button>
+                          <button className="btn btn-danger run-action-button" disabled={deletingRunId === run.id} onClick={() => deleteRun(run)}>
+                            {deletingRunId === run.id ? "Đang xóa..." : `Xóa #${run.id}`}
+                          </button>
+                        </div>
+                      )}
+                      {(run.status !== "done" || run.rows_new <= 0) && (
+                        <div className="run-action-group">
+                          <button className="btn btn-danger run-action-button" disabled={deletingRunId === run.id} onClick={() => deleteRun(run)}>
+                            {deletingRunId === run.id ? "Đang xóa..." : `Xóa #${run.id}`}
+                          </button>
                         </div>
                       )}
                     </td>

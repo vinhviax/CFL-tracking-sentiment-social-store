@@ -4,53 +4,40 @@ Ban giao cho agent/session tiep theo.
 
 ## Trang thai moi nhat
 
-- GitHub `main` va branch `codex/sensortower-zh-workspace` da duoc push len commit `d361592` trong phien nay; sau do co the co commit handoff docs moi hon, kiem tra `git log -1`.
-- Worker production da deploy voi prompt taxonomy `v2`.
-- Worker version da deploy trong phien nay: `e7a22579-4043-403a-8e05-6e86b5419bc8`.
-- Pages production da deploy bang `npx wrangler pages deploy ./dist --project-name=cfl-feedback --branch main`.
-- Pages preview/branch deploy da tao:
-  - `https://7aeb5a8d.cfl-feedback.pages.dev`
-  - `https://codex-sensortower-zh-workspa.cfl-feedback.pages.dev`
-  - production deploy URL: `https://ad82038a.cfl-feedback.pages.dev`
-- Health production da tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v2`.
-- Production Pages `https://cfl-feedback.pages.dev` da verify HTTP 200.
+- Lam viec chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`.
+- Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`.
+- Branch lam viec hien tai: `main`.
+- Backend production la Cloudflare Worker trong `worker/`.
+- Frontend production la React/Vite trong `frontend/`, deploy Cloudflare Pages.
+- Database production la Cloudflare D1 `cfl-feedback`.
+- Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev`.
+- Frontend production: `https://cfl-feedback.pages.dev`.
 - Cron Worker dang la `45 6 * * *`, tuc 13:45 GMT+7 moi ngay.
-- Frontend local dang chay o `http://127.0.0.1:5175/`.
-- User muon tu sau lam chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`, khong lam chinh tai `G:\CFM\Research\Crossfire Legends Sea` nua.
-- Repo da clone sang `J:\My Drive\CFL\Agent\Tracking Store Social` tu GitHub branch `main`.
+- LLM provider production dang cau hinh `llm_viax`; classify model `ag/gemini-3-flash-agent`; insight model `codex-lb/gpt-5.4`.
+- Neu can commit/deploy moi, chay test/build/typecheck truoc, sau do commit, push, deploy Worker, deploy Pages va verify production.
 
-## Viec da lam trong phien gan nhat
+## Viec da lam trong phien nay
 
-- Chuan hoa UI Feedback Workspace/Ingest Settings, light/dark mode, Insight va Summarize.
-- Them luu prompt insight, manual generate insight theo date range, archive insight.
-- Them zh-CN translation pipeline va API fallback ngon ngu.
-- Them Sensor Tower incremental cursor va cron 13:45 GMT+7.
-- Them auto processing sau cron/ingest: classify + translate.
-- Them taxonomy memory/subtopic discovery.
-- Cap nhat keyword Chu De Lon va fallback classifier:
-  - Keyword chung nam o `worker/src/services/topicKeywords.ts`.
-  - Fallback classifier dung weighted keyword ranking.
-  - Prompt LLM classify nhan keyword hints.
-  - `PROMPT_VERSION` da bump len `v2`.
-- Them repeated phrase detector cho Chu De Nho:
-  - Ham `extractRepeatedSubtopicCandidates`.
-  - Cum 2-4 tu lap lai >= 3 comment trong cung run se thanh subtopic candidate.
-  - Tu qua chung nhu `lag`, `hack`, `bug` khong bi promote thanh subtopic rac.
-- Them/cap nhat test cho fallback, taxonomy memory, routes, processing.
+- Feedback Workspace Store da co diem rating trung binh va highlight theo khoang thoi gian dang filter.
+- Label UI da chuyen sang tieng Viet: `neg` thanh tieu cuc, `urgent` thanh khan cap.
+- Filter Feedback Workspace da gom thanh mot hang gon hon, co nut reset filter.
+- Filter da co logic phu thuoc: Sentiment -> Chu de lon -> Chu de con, tranh tron topic cua cac sentiment khac nhau.
+- UI theme da doi huong: dark mode tone den/cam, light mode tone trang/cam am.
+- Ingest Settings gom cac nut hanh dong trong cung mot hang de tiet kiem dien tich.
+- Manual ingest CSV/Fanpage/Store sau khi keo data thanh cong se tu xep hang classify -> taxonomy memory/subtopic -> translate zh-CN. Nut phan tich/dich trong UI chi de chay lai khi can.
+- CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua.
+- Upload CSV bi chan neu file khong co dong Group hop le hoac toan duplicate voi data da co.
+- Da kiem tra production read-only cho ingest #1 va #7: #1 co ca `fb_group_csv` va `fb_page`, #7 la `fb_page`, khong thay overlap duplicate giua #1 va #7 theo hash hoac created_at + message.
+- Ingest Settings co nut xoa tung ingest run. Backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
+- Da them/cap nhat test cho stats Store, helper filter UI, CSV guardrail/duplicate, auto enqueue sau ingest va delete ingest run.
 
-## Viec user yeu cau ket thuc phien nay
+## Luu y quan trong
 
-1. Push len GitHub.
-2. Deploy len Cloudflare Worker va Pages.
-3. Xoa cac Markdown khong can, chi giu:
-   - `AGENT.md`
-   - `MEMORY.md`
-   - `handoff/*.md`
-4. Clone repo sang:
-   `J:\My Drive\CFL\Agent\Tracking Store Social`
-5. Cap nhat prompt cho agent/session khac doc va lam tiep.
-
-Trang thai cac viec tren: da thuc hien trong phien 2026-07-06. Neu tiep tuc, lam viec tu thu muc o o J va pull latest truoc.
+- Khong tu nhap, log, commit hay paste secret. Neu can key, huong dan user tu chay `wrangler secret put <NAME>`.
+- Khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`.
+- Khong xoa/revert thay doi cua user neu chua duoc yeu cau ro.
+- Khi user tu tay xoa data production va keo lai, can verify lai dashboard Store/Facebook/Feedback Workspace va lich su ingest.
+- Neu user hoi LLM `auto` loi nhung `default` thanh cong, uu tien kiem tra request/timeout/model routing; khong doi secret hay log key.
 
 ## Viec nen verify sau khi pull/clone
 
@@ -67,16 +54,17 @@ Sau deploy, verify:
 
 ```powershell
 Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/health"
-Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/comments?limit=1&lang=zh-CN"
+Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
+Invoke-WebRequest "https://cfl-feedback.pages.dev"
 ```
 
 ## Viec tiep theo de tiep tuc phat trien
 
-- Test UI production tren Cloudflare Pages sau deploy moi.
-- Chay lai phan loai mot run cu neu muon data cu nhan taxonomy keyword `v2`.
-- Neu Sensor Tower key moi da co, set `SENSORTOWER_API_KEY` bang `wrangler secret put`, sau do test manual ingest mot ngay nho.
-- Neu user muon mo rong taxonomy, sua `worker/src/services/topicKeywords.ts` va them test truoc.
+- Sau khi user xoa ingest cu va keo data lai, test luong: upload CSV Group -> auto classify -> auto translate -> xem topic/subtopic/filter.
+- Verify nut xoa ingest tren production bang mot run test nho, tranh xoa nham run that.
+- Kiem tra lai UI mobile/desktop sau deploy Pages.
+- Neu LLM auto con loi `client_disconnected`, xem log Cloudflare/LLM gateway va can nhac chi dung model default trong config neu user muon.
 
 ## Prompt cho agent/session khac
 
-Hay doc theo thu tu: `AGENT.md`, `MEMORY.md`, `handoff/HANDOFF.md`. Day la project CFL Feedback Intelligence, backend production la Cloudflare Worker trong `worker/`, frontend la React/Vite trong `frontend/`, DB la Cloudflare D1 `cfl-feedback`. Tiep tuc lam viec tu thu muc `J:\My Drive\CFL\Agent\Tracking Store Social`. Khong tu nhap secret, khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`. Truoc khi bao xong phai chay test/build/deploy verify that.
+Doc theo thu tu `AGENT.md`, `MEMORY.md`, `handoff/HANDOFF.md` truoc khi lam gi. Day la project CFL Feedback Intelligence. Lam chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`. Backend production la Cloudflare Worker trong `worker/`, frontend la React/Vite trong `frontend/`, DB la Cloudflare D1 `cfl-feedback`. Khong tu nhap/log/commit secret. Khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`. Luu y moi: CSV Facebook Group chi nhap dong source/cot A = `Group`; upload toan duplicate hoac khong co Group bi tu choi truoc khi tao ingest run. Manual ingest se tu xep hang classify -> taxonomy memory/subtopic -> translate zh-CN. Ingest Settings co nut xoa run; xoa run se xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan. Truoc khi bao xong phai chay test/build/typecheck va neu deploy thi verify production. Viec nen lam tiep: sau khi user xoa data production va keo lai, verify dashboard Store/Facebook/Feedback Workspace, test nut xoa ingest voi run nho, va xem LLM auto/default neu con loi.

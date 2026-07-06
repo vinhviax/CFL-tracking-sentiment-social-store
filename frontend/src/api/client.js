@@ -34,6 +34,8 @@ export const listComments = (params) =>
 export const listRuns = (params) =>
   api.get("/api/runs", { params }).then((r) => r.data);
 export const getRun = (id) => api.get(`/api/runs/${id}`).then((r) => r.data);
+export const deleteIngestRun = (id) =>
+  api.delete(`/api/runs/${id}`).then((r) => r.data);
 
 export const listPosts = (params) =>
   api.get("/api/posts", { params }).then((r) => r.data);

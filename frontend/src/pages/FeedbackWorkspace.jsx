@@ -4,6 +4,7 @@ import {
 } from "recharts";
 import { SentimentBadge, UrgencyBadge } from "../components/Badges.jsx";
 import useMeta from "../hooks/useMeta.js";
+import { applyWorkspaceFilter, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
 import {
   generateInsight,
   getInsightPrompt,
@@ -57,9 +58,20 @@ const UI = {
     topic: "Chủ đề",
     subtopic: "Chủ đề con",
     topSubtopics: "Chủ đề con mới nổi",
-    sentiment: "Sentiment",
-    urgency: "Khẩn cấp",
+    sentiment: "Cảm xúc",
+    urgency: "Mức khẩn cấp",
     all: "Tất cả",
+    reset: "Reset filter",
+    negativeCount: "tiêu cực",
+    actionNeededCount: "cần xử lý",
+    high: "Cao",
+    medium: "Trung bình",
+    low: "Thấp",
+    avgRating: "Điểm trung bình Store",
+    storeHighlights: "Highlight Store trong khoảng ngày",
+    ratingCount: "review có sao",
+    topIssueInRange: "Vấn đề nổi bật",
+    chooseTopicFirst: "Chọn chủ đề trước",
     total: "Tổng feedback",
     analyzed: "Đã phân tích",
     negativeRate: "Tỉ lệ tiêu cực",
@@ -113,6 +125,17 @@ const UI = {
     sentiment: "情绪",
     urgency: "紧急度",
     all: "全部",
+    reset: "重置筛选",
+    negativeCount: "负面",
+    actionNeededCount: "需处理",
+    high: "高",
+    medium: "中",
+    low: "低",
+    avgRating: "商店平均评分",
+    storeHighlights: "当前时间段商店重点",
+    ratingCount: "有评分的评论",
+    topIssueInRange: "主要问题",
+    chooseTopicFirst: "请先选择主题",
     total: "反馈总数",
     analyzed: "已分析",
     negativeRate: "负面比例",
@@ -157,6 +180,34 @@ function sourceLabel(row, lang) {
   if (row.source_type === "fb_page") return lang === "zh-CN" ? "粉丝页" : "Fanpage";
   if (row.source_type === "fb_group_csv") return lang === "zh-CN" ? "群组 CSV" : "Group CSV";
   return row.source_type;
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString("vi-VN");
+}
+
+function formatRankingMeta(item, t) {
+  const negative = item.negative_count ?? item.negative ?? 0;
+  const urgent = item.urgent_count ?? item.urgent ?? 0;
+  return `${formatCount(negative)} ${t.negativeCount} / ${formatCount(urgent)} ${t.actionNeededCount}`;
+}
+
+function formatTopicOption(option) {
+  return option.count ? `${option.label} (${formatCount(option.count)})` : option.label;
+}
+
+function buildStoreHighlights(storeBreakdown, ranking, t) {
+  const highlights = [...(storeBreakdown?.highlights || [])];
+  const topIssue = ranking?.[0];
+  if (topIssue) {
+    highlights.push({
+      key: "top_issue",
+      label: t.topIssueInRange,
+      value: `${topIssue.label} (${formatCount(topIssue.count)})`,
+      tone: "warning",
+    });
+  }
+  return highlights;
 }
 
 function cleanParams(filters, group, subtab, page, metaLang) {
@@ -251,6 +302,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [overview, setOverview] = useState(null);
   const [trend, setTrend] = useState([]);
   const [ranking, setRanking] = useState([]);
+  const [topicOptionRanking, setTopicOptionRanking] = useState([]);
   const [subtopicRanking, setSubtopicRanking] = useState([]);
   const [sentimentRankings, setSentimentRankings] = useState({ negative: [], neutral: [], positive: [] });
   const [storeBreakdown, setStoreBreakdown] = useState(null);
@@ -282,8 +334,20 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     return p;
   }, [params]);
 
+  const hierarchyParams = useMemo(() => {
+    const p = { ...aggregateParams };
+    delete p.topic;
+    delete p.subtopic;
+    return p;
+  }, [aggregateParams]);
+
   const topicLabels = lang === "zh-CN" ? meta?.topics_zh_cn || meta?.topics : meta?.topics;
   const sentimentLabels = lang === "zh-CN" ? meta?.sentiments_zh_cn || meta?.sentiments : meta?.sentiments;
+  const topicOptions = useMemo(
+    () => buildTopicOptions(topicLabels, topicOptionRanking, { includeEmpty: !filters.sentiment }),
+    [topicLabels, topicOptionRanking, filters.sentiment]
+  );
+  const storeHighlights = useMemo(() => buildStoreHighlights(storeBreakdown, ranking, t), [storeBreakdown, ranking, t]);
 
   const loadData = useCallback(() => {
     setError(null);
@@ -294,15 +358,17 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       getTopicRanking({ ...aggregateParams, sentiment: "negative", limit: 10 }),
       getTopicRanking({ ...aggregateParams, sentiment: "neutral", limit: 10 }),
       getTopicRanking({ ...aggregateParams, sentiment: "positive", limit: 10 }),
+      getTopicRanking({ ...hierarchyParams, limit: 50 }),
       getSubtopicRanking({ ...aggregateParams, limit: 12 }),
       listComments(params),
       group === "facebook" ? listPosts({ source: subtab, limit: 50 }) : Promise.resolve([]),
       group === "store" ? getStoreBreakdown(aggregateParams) : Promise.resolve(null),
     ])
-      .then(([ov, tr, rank, negRank, neuRank, posRank, subRank, cmts, postList, storeStats]) => {
+      .then(([ov, tr, rank, negRank, neuRank, posRank, optionRank, subRank, cmts, postList, storeStats]) => {
         setOverview(ov);
         setTrend(tr);
         setRanking(rank.items || []);
+        setTopicOptionRanking(optionRank.items || []);
         setSubtopicRanking(subRank.items || []);
         setSentimentRankings({
           negative: negRank.items || [],
@@ -314,7 +380,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         setStoreBreakdown(storeStats);
       })
       .catch((e) => setError(e?.response?.data?.detail || e.message));
-  }, [aggregateParams, params, group, subtab]);
+  }, [aggregateParams, hierarchyParams, params, group, subtab]);
 
   useEffect(() => {
     loadData();
@@ -326,7 +392,27 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   }, []);
 
   const setFilter = (key) => (event) => {
-    setFilters((current) => ({ ...current, [key]: event.target.value }));
+    setFilters((current) => applyWorkspaceFilter(current, key, event.target.value));
+    setPage(1);
+  };
+
+  const resetFilters = () => {
+    setFilters(getDefaultFilters());
+    setPage(1);
+  };
+
+  const selectTopic = (topic) => {
+    setFilters((current) => applyWorkspaceFilter(current, "topic", topic));
+    setPage(1);
+  };
+
+  const selectSubtopic = (parentTopic, subtopic) => {
+    setFilters((current) => ({ ...applyWorkspaceFilter(current, "topic", parentTopic), subtopic }));
+    setPage(1);
+  };
+
+  const selectSentimentTopic = (sentiment, topic) => {
+    setFilters((current) => ({ ...applyWorkspaceFilter(current, "sentiment", sentiment), topic }));
     setPage(1);
   };
 
@@ -411,34 +497,37 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         <label>{t.from}<input type="date" value={filters.from} onChange={setFilter("from")} /></label>
         <label>{t.to}<input type="date" value={filters.to} onChange={setFilter("to")} /></label>
         <label>{t.search}<input type="text" value={filters.q} onChange={setFilter("q")} placeholder="lag, hack, nạp..." /></label>
-        <label>{t.topic}
-          <select value={filters.topic} onChange={setFilter("topic")}>
-            <option value="">{t.all}</option>
-            {topicLabels && Object.entries(topicLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
-        </label>
-        <label>{t.subtopic}
-          <select value={filters.subtopic} onChange={setFilter("subtopic")}>
-            <option value="">{t.all}</option>
-            {subtopicRanking.map((item) => (
-              <option key={item.key} value={item.key}>{item.parent_label} › {item.label}</option>
-            ))}
-          </select>
-        </label>
         <label>{t.sentiment}
           <select value={filters.sentiment} onChange={setFilter("sentiment")}>
             <option value="">{t.all}</option>
             {sentimentLabels && Object.entries(sentimentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
+        <label>{t.topic}
+          <select value={filters.topic} onChange={setFilter("topic")}>
+            <option value="">{t.all}</option>
+            {topicOptions.map((option) => (
+              <option key={option.key} value={option.key}>{formatTopicOption(option)}</option>
+            ))}
+          </select>
+        </label>
+        <label>{t.subtopic}
+          <select value={filters.subtopic} onChange={setFilter("subtopic")} disabled={!filters.topic}>
+            <option value="">{filters.topic ? t.all : t.chooseTopicFirst}</option>
+            {subtopicRanking.map((item) => (
+              <option key={item.key} value={item.key}>{item.parent_label} › {item.label}</option>
+            ))}
+          </select>
+        </label>
         <label>{t.urgency}
           <select value={filters.urgency} onChange={setFilter("urgency")}>
             <option value="">{t.all}</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
+            <option value="high">{t.high}</option>
+            <option value="medium">{t.medium}</option>
+            <option value="low">{t.low}</option>
           </select>
         </label>
+        <button type="button" className="btn btn-secondary filter-reset" onClick={resetFilters}>{t.reset}</button>
       </div>
 
       <div className="tabs">
@@ -461,8 +550,29 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
             <div className="kpi-card"><div className="label">{t.total}</div><div className="value">{overview.total_comments.toLocaleString("vi-VN")}</div></div>
             <div className="kpi-card"><div className="label">{t.analyzed}</div><div className="value">{overview.analyzed.toLocaleString("vi-VN")}</div></div>
             <div className="kpi-card"><div className="label">{t.negativeRate}</div><div className="value negative-text">{overview.negative_pct}%</div></div>
+            {group === "store" && storeBreakdown?.avg_rating != null && (
+              <div className="kpi-card">
+                <div className="label">{t.avgRating}</div>
+                <div className="value">{storeBreakdown.avg_rating}/5</div>
+                <div className="sub">{formatCount(storeBreakdown.rating_count)} {t.ratingCount}</div>
+              </div>
+            )}
             <div className="kpi-card"><div className="label">{t.hotIssues}</div><div className="value">{overview.hot_issues.length}</div></div>
           </div>
+
+          {group === "store" && storeHighlights.length > 0 && (
+            <section className="store-highlight-panel">
+              <h3>{t.storeHighlights}</h3>
+              <div className="store-highlight-grid">
+                {storeHighlights.map((item) => (
+                  <div key={item.key} className={`store-highlight-card tone-${item.tone}`}>
+                    <span>{item.label}</span>
+                    <b>{item.value}</b>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="insight-workbench">
             <div className="insight-toolbar">
@@ -532,10 +642,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
             <div className="panel ranking-panel">
               <h3>{t.topTopics}</h3>
               {ranking.map((item) => (
-                <button key={item.topic} className="ranking-row" onClick={() => setFilters((current) => ({ ...current, topic: item.topic }))}>
+                <button key={item.topic} className="ranking-row" onClick={() => selectTopic(item.topic)}>
                   <span>{item.label}</span>
                   <b>{item.count}</b>
-                  <small>{item.negative_count} neg / {item.urgent_count} urgent</small>
+                  <small>{formatRankingMeta(item, t)}</small>
                 </button>
               ))}
             </div>
@@ -549,11 +659,11 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <button
                 key={item.key}
                 className="ranking-row subtopic-row"
-                onClick={() => setFilters((current) => ({ ...current, topic: item.parent_topic, subtopic: item.key }))}
+                onClick={() => selectSubtopic(item.parent_topic, item.key)}
               >
                 <span>{item.label}</span>
                 <b>{item.count}</b>
-                <small>{item.parent_label} · {item.negative_count} neg / {item.urgent_count} urgent · {item.status}</small>
+                <small>{item.parent_label} · {formatRankingMeta(item, t)} · {item.status}</small>
               </button>
             ))}
           </div>
@@ -567,10 +677,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <div className="panel ranking-panel sentiment-card" key={key}>
                 <h3>{title}</h3>
                 {sentimentRankings[key].map((item) => (
-                  <button key={item.topic} className="ranking-row" onClick={() => setFilters((current) => ({ ...current, topic: item.topic, sentiment: key }))}>
+                  <button key={item.topic} className="ranking-row" onClick={() => selectSentimentTopic(key, item.topic)}>
                     <span>{item.label}</span>
                     <b>{item.count}</b>
-                    <small>{item.negative_count} neg / {item.urgent_count} urgent</small>
+                    <small>{formatRankingMeta(item, t)}</small>
                   </button>
                 ))}
               </div>

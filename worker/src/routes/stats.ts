@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
 import { TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
+import { summarizeStoreBreakdown } from "../services/storeStats";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
@@ -274,5 +275,5 @@ statsRoute.get("/store", async (c) => {
     store: r.store || "unknown", count: r.n, avg_rating: Math.round((r.avg_rating || 0) * 100) / 100,
   }));
 
-  return c.json({ rating_distribution: ratingDist, platforms });
+  return c.json({ rating_distribution: ratingDist, platforms, ...summarizeStoreBreakdown(ratingDist, platforms) });
 });

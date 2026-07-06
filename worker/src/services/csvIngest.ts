@@ -13,6 +13,35 @@ export interface ParsedRow {
 
 const EMPTY_MARKERS = new Set(["", "...", ".", "-"]);
 
+function isGroupSource(source: string): boolean {
+  return source.trim().toLowerCase() === "group";
+}
+
+export function filterGroupCsvRows(rows: ParsedRow[]): ParsedRow[] {
+  return rows.filter((row) => isGroupSource(row.source));
+}
+
+export function validateCsvGroupImport(opts: { totalRows: number; groupRows: number; freshRows: number }): void {
+  if (opts.groupRows === 0) {
+    throw new Error("CSV Facebook Group khong co dong Group hop le o cot A.");
+  }
+  if (opts.freshRows === 0) {
+    throw new Error("CSV Facebook Group khong co comment Group moi de nhap; tat ca da ton tai hoac bi trung trong file.");
+  }
+}
+
+function buildCsvRunNote(filename: string, stats: { totalRows: number; groupRows: number; skippedNonGroup: number; duplicateRows: number }): string | null {
+  if (!filename && stats.skippedNonGroup === 0 && stats.duplicateRows === 0) return null;
+  return JSON.stringify({
+    text: filename || "Facebook Group CSV",
+    filename: filename || null,
+    total_rows: stats.totalRows,
+    group_rows: stats.groupRows,
+    skipped_non_group: stats.skippedNonGroup,
+    duplicate_rows: stats.duplicateRows,
+  });
+}
+
 function decodeCsvBytes(raw: ArrayBuffer): string {
   // Known format: UTF-16 LE with BOM. Fall back to UTF-8 if that yields no tabs
   // (e.g. a user re-saves the export as UTF-8 CSV).
@@ -151,27 +180,24 @@ export interface IngestRunRow {
 export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Promise<IngestRunRow> {
   const db = env.DB;
   const startedAt = new Date().toISOString();
-  const runInsert = await db
-    .prepare(
-      `INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('fb_group_csv', ?, 'running', ?)`
-    )
-    .bind(startedAt, filename || null)
-    .run();
-  const runId = runInsert.meta.last_row_id;
 
+  let runId: number | null = null;
   let rowsCount = 0;
   let newCount = 0;
   let error: string | null = null;
+  let note: string | null = null;
 
   try {
-    const rows = parseRows(raw);
+    const allRows = parseRows(raw);
+    const rows = filterGroupCsvRows(allRows);
     rowsCount = rows.length;
+    validateCsvGroupImport({ totalRows: allRows.length, groupRows: rows.length, freshRows: rows.length });
 
-    // Resolve dedupe hashes for all rows up front.
+    // Resolve dedupe hashes for Group rows only. Fanpage rows from mixed CSV exports are ignored.
     const withHash = await Promise.all(
       rows.map(async (r) => ({
         row: r,
-        hash: await dedupeHash(r.source || "Group", r.createdDate, r.commentMessage || ""),
+        hash: await dedupeHash("Group", r.createdDate, r.commentMessage || ""),
       }))
     );
 
@@ -187,6 +213,22 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     }
 
     const fresh = filterFreshUniqueHashes(withHash, existing);
+    validateCsvGroupImport({ totalRows: allRows.length, groupRows: rows.length, freshRows: fresh.length });
+    const duplicateRows = withHash.length - fresh.length;
+    note = buildCsvRunNote(filename, {
+      totalRows: allRows.length,
+      groupRows: rows.length,
+      skippedNonGroup: allRows.length - rows.length,
+      duplicateRows,
+    });
+
+    const runInsert = await db
+      .prepare(
+        `INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('fb_group_csv', ?, 'running', ?)`
+      )
+      .bind(startedAt, note)
+      .run();
+    runId = runInsert.meta.last_row_id as number;
 
     // Resolve/create posts (in-run cache, mirrors the FastAPI implementation).
     const postCache = new Map<string, number>();
@@ -194,10 +236,9 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     for (const { row } of fresh) {
       const pmsg = (row.postMessage || "").trim();
       if (!pmsg) continue;
-      const sourceType = (row.source || "").toLowerCase() === "fanpage" ? "fb_page" : "fb_group_csv";
       const key = `${row.postPublished}|${pmsg.slice(0, 120)}`;
       if (!postCache.has(key) && !postsToInsert.some((p) => p.key === key)) {
-        postsToInsert.push({ key, sourceType, publishedAt: parseVnDate(row.postPublished), message: pmsg });
+        postsToInsert.push({ key, sourceType: "fb_group_csv", publishedAt: parseVnDate(row.postPublished), message: pmsg });
       }
     }
 
@@ -214,7 +255,6 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     // Insert new comments.
     for (const c of chunk(fresh, 100)) {
       const stmts = c.map(({ row, hash }) => {
-        const sourceType = (row.source || "").toLowerCase() === "fanpage" ? "fb_page" : "fb_group_csv";
         const pmsg = (row.postMessage || "").trim();
         const postKey = pmsg ? `${row.postPublished}|${pmsg.slice(0, 120)}` : null;
         const postId = postKey ? postCache.get(postKey) ?? null : null;
@@ -227,7 +267,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
           )
           .bind(
             postId,
-            sourceType,
+            "fb_group_csv",
             parseVnDate(row.createdDate),
             msg,
             row.legacyTopic,
@@ -241,26 +281,33 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     }
   } catch (e: any) {
     error = e.message || String(e);
+    if (runId != null) {
+      await db
+        .prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, error=?, finished_at=? WHERE id=?`)
+        .bind("failed", rowsCount, newCount, error, new Date().toISOString(), runId)
+        .run();
+    }
+    throw new Error(error || "CSV ingest failed.");
   }
 
+  if (runId == null) throw new Error("CSV ingest run was not created.");
+
   const finishedAt = new Date().toISOString();
-  const status = error ? "failed" : "done";
+  const status = "done";
   await db
     .prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, error=?, finished_at=? WHERE id=?`)
     .bind(status, rowsCount, newCount, error, finishedAt, runId)
     .run();
 
-  if (error) throw new Error(error);
-
   return {
-    id: runId as number,
+    id: runId,
     source_type: "fb_group_csv",
     status,
     started_at: startedAt,
     finished_at: finishedAt,
     rows_fetched: rowsCount,
     rows_new: newCount,
-    note: filename || null,
+    note,
     error,
   };
 }

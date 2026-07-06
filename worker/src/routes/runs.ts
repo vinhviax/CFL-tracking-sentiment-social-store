@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
+import { deleteIngestRun } from "../services/deleteIngestRun";
 
 export const runsRoute = new Hono<{ Bindings: Env }>();
 
@@ -65,4 +66,12 @@ runsRoute.get("/:id", async (c) => {
   const row = await c.env.DB.prepare(`${RUN_SELECT} WHERE r.id = ?`).bind(id).first();
   if (!row) return c.json({ detail: "Run not found" }, 404);
   return c.json(mapRunRow(row));
+});
+
+runsRoute.delete("/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ detail: "Invalid run id" }, 400);
+  const result = await deleteIngestRun(c.env.DB, id);
+  if (!result) return c.json({ detail: "Run not found" }, 404);
+  return c.json(result);
 });

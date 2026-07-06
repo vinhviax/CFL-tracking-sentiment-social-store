@@ -24,7 +24,7 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 ## Repo va workspace
 
 - GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
-- Branch feature hien tai: `codex/sensortower-zh-workspace`
+- Branch lam viec hien tai: `main`
 - Workspace moi de lam tiep: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Workspace cu: `G:\CFM\Research\Crossfire Legends Sea`
 
@@ -67,7 +67,7 @@ npx wrangler secret put FB_ACCESS_TOKEN
 - Ingest Fanpage qua Graph API.
 - Ingest Sensor Tower Store VN, Google Play `gp`, App Store `ios`.
 - Cron Sensor Tower incremental theo cursor, chi keo ngay tiep theo den hom qua GMT+7.
-- Auto process sau ingest: classify, translate zh-CN, taxonomy memory/subtopics.
+- Auto process sau moi lan keo/upload ingest thanh cong: classify -> taxonomy memory/subtopics -> translate zh-CN theo thu tu. Nut analyze/translate trong UI chi de chay lai khi can.
 - D1 migrations cho cursor, translation, saved insights, taxonomy memory.
 - API comments/stats/overview/topic-ranking/subtopic-ranking.
 - Manual run analyze/translate theo run.
@@ -75,6 +75,7 @@ npx wrangler secret put FB_ACCESS_TOKEN
 - UI Feedback Workspace gom Store/Facebook, filter date/source/topic/subtopic/sentiment/urgency/search/language.
 - Light/Dark mode co persist localStorage.
 - Ingest Settings hien ro run dang phan tich/dich gi, nguon nao, ngay nao, da xong bao nhieu.
+- Ingest Settings co nut xoa tung ingest run; backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
 
 ## Taxonomy hien tai
 
@@ -124,4 +125,5 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - D1 bound parameter limit thap, query `IN` can chunk.
 - Facebook pagination khong duoc keo vo han; giu limit de tranh Too many subrequests.
 - Worker background job dung `ctx.waitUntil`; progress khong luu in-memory ma luu D1.
+- CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua. Neu file khong co dong Group moi hoac toan duplicate, upload bi tu choi truoc khi tao ingest run.
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.
