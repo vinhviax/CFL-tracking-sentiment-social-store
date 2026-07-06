@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { displayDateToIso, isoToDisplayDate } from "../utils/dateFormat.js";
 
-export default function DateTextInput({ value = "", onChange, ...props }) {
+export default function DateTextInput({ value = "", onChange, className = "", ...props }) {
   const [text, setText] = useState(isoToDisplayDate(value));
+  const pickerRef = useRef(null);
 
   useEffect(() => {
     setText(isoToDisplayDate(value));
@@ -28,15 +29,50 @@ export default function DateTextInput({ value = "", onChange, ...props }) {
     }
   };
 
+  const openPicker = () => {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    if (typeof picker.showPicker === "function") {
+      picker.showPicker();
+      return;
+    }
+    picker.focus();
+    picker.click();
+  };
+
   return (
-    <input
-      {...props}
-      type="text"
-      inputMode="numeric"
-      placeholder="dd/mm/yyyy"
-      value={text}
-      onChange={(e) => update(e.target.value)}
-      onBlur={normalize}
-    />
+    <div className={`date-input ${className}`.trim()}>
+      <input
+        {...props}
+        className="date-input-text"
+        type="text"
+        inputMode="numeric"
+        placeholder="dd/mm/yyyy"
+        value={text}
+        onChange={(e) => update(e.target.value)}
+        onBlur={normalize}
+      />
+      <input
+        ref={pickerRef}
+        className="date-native-picker"
+        type="date"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <button
+        className="date-picker-button"
+        type="button"
+        aria-label="Chọn ngày"
+        title="Chọn ngày"
+        onClick={openPicker}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="4" y="5" width="16" height="15" rx="2" />
+          <path d="M8 3v4M16 3v4M4 10h16" />
+        </svg>
+      </button>
+    </div>
   );
 }
