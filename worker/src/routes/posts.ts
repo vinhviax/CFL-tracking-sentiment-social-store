@@ -3,13 +3,25 @@ import type { Env } from "../types";
 
 export const postsRoute = new Hono<{ Bindings: Env }>();
 
+function dateKey(value?: string | null) {
+  const text = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function addDateFilter(where: string[], params: any[], column: string, operator: ">=" | "<=", value?: string) {
+  const key = dateKey(value);
+  if (!key) return;
+  where.push(`substr(${column}, 1, 10) ${operator} ?`);
+  params.push(key);
+}
+
 postsRoute.get("/", async (c) => {
   const q = c.req.query();
   const where: string[] = [];
   const params: any[] = [];
   if (q.source) { where.push("p.source_type = ?"); params.push(q.source); }
-  if (q.from) { where.push("p.published_at >= ?"); params.push(q.from); }
-  if (q.to) { where.push("p.published_at <= ?"); params.push(q.to); }
+  addDateFilter(where, params, "p.published_at", ">=", q.from);
+  addDateFilter(where, params, "p.published_at", "<=", q.to);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const limit = Math.max(1, Number(q.limit) || 100);
 

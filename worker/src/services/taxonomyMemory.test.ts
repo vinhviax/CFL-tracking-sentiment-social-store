@@ -9,15 +9,15 @@ import {
 
 describe("taxonomy memory helpers", () => {
   test("normalizes Vietnamese subtopic labels into stable parent-scoped keys", () => {
-    expect(normalizeSubtopicKey("gameplay", "Cơ chế đặt bom / gỡ bom")).toBe("gameplay:co_che_dat_bom_go_bom");
-    expect(normalizeSubtopicKey("performance_lag_crash", "Giật, lag & drop FPS!!!")).toBe("performance_lag_crash:giat_lag_drop_fps");
+    expect(normalizeSubtopicKey("gameplay_mode_map", "Cơ chế đặt bom / gỡ bom")).toBe("gameplay_mode_map:co_che_dat_bom_go_bom");
+    expect(normalizeSubtopicKey("lag_fps", "Giật, lag & drop FPS!!!")).toBe("lag_fps:giat_lag_drop_fps");
   });
 
   test("parses LLM subtopic discovery output and deduplicates evidence comment ids", () => {
     const parsed = parseSubtopicDiscoveryResults(JSON.stringify({
       subtopics: [
         {
-          parent_topic: "gameplay",
+          parent_topic: "gameplay_mode_map",
           label_vi: "Cơ chế đặt bom",
           label_zh_cn: "安装炸弹机制",
           description: "Người chơi phàn nàn thao tác đặt/gỡ bom.",
@@ -30,7 +30,7 @@ describe("taxonomy memory helpers", () => {
 
     expect(parsed).toEqual([
       {
-        parent_topic: "gameplay",
+        parent_topic: "gameplay_mode_map",
         label_vi: "Cơ chế đặt bom",
         label_zh_cn: "安装炸弹机制",
         description: "Người chơi phàn nàn thao tác đặt/gỡ bom.",
@@ -55,23 +55,23 @@ describe("taxonomy memory helpers", () => {
     ] as any);
 
     const bomb = candidates.find((candidate) => candidate.label_vi === "đặt bom");
-    expect(bomb?.parent_topic).toBe("gameplay");
+    expect(bomb?.parent_topic).toBe("gameplay_mode_map");
     expect(bomb?.comment_ids).toEqual([1, 2, 3, 4]);
     expect(bomb?.novelty).toBe("emerging");
   });
 
   test("does not promote generic major-topic words into subtopics", () => {
     const candidates = extractRepeatedSubtopicCandidates([
-      memoryComment(1, "Lag quá lag không chơi nổi", "performance_lag_crash"),
-      memoryComment(2, "Vẫn lag sau update", "performance_lag_crash"),
-      memoryComment(3, "Lag giật liên tục", "performance_lag_crash"),
+      memoryComment(1, "Lag quá lag không chơi nổi", "lag_fps"),
+      memoryComment(2, "Vẫn lag sau update", "lag_fps"),
+      memoryComment(3, "Lag giật liên tục", "lag_fps"),
     ] as any);
 
     expect(candidates.some((candidate) => candidate.label_vi.includes("lag"))).toBe(false);
   });
 });
 
-function memoryComment(id: number, message: string, topic_main = "gameplay") {
+function memoryComment(id: number, message: string, topic_main = "gameplay_mode_map") {
   return {
     id,
     message,

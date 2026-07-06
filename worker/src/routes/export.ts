@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import * as XLSX from "xlsx";
 import type { Env } from "../types";
-import { SENTIMENT_LABELS_VI, TOPIC_LABELS_VI } from "../taxonomy";
+import { LEGACY_TOPIC_LABELS_VI, SENTIMENT_LABELS_VI, TOPIC_LABELS_VI } from "../taxonomy";
 
 export const exportRoute = new Hono<{ Bindings: Env }>();
 
@@ -30,8 +30,8 @@ exportRoute.get("/", async (c) => {
     "Chủ đề phụ", "Sentiment", "Mức độ khẩn cấp", "Tóm tắt", "Độ tin cậy"];
   const data = rows.results.map((r) => [
     r.id, r.source_type, r.created_at || "", r.message, r.rating ?? "",
-    r.topic_main ? (TOPIC_LABELS_VI[r.topic_main] || r.topic_main) : "",
-    r.topics_sub ? JSON.parse(r.topics_sub).map((t: string) => TOPIC_LABELS_VI[t] || t).join(", ") : "",
+    r.topic_main ? (TOPIC_LABELS_VI[r.topic_main] || LEGACY_TOPIC_LABELS_VI[r.topic_main] || r.topic_main) : "",
+    r.topics_sub ? JSON.parse(r.topics_sub).map((t: string) => TOPIC_LABELS_VI[t] || LEGACY_TOPIC_LABELS_VI[t] || t).join(", ") : "",
     r.sentiment ? (SENTIMENT_LABELS_VI[r.sentiment] || r.sentiment) : "",
     r.urgency || "", r.summary || "", r.confidence != null ? Math.round(r.confidence * 100) / 100 : "",
   ]);

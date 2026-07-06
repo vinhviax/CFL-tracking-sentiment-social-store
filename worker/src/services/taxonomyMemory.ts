@@ -102,7 +102,7 @@ function buildDiscoverySystem(): string {
     "Chủ đề con phải ngắn, dễ hiểu, không trùng chủ đề lớn, ví dụ Gameplay -> cơ chế đặt bom, rank khó, vũ khí mất cân bằng.",
     "Ưu tiên các cụm vấn đề lặp lại trong nhiều comment của cùng một lượt phân tích, kể cả khi chúng chưa nằm trong taxonomy lớn hiện tại.",
     "Chỉ tạo chủ đề con khi có evidence từ comment. Nếu một chủ đề đã biết xuất hiện lại, hãy dùng lại label gần nhất.",
-    "Trả về duy nhất JSON: {\"subtopics\":[{\"parent_topic\":\"gameplay\",\"label_vi\":\"...\",\"label_zh_cn\":\"...\",\"description\":\"...\",\"comment_ids\":[1,2],\"confidence\":0.8,\"novelty\":\"new|known|emerging\"}]}",
+    "Trả về duy nhất JSON: {\"subtopics\":[{\"parent_topic\":\"gameplay_mode_map\",\"label_vi\":\"...\",\"label_zh_cn\":\"...\",\"description\":\"...\",\"comment_ids\":[1,2],\"confidence\":0.8,\"novelty\":\"new|known|emerging\"}]}",
   ].join("\n");
 }
 

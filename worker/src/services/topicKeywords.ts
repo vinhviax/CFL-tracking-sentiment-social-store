@@ -1,98 +1,131 @@
 import { TOPICS, type Topic } from "../taxonomy";
 
 export const TOPIC_KEYWORDS: Record<Topic, string[]> = {
-  function: [
-    "tính năng", "chức năng", "function", "feature", "nút", "button", "bấm", "tap",
-    "không hoạt động", "không ăn nút", "không phản hồi", "ui", "menu", "cài đặt",
-    "kho đồ", "chat", "voice", "mail", "thông báo",
+  lag_fps: [
+    "lag fps", "tụt fps", "tuột fps", "drop fps", "fps thấp", "fps yếu", "giật lag", "lag giật",
+    "giật khựng", "khựng", "khựng hình", "combat bị lag", "combat giật", "máy yếu",
+    "máy nóng", "không mượt", "chạy không mượt", "giật", "lag", "fps", "tối ưu",
   ],
-  ping_network: [
-    "ping", "mạng", "network", "disconnect", "dis", "rớt mạng", "mất kết nối",
-    "lỗi kết nối", "server", "máy chủ", "đường truyền", "wifi", "4g", "5g",
+  crash_freeze: [
+    "văng game", "văng app", "tự thoát", "thoát game", "thoát app", "bị văng",
+    "đang chơi văng", "crash", "force close", "đứng hình", "treo game", "treo loading",
+    "freeze", "màn hình đứng", "đơ game", "không phản hồi", "app tắt", "sập game",
+    "văng", "treo", "đơ",
   ],
-  bug: [
-    "lỗi", "bug", "error", "glitch", "sự cố", "không vào được", "kh vào",
-    "báo lỗi", "kẹt", "sai hiển thị", "không nhận", "không hiện",
-  ],
-  event: [
-    "sự kiện", "event", "mốc", "nhiệm vụ sự kiện", "chuỗi sự kiện", "đua top",
-    "điểm sự kiện", "event mới", "sự kiện mới",
-  ],
-  hack_cheat: [
-    "hack", "cheat", "gian lận", "aim", "aimbot", "wall", "wallhack", "auto",
-    "tool", "mod", "bắn xuyên", "auto headshot", "tố hack", "hack tràn lan",
-  ],
-  payment_topup: [
-    "nạp", "top up", "topup", "thanh toán", "mua gói", "gói nạp", "kim cương",
-    "kc", "coin", "trừ tiền", "nạp không nhận", "chưa nhận", "momo", "zalopay",
-    "sms", "vnd", "đồng", "hút máu", "p2w", "pay to win",
+  network_ping: [
+    "ping cao", "ping đỏ", "ping vàng", "mạng yếu", "mạng lag", "delay", "độ trễ",
+    "mất kết nối", "lỗi kết nối", "kết nối lại", "disconnect", "dis trận", "dis", "rớt mạng",
+    "server lag", "server delay", "đường truyền", "wifi", "4g", "5g", "network", "ping",
   ],
   login_account: [
-    "đăng nhập", "login", "tài khoản", "account", "acc", "nick", "mất acc",
-    "mất nick", "khóa nick", "khóa acc", "bị ban", "bị khóa", "otp", "mật khẩu",
-    "đổi mật khẩu", "facebook login",
+    "đăng nhập", "login", "không vào được", "không login", "facebook login", "otp",
+    "mật khẩu", "quên mật khẩu", "đổi mật khẩu", "tài khoản", "account", "acc", "nick",
   ],
-  performance_lag_crash: [
-    "lag", "giật", "fps", "drop fps", "tụt fps", "văng", "crash", "treo",
-    "đơ", "đứng hình", "freeze", "khựng", "nóng máy", "hao pin", "tối ưu",
+  account_ban_security: [
+    "bị ban", "ban acc", "ban nick", "khóa acc", "khóa nick", "bị khóa", "mất acc",
+    "mất nick", "mất tài khoản", "lấy lại acc", "lấy lại nick", "bảo mật", "khiếu nại ban",
   ],
-  update_patch: [
-    "update", "cập nhật", "bản vá", "patch", "phiên bản", "version", "tải bản",
-    "dung lượng", "bảo trì", "sau update", "sau cập nhật",
+  payment_topup: [
+    "nạp tiền", "nạp kim cương", "nạp kc", "top up", "topup", "thanh toán", "momo",
+    "zalopay", "sms", "bank", "trừ tiền", "mua gói", "gói nạp", "hóa đơn", "vnd",
   ],
-  customer_support: [
-    "cskh", "hỗ trợ", "support", "admin", "gm", "phản hồi", "ticket",
-    "khiếu nại", "báo lỗi", "chăm sóc khách hàng", "xin hỗ trợ",
+  purchase_delivery: [
+    "chưa nhận", "không nhận được", "mua rồi chưa nhận", "nạp rồi chưa nhận",
+    "trừ tiền chưa nhận", "chưa cộng kc", "chưa cộng kim cương", "delay giao dịch",
+    "không về item", "không nhận gói", "chưa nhận quà mua", "delivery",
   ],
-  gameplay: [
-    "gameplay", "lối chơi", "chế độ", "mode", "map", "round", "màn", "combat",
-    "đặt bom", "gỡ bom", "bom", "đấu đội", "rank", "leo rank", "nhiệm vụ",
-    "kỹ năng", "skill", "điều khiển", "di chuyển", "bắn", "ngắm",
+  update_download: [
+    "cập nhật", "update", "patch", "bản vá", "phiên bản", "version", "tải dữ liệu",
+    "tải tài nguyên", "download", "dung lượng", "bảo trì", "maintenance", "sau update",
+    "lỗi cập nhật", "không tải được",
+  ],
+  ui_control: [
+    "nút không ăn", "bấm không ăn", "không ăn nút", "nút lỗi", "button", "tap", "menu",
+    "giao diện", "ui", "khó thao tác", "điều khiển", "cảm ứng", "joystick", "hud",
+    "nút đổi súng", "không phản hồi", "không hoạt động",
+  ],
+  gameplay_mode_map: [
+    "chế độ", "mode", "map", "bản đồ", "gameplay", "lối chơi", "đặt bom", "gỡ bom",
+    "đấu đội", "đấu đơn", "round", "luật chơi", "trong trận", "nhiệm vụ trong trận",
+  ],
+  shooting_mechanics: [
+    "tâm súng", "ngắm", "aim", "đạn không ăn", "bắn không ăn", "hitbox", "recoil",
+    "giật tâm", "damage", "sát thương", "headshot", "bắn xuyên", "đạn lệch", "spray",
   ],
   matchmaking: [
-    "ghép trận", "matchmaking", "tìm trận", "xếp trận", "phòng", "đội yếu",
-    "đối thủ", "đồng đội", "chờ trận", "rank lệch", "match",
+    "ghép trận", "matchmaking", "tìm trận", "xếp trận", "chờ trận", "tìm phòng",
+    "phòng", "đội lệch", "đối thủ mạnh", "đối thủ yếu", "đồng đội yếu", "match",
+  ],
+  rank_competition: [
+    "leo rank", "rank", "xếp hạng", "mất điểm rank", "trừ điểm rank", "reset mùa",
+    "mùa rank", "phần thưởng rank", "huyền thoại", "cao thủ", "điểm rank",
   ],
   balance: [
-    "cân bằng", "balance", "buff", "nerf", "op", "imba", "quá mạnh", "quá yếu",
-    "mất cân bằng", "bất công", "pay to win", "p2w", "hút máu",
+    "cân bằng", "mất cân bằng", "balance", "buff", "nerf", "op", "imba", "quá mạnh",
+    "quá yếu", "pay to win", "p2w", "hút máu", "bất công", "súng quá mạnh",
   ],
-  reward_gift: [
-    "quà", "quà tặng", "phần thưởng", "gift", "giftcode", "code", "reward",
-    "nhận quà", "đền bù", "coupon", "thưởng", "mốc thưởng",
+  hack_cheat: [
+    "hack wall aim", "hack wall", "hack aim", "hack bắn xuyên", "hack tràn lan",
+    "wallhack", "aimbot", "auto headshot", "map hack", "bắn xuyên tường", "tố hack",
+    "hack", "cheat", "gian lận", "wall", "mod", "tool",
   ],
-  community_player_behavior: [
-    "toxic", "chửi", "văng tục", "report", "phá game", "afk", "troll",
-    "trẻ trâu", "gà", "noob", "cà khịa", "đồng đội phá",
+  event_mission: [
+    "sự kiện", "event", "nhiệm vụ", "mission", "mốc sự kiện", "điểm event",
+    "event mới", "chuỗi sự kiện", "đua top", "khó hiểu nhiệm vụ",
   ],
-  item_skin: [
-    "skin", "súng", "vũ khí", "nhân vật", "item", "vật phẩm", "trang phục",
-    "trang bị", "vip", "dao", "nhân vật nữ", "balo",
+  reward_giftcode: [
+    "phần thưởng", "quà", "quà tặng", "gift", "giftcode", "code", "reward", "đền bù",
+    "mốc thưởng", "nhận thưởng", "không nhận thưởng", "coupon",
   ],
-  gacha: [
-    "gacha", "rương", "quay", "hộp", "roll", "spin", "random", "tỉ lệ",
-    "rate", "mở rương", "may mắn", "xác suất",
+  gacha_rate: [
+    "gacha", "rương", "quay rương", "mở rương", "quay", "roll", "spin", "random",
+    "tỉ lệ", "tỷ lệ", "rate", "xác suất", "may mắn", "ra đồ", "hộp",
   ],
-  esports_content: [
-    "giải đấu", "esports", "tournament", "stream", "livestream", "youtube",
-    "tiktok", "video", "clip", "creator", "content",
+  item_skin_weapon: [
+    "skin", "vũ khí", "súng", "nhân vật", "item", "vật phẩm", "trang phục", "dao",
+    "balo", "vip", "mảnh", "mảnh súng", "mảnh nhân vật", "ak", "m4", "sniper",
   ],
-  suggestion_request: [
-    "đề xuất", "góp ý", "mong", "hy vọng", "nên thêm", "yêu cầu", "wish",
-    "giá như", "đề nghị", "xin thêm", "cần thêm",
+  social_chat_voice: [
+    "chat", "voice", "mic", "bạn bè", "friend", "clan", "bang hội", "mời đội",
+    "lập đội", "đội", "tin nhắn", "khung chat", "voice lỗi",
   ],
-  spam_ads: [
-    "spam", "quảng cáo", "link", "bán acc", "bán nick", "liên hệ zalo",
-    "sđt", "shop acc", "http", "www.", "add zalo", "lừa đảo",
+  community_behavior: [
+    "toxic", "chửi", "văng tục", "afk", "report", "tố cáo", "phá game", "troll",
+    "trẻ trâu", "đồng đội phá", "hành vi", "người chơi xấu", "feed",
+  ],
+  customer_support: [
+    "cskh", "hỗ trợ", "support", "admin", "gm", "phản hồi", "ticket", "khiếu nại",
+    "chăm sóc khách hàng", "xin hỗ trợ", "không trả lời", "liên hệ admin",
+  ],
+  feature_request: [
+    "góp ý", "đề xuất", "mong thêm", "xin thêm", "nên thêm", "yêu cầu thêm", "feature",
+    "tính năng mới", "mode mới", "thêm súng", "thêm map", "ước gì", "hy vọng",
+  ],
+  content_esports: [
+    "giải đấu", "esports", "tournament", "livestream", "stream", "youtube", "tiktok",
+    "video", "clip", "creator", "content", "truyền thông",
+  ],
+  spam_ads_scam: [
+    "spam", "quảng cáo", "bán acc", "bán nick", "shop acc", "link lạ", "http", "www.",
+    "zalo", "liên hệ", "lừa đảo", "scam", "bán kc", "nạp thuê",
+  ],
+  positive_feedback: [
+    "game hay", "hay quá", "rất hay", "mượt", "đỉnh", "vui", "thích", "tuyệt",
+    "ổn", "ngon", "tốt", "ủng hộ", "hài lòng", "good", "great", "nice", "love",
+  ],
+  technical_other: [
+    "lỗi kỹ thuật", "bug", "error", "glitch", "lỗi", "sự cố", "sai hiển thị",
+    "không hiện", "kẹt", "bị lỗi", "không dùng được",
   ],
   other: [],
 };
 
 const GENERIC_MAJOR_TOPIC_TERMS = new Set([
-  "bug", "loi", "error", "lag", "giat", "crash", "hack", "cheat", "ping", "mang",
-  "nap", "dang nhap", "tai khoan", "event", "su kien", "update", "cap nhat",
-  "support", "ho tro", "skin", "gacha", "ruong", "spam", "quang cao", "gameplay",
-  "loi choi", "matchmaking", "ghep tran", "can bang", "qua", "gift", "code",
+  "bug", "loi", "error", "lag", "giat", "fps", "crash", "vang game", "ping", "mang",
+  "delay", "hack", "cheat", "nap", "thanh toan", "dang nhap", "tai khoan", "event",
+  "su kien", "update", "cap nhat", "support", "ho tro", "skin", "gacha", "ruong",
+  "spam", "quang cao", "gameplay", "loi choi", "matchmaking", "ghep tran", "rank",
+  "can bang", "qua", "gift", "code", "ui", "chat", "voice",
 ]);
 
 export function normalizeTopicText(input: string): string {

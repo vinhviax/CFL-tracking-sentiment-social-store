@@ -12,7 +12,7 @@ describe("mapCommentRow", () => {
     store: "gp",
     legacy_topic: null,
     post_id: null,
-    topic_main: "performance_lag_crash",
+    topic_main: "lag_fps",
     topics_sub: "[]",
     sentiment: "negative",
     urgency: "medium",
@@ -25,8 +25,8 @@ describe("mapCommentRow", () => {
     summary_translated: "玩家抱怨更新后游戏卡顿。",
     dynamic_subtopics: [
       {
-        key: "performance_lag_crash:drop_fps_khi_combat",
-        parent_topic: "performance_lag_crash",
+        key: "lag_fps:drop_fps_khi_combat",
+        parent_topic: "lag_fps",
         label: "Drop FPS khi combat",
         label_vi: "Drop FPS khi combat",
         label_zh_cn: "战斗时掉帧",
@@ -44,7 +44,7 @@ describe("mapCommentRow", () => {
     expect(got.analysis?.summary).toBe("玩家抱怨更新后游戏卡顿。");
     expect(got.analysis?.summary_original).toBe("Người chơi phàn nàn game bị lag sau cập nhật.");
     expect(got.analysis?.subtopics_dynamic?.[0]).toMatchObject({
-      key: "performance_lag_crash:drop_fps_khi_combat",
+      key: "lag_fps:drop_fps_khi_combat",
       label: "战斗时掉帧",
     });
   });
@@ -54,5 +54,24 @@ describe("mapCommentRow", () => {
 
     expect(got.message).toBe("Game bị lag sau bản cập nhật");
     expect(got.analysis?.summary).toBe("Người chơi phàn nàn game bị lag sau cập nhật.");
+  });
+  test("includes parent Facebook post context when available", () => {
+    const got = mapCommentRow({
+      ...baseRow,
+      source_type: "fb_page",
+      post_id: 77,
+      post_external_id: "post_77",
+      post_published_at: "2026-07-06T01:00:00.000Z",
+      post_message: "Thong bao cap nhat che do moi.",
+      post_permalink: "https://facebook.com/post_77",
+    });
+
+    expect(got.post).toEqual({
+      id: 77,
+      external_id: "post_77",
+      published_at: "2026-07-06T01:00:00.000Z",
+      message: "Thong bao cap nhat che do moi.",
+      permalink: "https://facebook.com/post_77",
+    });
   });
 });

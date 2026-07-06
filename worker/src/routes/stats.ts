@@ -1,9 +1,66 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
-import { TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
+import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import { summarizeStoreBreakdown } from "../services/storeStats";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
+
+type TrendRow = { d: string | null; sentiment: string | null; n: number };
+type TrendPoint = { date: string; negative: number; neutral: number; positive: number };
+
+function dateKey(value?: string | null) {
+  const text = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function toIsoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDateFilter(where: string[], params: any[], column: string, operator: ">=" | "<=", value?: string) {
+  const key = dateKey(value);
+  if (!key) return;
+  where.push(`substr(${column}, 1, 10) ${operator} ?`);
+  params.push(key);
+}
+
+export function buildTrendSeries(rows: TrendRow[], q: Record<string, string> = {}): TrendPoint[] {
+  const series = new Map<string, TrendPoint>();
+  const ensurePoint = (date: string) => {
+    if (!series.has(date)) series.set(date, { date, negative: 0, neutral: 0, positive: 0 });
+    return series.get(date)!;
+  };
+
+  const from = dateKey(q.from);
+  const to = dateKey(q.to);
+  if (from && to) {
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T00:00:00.000Z`);
+    const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    if (Number.isFinite(days) && days >= 0 && days <= 370) {
+      for (let offset = 0; offset <= days; offset += 1) {
+        ensurePoint(toIsoDate(addDays(start, offset)));
+      }
+    }
+  }
+
+  for (const r of rows) {
+    const day = dateKey(r.d);
+    if (!day) continue;
+    const point = ensurePoint(day);
+    if (r.sentiment === "negative" || r.sentiment === "neutral" || r.sentiment === "positive") {
+      point[r.sentiment] = Number(r.n || 0);
+    }
+  }
+
+  return [...series.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
 
 function baseFilters(q: Record<string, string>) {
   const where: string[] = [];
@@ -12,8 +69,9 @@ function baseFilters(q: Record<string, string>) {
   if (q.group === "facebook") where.push("c.source_type IN ('fb_page','fb_group_csv')");
   if (q.source) { where.push("c.source_type = ?"); params.push(q.source); }
   if (q.store) { where.push("c.store = ?"); params.push(q.store); }
-  if (q.from) { where.push("c.created_at >= ?"); params.push(q.from); }
-  if (q.to) { where.push("c.created_at <= ?"); params.push(q.to); }
+  if (q.post_id) { where.push("c.post_id = ?"); params.push(Number(q.post_id)); }
+  addDateFilter(where, params, "c.created_at", ">=", q.from);
+  addDateFilter(where, params, "c.created_at", "<=", q.to);
   if (q.subtopic) {
     where.push(`EXISTS (
       SELECT 1 FROM comment_subtopics cs_filter
@@ -27,7 +85,8 @@ function baseFilters(q: Record<string, string>) {
 
 function topicLabel(topic: string, lang?: string) {
   const labels = lang === "zh-CN" ? TOPIC_LABELS_ZH_CN : TOPIC_LABELS_VI;
-  return labels[topic] || topic;
+  const legacyLabels = lang === "zh-CN" ? LEGACY_TOPIC_LABELS_ZH_CN : LEGACY_TOPIC_LABELS_VI;
+  return labels[topic] || legacyLabels[topic] || topic;
 }
 
 function subtopicLabel(row: { label_vi: string; label_zh_cn?: string | null }, lang?: string) {
@@ -140,19 +199,13 @@ statsRoute.get("/trend", async (c) => {
 
   const rows = await c.env.DB
     .prepare(
-      `SELECT date(c.created_at) as d, a.sentiment, COUNT(*) as n
+      `SELECT substr(c.created_at, 1, 10) as d, a.sentiment, COUNT(*) as n
        FROM comments c JOIN analyses a ON a.comment_id = c.id
        ${whereSql}
        GROUP BY d, a.sentiment ORDER BY d`
     ).bind(...p).all<{ d: string; sentiment: string; n: number }>();
 
-  const series = new Map<string, any>();
-  for (const r of rows.results) {
-    if (!r.d) continue;
-    if (!series.has(r.d)) series.set(r.d, { date: r.d, negative: 0, neutral: 0, positive: 0 });
-    series.get(r.d)[r.sentiment] = r.n;
-  }
-  return c.json([...series.values()]);
+  return c.json(buildTrendSeries(rows.results, q));
 });
 
 statsRoute.get("/topic-ranking", async (c) => {

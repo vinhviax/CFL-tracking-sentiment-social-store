@@ -155,6 +155,8 @@ ingestRoute.post("/preview-csv", async (c) => {
       ...dataRange,
       sample: groupRows.slice(0, 10).map((r) => ({
         source: r.source,
+        post_published_date: r.postPublished,
+        post_message: (r.postMessage || "").slice(0, 200),
         created_date: r.createdDate,
         comment_message: (r.commentMessage || "").slice(0, 200),
         legacy_topic: r.legacyTopic,

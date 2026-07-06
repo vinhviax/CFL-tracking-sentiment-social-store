@@ -39,6 +39,7 @@ function getDefaultFilters() {
     subtopic: "",
     sentiment: "",
     urgency: "",
+    post_id: "",
   };
 }
 
@@ -98,6 +99,9 @@ const UI = {
     date: "Ngày",
     source: "Nguồn",
     platform: "Platform/Post",
+    post: "Bài post",
+    postContext: "Bài post gốc",
+    openPost: "Mở bài post",
     content: "Nội dung",
     confidence: "Tin cậy",
     detail: "Chi tiết comment",
@@ -162,6 +166,9 @@ const UI = {
     date: "日期",
     source: "来源",
     platform: "平台/帖子",
+    post: "Post",
+    postContext: "Original post",
+    openPost: "Open post",
     content: "内容",
     confidence: "置信度",
     detail: "评论详情",
@@ -182,6 +189,14 @@ function sourceLabel(row, lang) {
   if (row.source_type === "fb_page") return lang === "zh-CN" ? "粉丝页" : "Fanpage";
   if (row.source_type === "fb_group_csv") return lang === "zh-CN" ? "群组 CSV" : "Group CSV";
   return row.source_type;
+}
+
+function postContextLabel(row) {
+  const message = row.post?.message?.trim();
+  const permalink = row.post?.permalink;
+  if (message) return message.length > 96 ? `${message.slice(0, 96)}...` : message;
+  if (row.post?.published_at) return `Post ${formatDisplayDate(row.post.published_at)}`;
+  return row.post?.external_id || (permalink ? "Facebook post" : "—");
 }
 
 function formatCount(value) {
@@ -221,6 +236,7 @@ function cleanParams(filters, group, subtab, page, metaLang) {
   if (filters.subtopic) params.subtopic = filters.subtopic;
   if (filters.sentiment) params.sentiment = filters.sentiment;
   if (filters.urgency) params.urgency = filters.urgency;
+  if (filters.post_id) params.post_id = filters.post_id;
   if (group === "store") params.store = subtab;
   if (group === "facebook") params.source = subtab;
   return params;
@@ -325,6 +341,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
 
   useEffect(() => {
     setSubtab(group === "store" ? "gp" : "fb_page");
+    setFilters((current) => (current.post_id ? { ...current, post_id: "" } : current));
     setPage(1);
   }, [group]);
 
@@ -363,7 +380,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       getTopicRanking({ ...hierarchyParams, limit: 50 }),
       getSubtopicRanking({ ...aggregateParams, limit: 12 }),
       listComments(params),
-      group === "facebook" ? listPosts({ source: subtab, limit: 50 }) : Promise.resolve([]),
+      group === "facebook" ? listPosts({ source: subtab, from: aggregateParams.from, to: aggregateParams.to, limit: 50 }) : Promise.resolve([]),
       group === "store" ? getStoreBreakdown(aggregateParams) : Promise.resolve(null),
     ])
       .then(([ov, tr, rank, negRank, neuRank, posRank, optionRank, subRank, cmts, postList, storeStats]) => {
@@ -539,7 +556,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
 
       <div className="tabs">
         {tabs.map((tab) => (
-          <button key={tab.value} className={`tab ${subtab === tab.value ? "active" : ""}`} onClick={() => { setSubtab(tab.value); setPage(1); }}>
+          <button key={tab.value} className={`tab ${subtab === tab.value ? "active" : ""}`} onClick={() => { setSubtab(tab.value); setFilters((current) => (current.post_id ? { ...current, post_id: "" } : current)); setPage(1); }}>
             {tab.label}
           </button>
         ))}
@@ -700,7 +717,14 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <h3>Post context</h3>
               <div className="post-list">
                 {posts.slice(0, 6).map((post) => (
-                  <button key={post.id} onClick={() => setFilters((current) => ({ ...current, q: "" }))}>
+                  <button
+                    key={post.id}
+                    className={filters.post_id === String(post.id) ? "active" : ""}
+                    onClick={() => {
+                      setFilters((current) => ({ ...current, post_id: String(post.id), q: "" }));
+                      setPage(1);
+                    }}
+                  >
                     <b>{post.comment_count}</b>
                     <span>{(post.message || "(empty)").slice(0, 110)}</span>
                   </button>
@@ -720,6 +744,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                   <tr>
                     <th>{t.date}</th>
                     <th>{t.source}</th>
+                    <th>{t.post}</th>
                     <th>{t.content}</th>
                     <th>{t.topic}</th>
                     <th>{t.subtopic}</th>
@@ -733,6 +758,13 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                     <tr key={row.id} onClick={() => setSelected(row)} className="clickable-row">
                       <td>{row.created_at ? formatDisplayDate(row.created_at) : "—"}</td>
                       <td>{sourceLabel(row, lang)}</td>
+                      <td className="post-preview">
+                        {row.post?.permalink ? (
+                          <a href={row.post.permalink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                            {postContextLabel(row)}
+                          </a>
+                        ) : postContextLabel(row)}
+                      </td>
                       <td className="msg-preview">{row.message}</td>
                       <td>{topicLabels?.[row.analysis?.topic_main] || row.analysis?.topic_main || "—"}</td>
                       <td>
@@ -774,6 +806,18 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <>
                 <p className="drawer-label">{t.translated}</p>
                 <p className="drawer-message dim">{selected.message_zh_cn}</p>
+              </>
+            )}
+            {selected.post && (
+              <>
+                <p className="drawer-label">{t.postContext}</p>
+                <p className="drawer-message dim">{selected.post.message || "—"}</p>
+                {selected.post.published_at && (
+                  <p className="drawer-message dim">{formatDisplayDateTime(selected.post.published_at)}</p>
+                )}
+                {selected.post.permalink && (
+                  <a className="drawer-link" href={selected.post.permalink} target="_blank" rel="noreferrer">{t.openPost}</a>
+                )}
               </>
             )}
             <div className="drawer-badges">

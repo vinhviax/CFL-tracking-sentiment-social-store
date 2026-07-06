@@ -6,13 +6,28 @@ export const commentsRoute = new Hono<{ Bindings: Env }>();
 const SELECT = `
   SELECT c.id, c.source_type, c.created_at, c.message, c.rating, c.country, c.store,
          c.legacy_topic, c.post_id,
+         p.external_id as post_external_id, p.published_at as post_published_at,
+         p.message as post_message, p.permalink as post_permalink,
          a.topic_main, a.topics_sub, a.sentiment, a.urgency, a.summary,
          a.other_suggested, a.confidence, a.provider, a.model,
          t.message_translated, t.summary_translated
   FROM comments c
+  LEFT JOIN posts p ON p.id = c.post_id
   LEFT JOIN analyses a ON a.comment_id = c.id
   LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
 `;
+
+function dateKey(value?: string | null) {
+  const text = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function addDateFilter(where: string[], params: any[], column: string, operator: ">=" | "<=", value?: string) {
+  const key = dateKey(value);
+  if (!key) return;
+  where.push(`substr(${column}, 1, 10) ${operator} ?`);
+  params.push(key);
+}
 
 async function loadCommentSubtopics(db: D1Database, commentIds: number[], lang: string): Promise<Map<number, any[]>> {
   const out = new Map<number, any[]>();
@@ -63,6 +78,15 @@ export function mapCommentRow(r: any, lang = "vi") {
     store: r.store,
     legacy_topic: r.legacy_topic,
     post_id: r.post_id,
+    post: r.post_id
+      ? {
+          id: r.post_id,
+          external_id: r.post_external_id || null,
+          published_at: r.post_published_at || null,
+          message: r.post_message || "",
+          permalink: r.post_permalink || null,
+        }
+      : null,
     analysis: r.topic_main
       ? {
           topic_main: r.topic_main,
@@ -94,8 +118,8 @@ commentsRoute.get("/", async (c) => {
   if (q.post_id) { where.push("c.post_id = ?"); filterParams.push(Number(q.post_id)); }
   if (q.store) { where.push("c.store = ?"); filterParams.push(q.store); }
   if (q.q) { where.push("(c.message LIKE ? OR t.message_translated LIKE ?)"); filterParams.push(`%${q.q}%`, `%${q.q}%`); }
-  if (q.from) { where.push("c.created_at >= ?"); filterParams.push(q.from); }
-  if (q.to) { where.push("c.created_at <= ?"); filterParams.push(q.to); }
+  addDateFilter(where, filterParams, "c.created_at", ">=", q.from);
+  addDateFilter(where, filterParams, "c.created_at", "<=", q.to);
   if (q.topic) { where.push("a.topic_main = ?"); filterParams.push(q.topic); }
   if (q.subtopic) {
     where.push(`EXISTS (

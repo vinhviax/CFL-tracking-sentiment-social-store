@@ -8,8 +8,8 @@ test("changing sentiment resets topic and subtopic filters", () => {
     to: "2026-07-06",
     q: "lag",
     sentiment: "negative",
-    topic: "performance_lag_crash",
-    subtopic: "performance_lag_crash:drop_fps",
+    topic: "lag_fps",
+    subtopic: "lag_fps:drop_fps",
     urgency: "high",
   };
 
@@ -27,8 +27,8 @@ test("changing topic resets subtopic while keeping sentiment", () => {
     to: "2026-07-06",
     q: "",
     sentiment: "negative",
-    topic: "performance_lag_crash",
-    subtopic: "performance_lag_crash:drop_fps",
+    topic: "lag_fps",
+    subtopic: "lag_fps:drop_fps",
     urgency: "",
   };
 
@@ -42,39 +42,39 @@ test("changing topic resets subtopic while keeping sentiment", () => {
 test("topic options follow the filtered ranking before falling back to static labels", () => {
   const options = buildTopicOptions(
     {
-      performance_lag_crash: "Hiệu năng/Lag/Crash",
+      lag_fps: "Lag/Giật/Tụt FPS",
       hack_cheat: "Hack/Cheat",
-      bug: "Lỗi (Bug)",
+      technical_other: "Lỗi kỹ thuật khác",
     },
     [
       { topic: "hack_cheat", label: "Hack/Cheat", count: 8 },
-      { topic: "performance_lag_crash", label: "Hiệu năng/Lag/Crash", count: 5 },
+      { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 5 },
     ]
   );
 
   assert.deepEqual(options, [
     { key: "hack_cheat", label: "Hack/Cheat", count: 8 },
-    { key: "performance_lag_crash", label: "Hiệu năng/Lag/Crash", count: 5 },
-    { key: "bug", label: "Lỗi (Bug)", count: 0 },
+    { key: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 5 },
+    { key: "technical_other", label: "Lỗi kỹ thuật khác", count: 0 },
   ]);
 });
 
 test("topic options can hide static topics when sentiment narrows the hierarchy", () => {
   const options = buildTopicOptions(
     {
-      performance_lag_crash: "Hiệu năng/Lag/Crash",
+      lag_fps: "Lag/Giật/Tụt FPS",
       hack_cheat: "Hack/Cheat",
-      bug: "Lỗi (Bug)",
+      technical_other: "Lỗi kỹ thuật khác",
     },
     [
       { topic: "hack_cheat", label: "Hack/Cheat", count: 8 },
-      { topic: "performance_lag_crash", label: "Hiệu năng/Lag/Crash", count: 5 },
+      { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 5 },
     ],
     { includeEmpty: false }
   );
 
   assert.deepEqual(options, [
     { key: "hack_cheat", label: "Hack/Cheat", count: 8 },
-    { key: "performance_lag_crash", label: "Hiệu năng/Lag/Crash", count: 5 },
+    { key: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 5 },
   ]);
 });

@@ -29,7 +29,7 @@ function topicsOf(text: string): string[] {
 export function classifyFallback(item: CommentInput): Classification {
   const text = item.message || "";
   const topics = topicsOf(text);
-  const main = topics[0] || (text.length > 3 ? "gameplay" : "other");
+  const main = topics[0] || "other";
   const subs = topics.slice(1, 3);
   const sentiment = sentimentOf(text, item.rating);
   const urgency = HIGH_URGENCY_RE.test(text)

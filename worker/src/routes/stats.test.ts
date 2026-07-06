@@ -1,5 +1,25 @@
 import { describe, expect, test } from "vitest";
+import { buildTrendSeries } from "./stats";
 import { summarizeStoreBreakdown } from "../services/storeStats";
+
+describe("buildTrendSeries", () => {
+  test("fills missing days inside the selected date range", () => {
+    const got = buildTrendSeries(
+      [
+        { d: "2026-07-06", sentiment: "negative", n: 4 },
+        { d: "2026-07-06", sentiment: "positive", n: 1 },
+      ],
+      { from: "2026-07-04", to: "2026-07-07" }
+    );
+
+    expect(got).toEqual([
+      { date: "2026-07-04", negative: 0, neutral: 0, positive: 0 },
+      { date: "2026-07-05", negative: 0, neutral: 0, positive: 0 },
+      { date: "2026-07-06", negative: 4, neutral: 0, positive: 1 },
+      { date: "2026-07-07", negative: 0, neutral: 0, positive: 0 },
+    ]);
+  });
+});
 
 describe("summarizeStoreBreakdown", () => {
   test("computes Store average rating and range highlights from rating distribution", () => {
