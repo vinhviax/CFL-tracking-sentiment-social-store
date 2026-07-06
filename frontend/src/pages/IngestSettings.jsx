@@ -73,8 +73,11 @@ function sourceName(sourceType) {
 function runScope(run) {
   if (!run) return "Chưa rõ phạm vi";
   const note = parseRunNote(run.note);
+  if (run.data_start_date || run.data_end_date) {
+    return `Dữ liệu: ${formatDate(run.data_start_date) || "?"} → ${formatDate(run.data_end_date) || "?"}`;
+  }
   if (note.start_date || note.end_date) {
-    return `${formatDate(note.start_date) || "?"} → ${formatDate(note.end_date) || "?"}`;
+    return `Yêu cầu kéo: ${formatDate(note.start_date) || "?"} → ${formatDate(note.end_date) || "?"}`;
   }
   if (note.text) return note.text;
   return `Ngày kéo: ${formatDate(run.started_at) || "—"}`;
@@ -322,6 +325,11 @@ export default function IngestSettings() {
                 <div className="error-banner">
                   File này không có dòng Group hợp lệ, nên không thể nạp vào Facebook Group CSV.
                 </div>
+              )}
+              {(preview.data_start_date || preview.data_end_date) && (
+                <p className="progress-caption">
+                  Khoảng thời gian Group trong file: <b>{formatDate(preview.data_start_date) || "?"}</b> → <b>{formatDate(preview.data_end_date) || "?"}</b>
+                </p>
               )}
               <p className="progress-caption">Xem trước tối đa 10 dòng Group đầu tiên:</p>
               <table>

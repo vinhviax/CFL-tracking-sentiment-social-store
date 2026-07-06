@@ -131,11 +131,24 @@ export function parseRows(raw: ArrayBuffer): ParsedRow[] {
 function parseVnDate(value: string): string | null {
   const v = (value || "").trim();
   if (!v) return null;
+  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`;
   const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (!m) return null;
   const [, d, mo, y, h = "00", mi = "00", s = "00"] = m;
   const pad = (x: string) => x.padStart(2, "0");
   return `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}:${pad(s)}`;
+}
+
+export function getCsvDateRange(rows: ParsedRow[]): { data_start_date: string | null; data_end_date: string | null } {
+  const dates = rows
+    .map((row) => parseVnDate(row.createdDate)?.slice(0, 10) || null)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return {
+    data_start_date: dates[0] || null,
+    data_end_date: dates.at(-1) || null,
+  };
 }
 
 async function dedupeHash(source: string, created: string, message: string): Promise<string> {
@@ -175,6 +188,8 @@ export interface IngestRunRow {
   rows_new: number;
   note: string | null;
   error: string | null;
+  data_start_date?: string | null;
+  data_end_date?: string | null;
 }
 
 export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Promise<IngestRunRow> {
@@ -186,6 +201,10 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
   let newCount = 0;
   let error: string | null = null;
   let note: string | null = null;
+  let dataRange: { data_start_date: string | null; data_end_date: string | null } = {
+    data_start_date: null,
+    data_end_date: null,
+  };
 
   try {
     const allRows = parseRows(raw);
@@ -214,6 +233,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
 
     const fresh = filterFreshUniqueHashes(withHash, existing);
     validateCsvGroupImport({ totalRows: allRows.length, groupRows: rows.length, freshRows: fresh.length });
+    dataRange = getCsvDateRange(fresh.map((item) => item.row));
     const duplicateRows = withHash.length - fresh.length;
     note = buildCsvRunNote(filename, {
       totalRows: allRows.length,
@@ -309,5 +329,6 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     rows_new: newCount,
     note,
     error,
+    ...dataRange,
   };
 }

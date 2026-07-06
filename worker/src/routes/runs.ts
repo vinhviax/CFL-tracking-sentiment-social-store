@@ -48,7 +48,19 @@ const RUN_SELECT = `
            JOIN comment_translations t ON t.comment_id = c.id AND t.locale = 'zh-CN'
            WHERE c.ingest_run_id = r.id
              AND c.skipped_analysis = 0
-         ) AS translated_zh_cn_count
+         ) AS translated_zh_cn_count,
+         (
+           SELECT MIN(SUBSTR(c.created_at, 1, 10))
+           FROM comments c
+           WHERE c.ingest_run_id = r.id
+             AND c.created_at IS NOT NULL
+         ) AS data_start_date,
+         (
+           SELECT MAX(SUBSTR(c.created_at, 1, 10))
+           FROM comments c
+           WHERE c.ingest_run_id = r.id
+             AND c.created_at IS NOT NULL
+         ) AS data_end_date
   FROM ingest_runs r
 `;
 

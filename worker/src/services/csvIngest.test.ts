@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { filterFreshUniqueHashes, filterGroupCsvRows, validateCsvGroupImport } from "./csvIngest";
+import { getCsvDateRange, filterFreshUniqueHashes, filterGroupCsvRows, validateCsvGroupImport } from "./csvIngest";
 
 describe("filterFreshUniqueHashes", () => {
   test("drops hashes that already exist in DB and duplicate hashes within the same upload", () => {
@@ -37,5 +37,18 @@ describe("Facebook Group CSV guardrails", () => {
   test("rejects a CSV upload when every Group row is already imported or duplicated", () => {
     expect(() => validateCsvGroupImport({ totalRows: 4, groupRows: 3, freshRows: 0 }))
       .toThrow(/khong co comment Group moi/i);
+  });
+
+  test("detects the first and last comment date from Group rows", () => {
+    const rows = [
+      { source: "Group", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "lag", legacyTopic: null },
+      { source: "Group", postPublished: "", postMessage: "", createdDate: "4/7/2026 08:30:00", commentMessage: "hack", legacyTopic: null },
+      { source: "Group", postPublished: "", postMessage: "", createdDate: "bad date", commentMessage: "ignored", legacyTopic: null },
+    ];
+
+    expect(getCsvDateRange(rows)).toEqual({
+      data_start_date: "2026-07-04",
+      data_end_date: "2026-07-06",
+    });
   });
 });

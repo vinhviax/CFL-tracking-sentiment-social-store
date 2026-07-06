@@ -31,6 +31,14 @@ test("CSV preview makes Facebook Group filtering visible before upload", () => {
   assert.match(source, /preview\.group_rows/);
   assert.match(source, /preview\.skipped_non_group_rows/);
   assert.match(source, /preview\.group_rows === 0/);
+  assert.match(source, /preview\.data_start_date/);
+  assert.match(source, /preview\.data_end_date/);
+});
+
+test("ingest history prefers the actual comment date range", () => {
+  assert.match(source, /run\.data_start_date/);
+  assert.match(source, /run\.data_end_date/);
+  assert.match(source, /Dữ liệu:/);
 });
 
 test("ingest history can delete a run with an explicit confirmation", () => {

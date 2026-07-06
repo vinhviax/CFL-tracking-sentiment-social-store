@@ -12,6 +12,18 @@ vi.mock("../services/csvIngest", () => ({
   ingestCsv: mocks.ingestCsv,
   parseRows: mocks.parseRows,
   filterGroupCsvRows: (rows: any[]) => rows.filter((row) => String(row.source || "").trim().toLowerCase() === "group"),
+  getCsvDateRange: (rows: any[]) => {
+    const dates = rows
+      .map((row) => {
+        const value = String(row.createdDate || "");
+        const vn = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (!vn) return null;
+        return `${vn[3]}-${vn[2].padStart(2, "0")}-${vn[1].padStart(2, "0")}`;
+      })
+      .filter(Boolean)
+      .sort();
+    return { data_start_date: dates[0] || null, data_end_date: dates.at(-1) || null };
+  },
 }));
 vi.mock("../services/facebook", () => ({
   ingestFacebook: mocks.ingestFacebook,
@@ -151,6 +163,7 @@ describe("ingestRoute automated processing", () => {
   test("CSV preview counts only Group rows as importable", async () => {
     mocks.parseRows.mockReturnValue([
       { source: "Group", createdDate: "6/7/2026", commentMessage: "lag", legacyTopic: null },
+      { source: "Group", createdDate: "4/7/2026 08:30:00", commentMessage: "hack", legacyTopic: null },
       { source: "Fanpage", createdDate: "6/7/2026", commentMessage: "event", legacyTopic: null },
     ]);
     const form = new FormData();
@@ -164,10 +177,15 @@ describe("ingestRoute automated processing", () => {
     );
 
     await expect(res.json()).resolves.toMatchObject({
-      total_rows: 2,
-      group_rows: 1,
+      total_rows: 3,
+      group_rows: 2,
       skipped_non_group_rows: 1,
-      sample: [{ source: "Group", comment_message: "lag" }],
+      sample: [
+        { source: "Group", comment_message: "lag" },
+        { source: "Group", comment_message: "hack" },
+      ],
+      data_start_date: "2026-07-04",
+      data_end_date: "2026-07-06",
     });
   });
 

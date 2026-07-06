@@ -23,11 +23,15 @@ describe("mapRunRow", () => {
       rows_new: 141,
       note: "{\"start_date\":\"2026-06-29\",\"end_date\":\"2026-07-06\"}",
       error: null,
+      data_start_date: "2026-07-01",
+      data_end_date: "2026-07-06",
       comment_count: 141,
       analyzed_count: 141,
       translated_zh_cn_count: 141,
     });
 
+    expect(got.data_start_date).toBe("2026-07-01");
+    expect(got.data_end_date).toBe("2026-07-06");
     expect(got.analysis_status).toBe("done");
     expect(got.translation_status).toBe("done");
     expect(got.analysis_progress).toEqual({ done: 141, total: 141 });

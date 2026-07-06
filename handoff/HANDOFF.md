@@ -1,12 +1,13 @@
-# HANDOFF 2026-07-06
+# HANDOFF 2026-07-07
 
 Ban giao cho agent/session tiep theo.
 
 ## Trang thai moi nhat
 
-- Lam viec chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`.
+- Workspace chinh trong session nay: `G:\My Drive\CFL\Agent\Tracking Store Social`.
+- Checkout phu dung de verify vi `node_modules` trong Google Drive bi ghi thanh file 0 byte: `C:\Users\PC\Documents\Codex\2026-07-07\files-mentioned-by-the-user-handoff\work\CFL-tracking-sentiment-social-store`.
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`.
-- Branch lam viec hien tai: `main`.
+- Branch lam viec hien tai: `main`, dang o `main...origin/main`.
 - Backend production la Cloudflare Worker trong `worker/`.
 - Frontend production la React/Vite trong `frontend/`, deploy Cloudflare Pages.
 - Database production la Cloudflare D1 `cfl-feedback`.
@@ -14,70 +15,77 @@ Ban giao cho agent/session tiep theo.
 - Frontend production: `https://cfl-feedback.pages.dev`.
 - Cron Worker dang la `45 6 * * *`, tuc 13:45 GMT+7 moi ngay.
 - LLM provider production dang cau hinh `llm_viax`; classify model `ag/gemini-3-flash-agent`; insight model `codex-lb/gpt-5.4`.
-- Neu can commit/deploy moi, chay test/build/typecheck truoc, sau do commit, push, deploy Worker, deploy Pages va verify production.
-- Code commit da push va deploy trong phien nay: `1567359` (`Improve feedback filters and ingest controls`).
-- Worker version da deploy: `543e820f-f406-4d29-8bcc-cbadec938b5a`.
-- Pages deployment URL da tao: `https://25642ba6.cfl-feedback.pages.dev`.
-- Production verify luc 2026-07-06 23:00 GMT+7:
-  - Worker health tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v2`.
-  - Worker meta tra `prompt_version: v2`.
-  - DELETE `/api/runs/0` tra HTTP `400`, xac nhan route delete moi da co va khong xoa du lieu that.
-  - `https://cfl-feedback.pages.dev` tra HTTP `200`.
+- Chua commit, chua push, chua deploy cac thay doi moi ngay 2026-07-07.
 
-## Viec da lam trong phien nay
+## Thay doi moi
 
-- Feedback Workspace Store da co diem rating trung binh va highlight theo khoang thoi gian dang filter.
-- Label UI da chuyen sang tieng Viet: `neg` thanh tieu cuc, `urgent` thanh khan cap.
-- Filter Feedback Workspace da gom thanh mot hang gon hon, co nut reset filter.
-- Filter da co logic phu thuoc: Sentiment -> Chu de lon -> Chu de con, tranh tron topic cua cac sentiment khac nhau.
-- UI theme da doi huong: dark mode tone den/cam, light mode tone trang/cam am.
-- Ingest Settings gom cac nut hanh dong trong cung mot hang de tiet kiem dien tich.
-- Manual ingest CSV/Fanpage/Store sau khi keo data thanh cong se tu xep hang classify -> taxonomy memory/subtopic -> translate zh-CN. Nut phan tich/dich trong UI chi de chay lai khi can.
-- CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua.
-- Upload CSV bi chan neu file khong co dong Group hop le hoac toan duplicate voi data da co.
-- Da kiem tra production read-only cho ingest #1 va #7: #1 co ca `fb_group_csv` va `fb_page`, #7 la `fb_page`, khong thay overlap duplicate giua #1 va #7 theo hash hoac created_at + message.
-- Ingest Settings co nut xoa tung ingest run. Backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
-- Da them/cap nhat test cho stats Store, helper filter UI, CSV guardrail/duplicate, auto enqueue sau ingest va delete ingest run.
-- Kiem chung truoc deploy tren clean temp copy:
-  - Worker `npm test`: 14 file test, 36 test pass.
-  - Worker `npm run typecheck`: pass.
-  - Frontend `node --test src/pages/FeedbackWorkspace.helpers.test.js src/pages/IngestSettings.ui.test.js`: 8 test pass.
-  - Frontend `npm run build`: pass, chi co warning chunk size cua Vite.
+- User yeu cau lich su ingest ghi ro data that duoc keo/nhap tu ngay nao toi ngay nao cho Store/Fanpage/CSV Group.
+- Da them `data_start_date` va `data_end_date` vao response `GET /api/runs` va `GET /api/runs/:id`, tinh truc tiep tu `comments.created_at` theo tung `ingest_run_id`.
+- Cach lam khong can migration DB vi range la field tinh toan tu comments hien co.
+- UI Ingest Settings uu tien hien `Dữ liệu: <ngay dau> -> <ngay cuoi>` neu run co `data_start_date` / `data_end_date`.
+- Neu run khong co comment date thi UI fallback ve note cu: `Yêu cầu kéo: ...`, filename, hoac ngay keo.
+- CSV preview tu tinh khoang ngay dau/cuoi cua cac dong `Group` hop le va hien trong phan xem truoc upload.
+- CSV upload tra them range cua cac dong `Group` moi duoc import.
+- Parser CSV date chap nhan them dinh dang ISO `YYYY-MM-DD...` ngoai dinh dang VN `D/M/YYYY`.
+
+## File dang thay doi chua commit
+
+- `worker/src/routes/runs.ts`
+- `worker/src/routes/runs.test.ts`
+- `worker/src/routes/ingest.ts`
+- `worker/src/routes/ingest.test.ts`
+- `worker/src/services/csvIngest.ts`
+- `worker/src/services/csvIngest.test.ts`
+- `frontend/src/pages/IngestSettings.jsx`
+- `frontend/src/pages/IngestSettings.ui.test.js`
+- `handoff/HANDOFF.md`
+
+## Kiem chung da chay
+
+Trong workspace chinh `G:\My Drive\...`, `node_modules` cua Worker/Frontend bi loi file 0 byte sau `npm ci`, nen cac lenh npm/vitest/tsc khong dang tin o workspace nay.
+
+Da verify tren checkout phu co diff 8 file code/test trung exact voi workspace chinh:
+
+- Worker targeted test: `npm test -- src/routes/runs.test.ts src/routes/ingest.test.ts src/services/csvIngest.test.ts`
+  - Ket qua: 3 file test pass, 14 test pass.
+- Worker full test: `npm test`
+  - Ket qua: 14 file test pass, 37 test pass.
+- Worker typecheck: `npm run typecheck`
+  - Ket qua: pass.
+- Frontend focused tests: `node --test src/pages/FeedbackWorkspace.helpers.test.js src/pages/IngestSettings.ui.test.js`
+  - Ket qua: 9 test pass.
+- Frontend build: `npm run build`
+  - Ket qua: pass, van co warning cu cua Vite ve chunk > 500 kB.
+- Trong workspace chinh, da chay duoc `node --test src/pages/IngestSettings.ui.test.js`
+  - Ket qua: 5 test pass.
+- `git diff --check`
+  - Ket qua: pass; chi co warning LF se duoc thay bang CRLF khi Git cham file.
 
 ## Luu y quan trong
 
 - Khong tu nhap, log, commit hay paste secret. Neu can key, huong dan user tu chay `wrangler secret put <NAME>`.
 - Khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`.
 - Khong xoa/revert thay doi cua user neu chua duoc yeu cau ro.
-- Khi user tu tay xoa data production va keo lai, can verify lai dashboard Store/Facebook/Feedback Workspace va lich su ingest.
-- Neu user hoi LLM `auto` loi nhung `default` thanh cong, uu tien kiem tra request/timeout/model routing; khong doi secret hay log key.
+- Khi deploy production, chay test/build/typecheck truoc, commit ro noi dung, push, deploy Worker, deploy Pages va verify production endpoints.
+- Neu user muon verify production voi data that, uu tien read-only truoc. Chi xoa ingest run production khi user chi ro run test nao duoc xoa.
+- PowerShell co the hien thi UTF-8 bi mojibake khi `ConvertTo-Json`; khong mac dinh ket luan API loi encoding.
 
-## Viec nen verify sau khi pull/clone
+## Viec tiep theo
 
-```powershell
-cd "J:\My Drive\CFL\Agent\Tracking Store Social"
-cd worker
-npm test
-npm run typecheck
-cd ..\frontend
-npm run build
-```
-
-Sau deploy, verify:
+- Neu user dong y, commit thay doi range ingest history, push len `main`, deploy Worker va Pages.
+- Sau deploy, verify production:
 
 ```powershell
 Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/health"
 Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
+Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/runs?limit=3"
 Invoke-WebRequest "https://cfl-feedback.pages.dev"
 ```
 
-## Viec tiep theo de tiep tuc phat trien
-
-- Sau khi user xoa ingest cu va keo data lai, test luong: upload CSV Group -> auto classify -> auto translate -> xem topic/subtopic/filter.
+- Sau khi user xoa ingest cu va keo lai, test luong: upload CSV Group -> preview hien range Group -> upload -> auto classify -> auto translate -> lich su ingest hien range data -> xem topic/subtopic/filter.
 - Verify nut xoa ingest tren production bang mot run test nho, tranh xoa nham run that.
-- Kiem tra lai UI mobile/desktop sau deploy Pages.
 - Neu LLM auto con loi `client_disconnected`, xem log Cloudflare/LLM gateway va can nhac chi dung model default trong config neu user muon.
 
 ## Prompt cho agent/session khac
 
-Doc theo thu tu `AGENT.md`, `MEMORY.md`, `handoff/HANDOFF.md` truoc khi lam gi. Day la project CFL Feedback Intelligence. Lam chinh tai `J:\My Drive\CFL\Agent\Tracking Store Social`. Backend production la Cloudflare Worker trong `worker/`, frontend la React/Vite trong `frontend/`, DB la Cloudflare D1 `cfl-feedback`. Khong tu nhap/log/commit secret. Khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`. Luu y moi: CSV Facebook Group chi nhap dong source/cot A = `Group`; upload toan duplicate hoac khong co Group bi tu choi truoc khi tao ingest run. Manual ingest se tu xep hang classify -> taxonomy memory/subtopic -> translate zh-CN. Ingest Settings co nut xoa run; xoa run se xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan. Truoc khi bao xong phai chay test/build/typecheck va neu deploy thi verify production. Viec nen lam tiep: sau khi user xoa data production va keo lai, verify dashboard Store/Facebook/Feedback Workspace, test nut xoa ingest voi run nho, va xem LLM auto/default neu con loi.
+Doc theo thu tu `AGENT.md`, `MEMORY.md`, `handoff/HANDOFF.md` truoc khi lam gi. Day la project CFL Feedback Intelligence. Backend production la Cloudflare Worker trong `worker/`, frontend la React/Vite trong `frontend/`, DB la Cloudflare D1 `cfl-feedback`. Khong tu nhap/log/commit secret. Khong them Markdown ngoai `AGENT.md`, `MEMORY.md`, `handoff/*.md`. Thay doi chua commit: lich su ingest va CSV preview da co `data_start_date`/`data_end_date` tinh tu comment date; UI hien `Dữ liệu: ngay dau -> ngay cuoi`. Truoc khi bao xong phai chay test/build/typecheck; neu deploy thi verify production.

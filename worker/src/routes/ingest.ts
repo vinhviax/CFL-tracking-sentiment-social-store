@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { Env } from "../types";
-import { filterGroupCsvRows, ingestCsv, parseRows } from "../services/csvIngest";
+import { filterGroupCsvRows, getCsvDateRange, ingestCsv, parseRows } from "../services/csvIngest";
 import { ingestFacebook } from "../services/facebook";
 import { ingestSensorTower } from "../services/sensortower";
 import { SENSOR_TOWER_CURSOR_KEY } from "../services/sensortowerCursor";
@@ -68,10 +68,12 @@ ingestRoute.post("/preview-csv", async (c) => {
   try {
     const rows = parseRows(buf);
     const groupRows = filterGroupCsvRows(rows);
+    const dataRange = getCsvDateRange(groupRows);
     return c.json({
       total_rows: rows.length,
       group_rows: groupRows.length,
       skipped_non_group_rows: rows.length - groupRows.length,
+      ...dataRange,
       sample: groupRows.slice(0, 10).map((r) => ({
         source: r.source,
         created_date: r.createdDate,
