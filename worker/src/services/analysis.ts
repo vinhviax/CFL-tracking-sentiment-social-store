@@ -4,6 +4,7 @@
 // re-running only picks up comments still missing a PROMPT_VERSION-matching analysis.
 import { PROMPT_VERSION } from "../taxonomy";
 import type { Env } from "../types";
+import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { CommentInput } from "./llm/base";
 import { ClassifierService } from "./llm/classifier";
 import { getProgressJob, setProgress } from "./progressJobs";
@@ -20,6 +21,17 @@ interface PostContextRow {
   published_at: string | null;
   permalink: string | null;
   message: string | null;
+}
+
+const DEFAULT_ANALYSIS_BATCH_SIZE = 50;
+const DEFAULT_LLM_BATCH_CONCURRENCY = 2;
+
+export function getAnalysisBatchSize(env: Env) {
+  return parseBoundedInt(env.ANALYSIS_BATCH_SIZE ?? env.CLASSIFY_BATCH_SIZE, 1, 100, DEFAULT_ANALYSIS_BATCH_SIZE);
+}
+
+export function getLlmBatchConcurrency(env: Env) {
+  return parseBoundedInt(env.LLM_BATCH_CONCURRENCY, 1, 5, DEFAULT_LLM_BATCH_CONCURRENCY);
 }
 
 export function buildPostContext(post: PostContextRow) {
@@ -101,11 +113,12 @@ export async function runAnalysis(
     }
   }
 
-  const batchSize = 60;
+  const batchSize = getAnalysisBatchSize(env);
+  const concurrency = getLlmBatchConcurrency(env);
   let analyzed = 0;
   const analyzedAt = new Date().toISOString();
 
-  for (const group of chunk(comments, batchSize)) {
+  await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
     const inputs: CommentInput[] = group.map((c) => ({
       id: c.id,
       message: c.message,
@@ -133,7 +146,7 @@ export async function runAnalysis(
 
     analyzed += group.length;
     await setProgress(env, opts.progressKey, { done: analyzed });
-  }
+  });
 
   await setProgress(env, opts.progressKey, { status: "done" });
   return { analyzed, provider: svc.providerName, total };

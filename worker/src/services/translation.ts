@@ -1,8 +1,11 @@
 import type { Env } from "../types";
+import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { buildProvider } from "./llm/providers";
 import { getProgressJob, setProgress } from "./progressJobs";
 
 export const DEFAULT_TRANSLATION_LOCALE = "zh-CN";
+const DEFAULT_TRANSLATION_BATCH_SIZE = 20;
+const DEFAULT_LLM_BATCH_CONCURRENCY = 2;
 
 interface PendingTranslation {
   id: number;
@@ -51,17 +54,35 @@ async function pendingTranslations(
     return out;
   }
 
-  const limit = Math.max(1, Math.min(Number(opts.limit) || 200, 1000));
+  const limit = buildTranslationLimit(opts);
+  const limitSql = limit == null ? "" : " LIMIT ?";
+  const bindParams = limit == null ? params : [...params, limit];
   const rows = await env.DB.prepare(
     `SELECT c.id, c.message, a.summary
      FROM comments c
      LEFT JOIN analyses a ON a.comment_id = c.id
      LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
      WHERE ${where.join(" AND ")}
-     ORDER BY c.id
-     LIMIT ?`
-  ).bind(...params, limit).all<PendingTranslation>();
+     ORDER BY c.id${limitSql}`
+  ).bind(...bindParams).all<PendingTranslation>();
   return rows.results;
+}
+
+export function buildTranslationLimit(opts: { runId?: number; limit?: number }) {
+  if (opts.limit != null) return parseBoundedInt(opts.limit, 1, 5000, 1000);
+  return opts.runId == null ? 1000 : null;
+}
+
+export function getTranslationModel(env: Env) {
+  return env.LLM_TRANSLATE_MODEL || env.LLM_INSIGHT_MODEL;
+}
+
+export function getTranslationBatchSize(env: Env) {
+  return parseBoundedInt(env.TRANSLATION_BATCH_SIZE, 1, 100, DEFAULT_TRANSLATION_BATCH_SIZE);
+}
+
+function getLlmBatchConcurrency(env: Env) {
+  return parseBoundedInt(env.LLM_BATCH_CONCURRENCY, 1, 5, DEFAULT_LLM_BATCH_CONCURRENCY);
 }
 
 function parseJsonLike(text: string): any {
@@ -151,7 +172,7 @@ export async function runTranslation(
   }
 ) {
   const locale = opts.locale || DEFAULT_TRANSLATION_LOCALE;
-  const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
+  const provider = buildProvider(env.LLM_PROVIDER, getTranslationModel(env), {
     anthropicKey: env.ANTHROPIC_API_KEY,
     openaiKey: env.OPENAI_API_KEY,
     baseUrl: env.LLM_BASE_URL,
@@ -178,9 +199,11 @@ export async function runTranslation(
   const system = "You are a professional game operations translator. Translate Vietnamese player feedback for Crossfire Legends into concise Simplified Chinese. Preserve game terms such as hack/cheat, lag, ping, top-up, account, event, bug.";
   const translatedAt = new Date().toISOString();
   let done = 0;
+  const batchSize = getTranslationBatchSize(env);
+  const concurrency = getLlmBatchConcurrency(env);
 
   try {
-    for (const group of chunk(comments, 20)) {
+    await mapWithConcurrency(chunk(comments, batchSize), concurrency, async (group) => {
       const raw = await provider.completeJson(system, buildUser(group));
       const byId = new Map<number, TranslationResult>();
       for (const t of parseTranslationResults(raw)) byId.set(t.id, t);
@@ -210,7 +233,7 @@ export async function runTranslation(
       await env.DB.batch(stmts);
       done += group.length;
       await setProgress(env, opts.progressKey, { done });
-    }
+    });
   } catch (e: any) {
     const error = e?.message || String(e);
     await setProgress(env, opts.progressKey, { status: "failed", error });

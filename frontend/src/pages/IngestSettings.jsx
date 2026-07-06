@@ -263,7 +263,7 @@ export default function IngestSettings() {
 
   const startTranslate = (run) => {
     const target = resolveRun(run);
-    runTranslate({ run_id: target.id, locale: "zh-CN", limit: 300 })
+    runTranslate({ run_id: target.id, locale: "zh-CN" })
       .then((r) => enqueueTrackedJobs([{ kind: "translation", progressKey: r.progress_key, run: target }]));
   };
 

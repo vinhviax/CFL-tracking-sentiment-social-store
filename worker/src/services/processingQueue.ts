@@ -3,6 +3,7 @@ import { runAnalysis } from "./analysis";
 import { discoverAndStoreRunMemory } from "./taxonomyMemory";
 import { DEFAULT_TRANSLATION_LOCALE, runTranslation } from "./translation";
 import { setProgress } from "./progressJobs";
+import { parseBoundedInt } from "./concurrency";
 
 export type ProcessingJobType = "analysis" | "translation";
 
@@ -27,7 +28,7 @@ export interface ProcessingQueueJob extends ProcessingJobSpec {
 
 type QueueStore = {
   enqueueJobs(env: Env, jobs: ProcessingJobSpec[]): Promise<void>;
-  claimNext(env: Env): Promise<ProcessingQueueJob | null>;
+  claimNext(env: Env, opts?: { maxRunning?: number }): Promise<ProcessingQueueJob | null>;
   markDone(env: Env, id: number): Promise<void>;
   markFailed(env: Env, id: number, error: string): Promise<void>;
 };
@@ -45,6 +46,12 @@ const defaultDeps: QueueDeps = {
 };
 
 const STALE_RUNNING_MS = 10 * 60 * 1000;
+const DEFAULT_QUEUE_CONCURRENCY = 2;
+const MAX_QUEUE_CONCURRENCY = 5;
+
+export function getProcessingQueueConcurrency(env: Env) {
+  return parseBoundedInt(env.PROCESSING_QUEUE_CONCURRENCY, 1, MAX_QUEUE_CONCURRENCY, DEFAULT_QUEUE_CONCURRENCY);
+}
 
 export async function recoverStaleProcessingJobs(env: Env, staleMs = STALE_RUNNING_MS) {
   const cutoff = new Date(Date.now() - staleMs).toISOString();
@@ -86,22 +93,37 @@ const d1QueueStore: QueueStore = {
     if (statements.length) await env.DB.batch(statements);
   },
 
-  async claimNext(env) {
+  async claimNext(env, opts = {}) {
     await recoverStaleProcessingJobs(env);
     const now = new Date().toISOString();
+    const maxRunning = parseBoundedInt(opts.maxRunning, 1, MAX_QUEUE_CONCURRENCY, DEFAULT_QUEUE_CONCURRENCY);
     const row = await env.DB.prepare(
       `UPDATE processing_queue
        SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?, error = NULL
        WHERE id = (
-         SELECT id
-         FROM processing_queue
-         WHERE status = 'queued'
-           AND NOT EXISTS (SELECT 1 FROM processing_queue WHERE status = 'running')
-         ORDER BY id
+         SELECT q.id
+         FROM processing_queue q
+         WHERE q.status = 'queued'
+           AND (SELECT COUNT(*) FROM processing_queue WHERE status = 'running') < ?
+           AND NOT (
+             q.job_type = 'translation'
+             AND EXISTS (
+               SELECT 1
+               FROM processing_queue blocker
+               WHERE blocker.job_type = 'analysis'
+                 AND blocker.status IN ('queued', 'running')
+                 AND blocker.id < q.id
+                 AND (
+                   (q.run_id IS NOT NULL AND blocker.run_id = q.run_id)
+                   OR (q.run_id IS NULL AND blocker.run_id IS NULL)
+                 )
+             )
+           )
+         ORDER BY q.id
          LIMIT 1
        )
        RETURNING id, job_type, run_id, comment_ids_json, locale, progress_key, force, limit_count`
-    ).bind(now, now).first<any>();
+    ).bind(now, now, maxRunning).first<any>();
     if (!row) return null;
     return {
       id: Number(row.id),
@@ -209,11 +231,17 @@ export async function enqueueProcessingJobs(
 export async function drainProcessingQueue(
   env: Env,
   deps: QueueDeps = defaultDeps,
-  store: QueueStore = d1QueueStore
+  store: QueueStore = d1QueueStore,
+  opts: { maxConcurrentJobs?: number } = {}
 ) {
-  while (true) {
-    const job = await store.claimNext(env);
-    if (!job) return;
+  const maxRunning = parseBoundedInt(
+    opts.maxConcurrentJobs ?? env.PROCESSING_QUEUE_CONCURRENCY,
+    1,
+    MAX_QUEUE_CONCURRENCY,
+    DEFAULT_QUEUE_CONCURRENCY
+  );
+
+  async function runJob(job: ProcessingQueueJob) {
     try {
       if (job.job_type === "analysis") {
         await deps.runAnalysis(env, { runId: job.run_id, commentIds: job.comment_ids, progressKey: job.progress_key });
@@ -234,5 +262,16 @@ export async function drainProcessingQueue(
       await setProgress(env, job.progress_key, { status: "failed", error });
       await store.markFailed(env, job.id, error);
     }
+  }
+
+  while (true) {
+    const jobs: ProcessingQueueJob[] = [];
+    for (let i = 0; i < maxRunning; i += 1) {
+      const job = await store.claimNext(env, { maxRunning });
+      if (!job) break;
+      jobs.push(job);
+    }
+    if (!jobs.length) return;
+    await Promise.all(jobs.map(runJob));
   }
 }

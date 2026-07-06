@@ -24,7 +24,12 @@
     "LLM_PROVIDER": "llm_viax",
     "LLM_CLASSIFY_MODEL": "ag/gemini-3-flash-agent",
     "LLM_INSIGHT_MODEL": "codex-lb/gpt-5.4",
-    "CLASSIFY_BATCH_SIZE": "30",
+    "LLM_TRANSLATE_MODEL": "ag/gemini-3-flash-agent",
+    "CLASSIFY_BATCH_SIZE": "50",
+    "ANALYSIS_BATCH_SIZE": "50",
+    "TRANSLATION_BATCH_SIZE": "40",
+    "LLM_BATCH_CONCURRENCY": "3",
+    "PROCESSING_QUEUE_CONCURRENCY": "3",
     "LLM_VIAX_BASE_URL": "https://rpi7jss.abc-tunnel.us/v1"
   }
 }

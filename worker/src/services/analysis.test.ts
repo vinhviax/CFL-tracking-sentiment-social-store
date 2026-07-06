@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPostContext } from "./analysis";
+import { buildPostContext, getAnalysisBatchSize, getLlmBatchConcurrency } from "./analysis";
 
 describe("analysis post context", () => {
   test("builds classifier context with source, date, permalink, and post content", () => {
@@ -14,5 +14,12 @@ describe("analysis post context", () => {
     expect(context).toContain("Ngày đăng post: 2026-07-06T08:00:00Z");
     expect(context).toContain("Link post: https://facebook.com/post/123");
     expect(context).toContain("Nội dung post: Thông báo bảo trì cập nhật chế độ mới.");
+  });
+
+  test("reads analysis batch and LLM concurrency from bounded config", () => {
+    expect(getAnalysisBatchSize({ ANALYSIS_BATCH_SIZE: "50", CLASSIFY_BATCH_SIZE: "30" } as any)).toBe(50);
+    expect(getAnalysisBatchSize({ CLASSIFY_BATCH_SIZE: "500" } as any)).toBe(100);
+    expect(getLlmBatchConcurrency({ LLM_BATCH_CONCURRENCY: "3" } as any)).toBe(3);
+    expect(getLlmBatchConcurrency({ LLM_BATCH_CONCURRENCY: "30" } as any)).toBe(5);
   });
 });

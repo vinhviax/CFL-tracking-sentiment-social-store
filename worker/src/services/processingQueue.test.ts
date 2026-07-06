@@ -32,7 +32,7 @@ describe("processing queue", () => {
     };
     const env = {} as any;
 
-    await drainProcessingQueue(env, deps, store);
+    await drainProcessingQueue(env, deps, store, { maxConcurrentJobs: 1 });
 
     expect(calls).toEqual(["analysis", "memory", "done:1", "translation", "done:2"]);
     expect(deps.runAnalysis).toHaveBeenCalledWith(env, {
@@ -49,6 +49,44 @@ describe("processing queue", () => {
       limit: undefined,
     });
     expect(store.markFailed).not.toHaveBeenCalled();
+  });
+
+  test("drains independent jobs in parallel up to the configured cap", async () => {
+    const jobs: ProcessingQueueJob[] = [
+      { id: 1, job_type: "analysis", run_id: 15, progress_key: "ingest-store-analyze-15" },
+      { id: 2, job_type: "analysis", run_id: 16, progress_key: "ingest-store-analyze-16" },
+      { id: 3, job_type: "analysis", run_id: 17, progress_key: "ingest-store-analyze-17" },
+    ];
+    const store = {
+      claimNext: vi.fn(async () => jobs.shift() || null),
+      markDone: vi.fn(async () => undefined),
+      markFailed: vi.fn(),
+      enqueueJobs: vi.fn(),
+    };
+    const release: Array<() => void> = [];
+    const deps = {
+      runAnalysis: vi.fn(async () => {
+        await new Promise<void>((resolve) => release.push(resolve));
+        return { analyzed: 1, total: 1, provider: "test" };
+      }),
+      discoverAndStoreRunMemory: vi.fn(async () => ({ run_id: 15, comments: 1, subtopics: 0, evidence: 0, provider: "test", model: "test" })),
+      runTranslation: vi.fn(),
+    };
+    const env = {} as any;
+
+    const drain = drainProcessingQueue(env, deps, store, { maxConcurrentJobs: 2 });
+
+    await vi.waitFor(() => expect(deps.runAnalysis).toHaveBeenCalledTimes(2));
+    expect(store.markDone).not.toHaveBeenCalled();
+
+    release.shift()?.();
+    release.shift()?.();
+    await vi.waitFor(() => expect(deps.runAnalysis).toHaveBeenCalledTimes(3));
+    release.shift()?.();
+
+    await drain;
+    expect(store.markDone).toHaveBeenCalledTimes(3);
+    expect(store.claimNext).toHaveBeenCalledWith(env, { maxRunning: 2 });
   });
 
   test("lists active queue jobs with progress and run metadata", async () => {

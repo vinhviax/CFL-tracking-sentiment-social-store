@@ -47,6 +47,11 @@ test("processing area tracks multiple queued jobs instead of one overwritten key
   assert.doesNotMatch(source, /const \[translateKey, setTranslateKey\]/);
 });
 
+test("manual run translation does not cap large ingest runs", () => {
+  assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN" \}\)/);
+  assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);
+});
+
 test("CSV preview makes Facebook Group filtering visible before upload", () => {
   assert.match(source, /preview\.group_rows/);
   assert.match(source, /preview\.skipped_non_group_rows/);
