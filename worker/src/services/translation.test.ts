@@ -17,6 +17,21 @@ describe("parseTranslationResults", () => {
     ]);
   });
 
+  test("returns empty results instead of throwing on malformed LLM JSON", () => {
+    const raw = '{"results":[{"id":4076,"message_zh":"你好","summary_zh":"摘要"';
+
+    expect(parseTranslationResults(raw)).toEqual([]);
+  });
+
+  test("salvages complete translation records from malformed JSON arrays", () => {
+    const raw = '{"results":[{"id":1,"message_zh":"一","summary_zh":"甲"}{"id":2,"message_zh":"二","summary_zh":"乙"}]}';
+
+    expect(parseTranslationResults(raw)).toEqual([
+      { id: 1, message_zh: "一", summary_zh: "甲" },
+      { id: 2, message_zh: "二", summary_zh: "乙" },
+    ]);
+  });
+
   test("uses a dedicated translation model when configured", () => {
     expect(getTranslationModel({ LLM_TRANSLATE_MODEL: "ag/gemini-3-flash-agent", LLM_INSIGHT_MODEL: "codex-lb/gpt-5.4" } as any))
       .toBe("ag/gemini-3-flash-agent");

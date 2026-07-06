@@ -86,8 +86,54 @@ function getLlmBatchConcurrency(env: Env) {
   return parseBoundedInt(env.LLM_BATCH_CONCURRENCY, 1, 5, DEFAULT_LLM_BATCH_CONCURRENCY);
 }
 
-function parseJsonLike(text: string): any {
-  return JSON.parse(text);
+function tryParseJson(text: string): any | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function findMatchingBrace(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function salvageTranslationResults(text: string): TranslationResult[] {
+  const out = new Map<number, TranslationResult>();
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "{") continue;
+    const end = findMatchingBrace(text, i);
+    if (end === -1) continue;
+    const parsed = tryParseJson(text.slice(i, end + 1));
+    const normalized = normalizeTranslation(parsed);
+    if (normalized) out.set(normalized.id, normalized);
+  }
+  return [...out.values()];
 }
 
 export function parseTranslationResults(raw: string): TranslationResult[] {
@@ -100,7 +146,8 @@ export function parseTranslationResults(raw: string): TranslationResult[] {
       if (!trimmed.startsWith("data:")) continue;
       const payload = trimmed.slice(5).trim();
       if (!payload || payload === "[DONE]") continue;
-      const data = parseJsonLike(payload);
+      const data = tryParseJson(payload);
+      if (!data) continue;
       const content = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content;
       if (typeof content === "string") {
         contentChunks.push(content);
@@ -125,12 +172,16 @@ export function parseTranslationResults(raw: string): TranslationResult[] {
     text = (parts[1] || "").replace(/^json/i, "").trim();
   }
   let data: any;
-  try {
-    data = JSON.parse(text);
-  } catch {
+  data = tryParseJson(text);
+  if (!data) {
     const start = text.indexOf("[");
     const end = text.lastIndexOf("]");
-    data = JSON.parse(text.slice(start, end + 1));
+    if (start !== -1 && end !== -1 && end > start) {
+      data = tryParseJson(text.slice(start, end + 1));
+    }
+  }
+  if (!data) {
+    return salvageTranslationResults(text);
   }
   if (!Array.isArray(data)) data = data.results || data.data || data.items || [];
   if (!Array.isArray(data)) return [];
