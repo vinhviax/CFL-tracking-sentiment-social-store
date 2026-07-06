@@ -11,12 +11,10 @@ import type { IngestRunRow } from "./csvIngest";
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
-// Conservative defaults to fit Cloudflare Workers Free plan's 50-subrequest-per-
-// invocation budget (fetch() + D1 calls share this budget). With postLimit=10 and
-// 2 pages/post, worst case is ~21 fetch() calls + a handful of batched D1 calls.
-// On Workers Paid (10,000 subrequests/invocation, $5/mo) these can be raised a lot
-// to pull more posts/history per run - see README.
-const MAX_COMMENT_PAGES_PER_POST = 2; // 2 x 100 = up to 200 comments/post/run
+// Keep comments nested in the posts request so manual Fanpage pulls stay under
+// Workers' per-invocation subrequest limit. This captures the first 100 comments
+// per post in the selected range.
+const POST_FIELDS = "id,message,created_time,permalink_url,comments.limit(100){id,message,created_time,from,like_count}";
 
 async function dedupeHash(source: string, externalId: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`fb|${source}|${externalId}`));
@@ -49,7 +47,7 @@ async function fetchPosts(pageId: string, token: string, since?: string, until?:
   // soon as we have `limit` posts total, or this can burn through Workers'
   // per-invocation subrequest budget on a page with a long post history.
   const params: Record<string, string> = {
-    access_token: token, fields: "id,message,created_time,permalink_url", limit: String(limit),
+    access_token: token, fields: POST_FIELDS, limit: String(limit),
   };
   if (since) params.since = since;
   if (until) params.until = until;
@@ -65,25 +63,6 @@ async function fetchPosts(pageId: string, token: string, since?: string, until?:
     if (!data.data?.length) break;
   }
   return posts.slice(0, limit);
-}
-
-async function fetchComments(postId: string, token: string, limit = 100): Promise<any[]> {
-  const params: Record<string, string> = {
-    access_token: token, fields: "id,message,created_time,from,like_count", filter: "stream", limit: String(limit),
-  };
-  const comments: any[] = [];
-  let nextUrl: string | null = `${GRAPH_BASE}/${postId}/comments`;
-  let nextParams: Record<string, string> = params;
-  let pages = 0;
-  while (nextUrl && pages < MAX_COMMENT_PAGES_PER_POST) {
-    const data = await graphGet(nextUrl, nextParams);
-    comments.push(...(data.data || []));
-    nextUrl = data.paging?.next || null;
-    nextParams = {};
-    pages++;
-    if (!data.data?.length) break;
-  }
-  return comments;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -140,10 +119,10 @@ export async function ingestFacebook(
       results.forEach((r, idx) => postIdByExternal.set(c[idx].id, r.meta.last_row_id as number));
     }
 
-    // Fetch all comments across all posts before touching D1 again.
+    // Collect first-page nested comments from the posts response before touching D1 again.
     const allComments: { postId: number; cm: any; hash: string }[] = [];
     for (const p of posts) {
-      const comments = await fetchComments(p.id, token);
+      const comments = Array.isArray(p.comments?.data) ? p.comments.data : [];
       fetched += comments.length;
       const postId = postIdByExternal.get(p.id)!;
       for (const cm of comments) {
