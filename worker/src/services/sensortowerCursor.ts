@@ -39,6 +39,10 @@ export function buildSensorTowerCatchupDates(cursorDate: string, now = new Date(
   return dates;
 }
 
+export function pickSeedCursorDate(runEndDate: string | null | undefined, latestDataDate: string | null | undefined, now = new Date()) {
+  return runEndDate || latestDataDate || getTodayBangkokDate(now);
+}
+
 export async function getStoredSourceCursor(env: Env, key: string): Promise<string | null> {
   const row = await env.DB.prepare(`SELECT cursor_date FROM ingest_cursors WHERE key = ?`)
     .bind(key)
@@ -58,13 +62,23 @@ export async function seedSourceCursor(
   const existing = await getStoredSourceCursor(env, opts.key);
   if (existing) return existing;
 
-  const latest = await env.DB.prepare(
-    `SELECT MAX(date(created_at)) as latest_date
+  const latestRun = await env.DB.prepare(
+    `SELECT json_extract(note, '$.end_date') AS end_date
+     FROM ingest_runs
+     WHERE source_type = ?
+       AND status = 'done'
+       AND json_extract(note, '$.end_date') IS NOT NULL
+     ORDER BY id DESC
+     LIMIT 1`
+  ).bind(opts.sourceType).first<{ end_date: string | null }>();
+
+  const latestData = await env.DB.prepare(
+    `SELECT MAX(date(created_at)) AS latest_date
      FROM comments
      WHERE source_type = ? AND created_at IS NOT NULL`
   ).bind(opts.sourceType).first<{ latest_date: string | null }>();
 
-  const cursorDate = latest?.latest_date || getTodayBangkokDate(now);
+  const cursorDate = pickSeedCursorDate(latestRun?.end_date, latestData?.latest_date, now);
   await upsertSourceCursor(env, opts.key, cursorDate, null);
   return cursorDate;
 }
