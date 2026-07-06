@@ -3,8 +3,28 @@ import type { Env } from "../types";
 import { ingestCsv, parseRows } from "../services/csvIngest";
 import { ingestFacebook } from "../services/facebook";
 import { ingestSensorTower } from "../services/sensortower";
+import { SENSOR_TOWER_CURSOR_KEY } from "../services/sensortowerCursor";
 
 export const ingestRoute = new Hono<{ Bindings: Env }>();
+
+ingestRoute.get("/status", async (c) => {
+  const cursor = await c.env.DB.prepare(`SELECT * FROM ingest_cursors WHERE key = ?`)
+    .bind(SENSOR_TOWER_CURSOR_KEY)
+    .first();
+  const latestStoreRun = await c.env.DB.prepare(
+    `SELECT * FROM ingest_runs WHERE source_type = 'store' ORDER BY id DESC LIMIT 1`
+  ).first();
+  return c.json({
+    cron: {
+      utc: "45 6 * * *",
+      bangkok_time: "13:45",
+      timezone: "Asia/Bangkok",
+      cutoff: "yesterday",
+    },
+    sensortower_cursor: cursor,
+    latest_store_run: latestStoreRun,
+  });
+});
 
 ingestRoute.post("/upload-csv", async (c) => {
   const form = await c.req.parseBody();

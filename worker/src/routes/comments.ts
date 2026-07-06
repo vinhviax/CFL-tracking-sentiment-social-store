@@ -7,17 +7,57 @@ const SELECT = `
   SELECT c.id, c.source_type, c.created_at, c.message, c.rating, c.country, c.store,
          c.legacy_topic, c.post_id,
          a.topic_main, a.topics_sub, a.sentiment, a.urgency, a.summary,
-         a.other_suggested, a.confidence, a.provider, a.model
+         a.other_suggested, a.confidence, a.provider, a.model,
+         t.message_translated, t.summary_translated
   FROM comments c
   LEFT JOIN analyses a ON a.comment_id = c.id
+  LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
 `;
 
-function mapRow(r: any) {
+async function loadCommentSubtopics(db: D1Database, commentIds: number[], lang: string): Promise<Map<number, any[]>> {
+  const out = new Map<number, any[]>();
+  if (!commentIds.length) return out;
+  const placeholders = commentIds.map(() => "?").join(",");
+  const rows = await db.prepare(
+    `SELECT cs.comment_id, cs.confidence,
+            st.key, st.parent_topic, st.label_vi, st.label_zh_cn, st.status
+     FROM comment_subtopics cs
+     JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+     WHERE cs.comment_id IN (${placeholders})
+     ORDER BY cs.confidence DESC, st.evidence_count DESC`
+  ).bind(...commentIds).all<any>();
+
+  for (const row of rows.results) {
+    const item = {
+      key: row.key,
+      parent_topic: row.parent_topic,
+      label: lang === "zh-CN" && row.label_zh_cn ? row.label_zh_cn : row.label_vi,
+      label_vi: row.label_vi,
+      label_zh_cn: row.label_zh_cn || null,
+      confidence: row.confidence,
+      status: row.status,
+    };
+    if (!out.has(row.comment_id)) out.set(row.comment_id, []);
+    out.get(row.comment_id)!.push(item);
+  }
+  return out;
+}
+
+export function mapCommentRow(r: any, lang = "vi") {
+  const wantsZh = lang === "zh-CN";
+  const message = wantsZh && r.message_translated ? r.message_translated : r.message;
+  const summary = wantsZh && r.summary_translated ? r.summary_translated : r.summary;
+  const dynamicSubtopics = (r.dynamic_subtopics || []).map((subtopic: any) => ({
+    ...subtopic,
+    label: wantsZh && subtopic.label_zh_cn ? subtopic.label_zh_cn : (subtopic.label || subtopic.label_vi),
+  }));
   return {
     id: r.id,
     source_type: r.source_type,
     created_at: r.created_at,
-    message: r.message,
+    message,
+    message_original: r.message,
+    message_zh_cn: r.message_translated || null,
     rating: r.rating,
     country: r.country,
     store: r.store,
@@ -29,11 +69,14 @@ function mapRow(r: any) {
           topics_sub: JSON.parse(r.topics_sub || "[]"),
           sentiment: r.sentiment,
           urgency: r.urgency,
-          summary: r.summary,
+          summary,
+          summary_original: r.summary,
+          summary_zh_cn: r.summary_translated || null,
           other_suggested: r.other_suggested,
           confidence: r.confidence,
           provider: r.provider,
           model: r.model,
+          subtopics_dynamic: dynamicSubtopics,
         }
       : null,
   };
@@ -42,36 +85,55 @@ function mapRow(r: any) {
 commentsRoute.get("/", async (c) => {
   const q = c.req.query();
   const where: string[] = [];
-  const params: any[] = [];
+  const filterParams: any[] = [];
+  const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
 
-  if (q.source) { where.push("c.source_type = ?"); params.push(q.source); }
-  if (q.post_id) { where.push("c.post_id = ?"); params.push(Number(q.post_id)); }
-  if (q.store) { where.push("c.store = ?"); params.push(q.store); }
-  if (q.q) { where.push("c.message LIKE ?"); params.push(`%${q.q}%`); }
-  if (q.from) { where.push("c.created_at >= ?"); params.push(q.from); }
-  if (q.to) { where.push("c.created_at <= ?"); params.push(q.to); }
-  if (q.topic) { where.push("a.topic_main = ?"); params.push(q.topic); }
-  if (q.sentiment) { where.push("a.sentiment = ?"); params.push(q.sentiment); }
-  if (q.urgency) { where.push("a.urgency = ?"); params.push(q.urgency); }
+  if (q.source) { where.push("c.source_type = ?"); filterParams.push(q.source); }
+  if (q.group === "store") where.push("c.source_type = 'store'");
+  if (q.group === "facebook") where.push("c.source_type IN ('fb_page','fb_group_csv')");
+  if (q.post_id) { where.push("c.post_id = ?"); filterParams.push(Number(q.post_id)); }
+  if (q.store) { where.push("c.store = ?"); filterParams.push(q.store); }
+  if (q.q) { where.push("(c.message LIKE ? OR t.message_translated LIKE ?)"); filterParams.push(`%${q.q}%`, `%${q.q}%`); }
+  if (q.from) { where.push("c.created_at >= ?"); filterParams.push(q.from); }
+  if (q.to) { where.push("c.created_at <= ?"); filterParams.push(q.to); }
+  if (q.topic) { where.push("a.topic_main = ?"); filterParams.push(q.topic); }
+  if (q.subtopic) {
+    where.push(`EXISTS (
+      SELECT 1 FROM comment_subtopics cs
+      JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+      WHERE cs.comment_id = c.id AND st.key = ?
+    )`);
+    filterParams.push(q.subtopic);
+  }
+  if (q.sentiment) { where.push("a.sentiment = ?"); filterParams.push(q.sentiment); }
+  if (q.urgency) { where.push("a.urgency = ?"); filterParams.push(q.urgency); }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const page = Math.max(1, Number(q.page) || 1);
   const pageSize = Math.max(1, Number(q.page_size) || 50);
 
   const countRes = await c.env.DB
-    .prepare(`SELECT COUNT(*) as total FROM comments c LEFT JOIN analyses a ON a.comment_id = c.id ${whereSql}`)
-    .bind(...params)
+    .prepare(
+      `SELECT COUNT(*) as total
+       FROM comments c
+       LEFT JOIN analyses a ON a.comment_id = c.id
+       LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
+       ${whereSql}`
+    )
+    .bind(lang, ...filterParams)
     .first<{ total: number }>();
 
   const rows = await c.env.DB
     .prepare(`${SELECT} ${whereSql} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`)
-    .bind(...params, pageSize, (page - 1) * pageSize)
+    .bind(lang, ...filterParams, pageSize, (page - 1) * pageSize)
     .all();
+  const commentIds = rows.results.map((row: any) => Number(row.id)).filter((id) => Number.isInteger(id));
+  const subtopics = await loadCommentSubtopics(c.env.DB, commentIds, lang);
 
   return c.json({
     total: countRes?.total || 0,
     page,
     page_size: pageSize,
-    items: rows.results.map(mapRow),
+    items: rows.results.map((row: any) => mapCommentRow({ ...row, dynamic_subtopics: subtopics.get(row.id) || [] }, lang)),
   });
 });

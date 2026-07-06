@@ -125,6 +125,17 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+export function filterFreshUniqueHashes<T extends { hash: string }>(items: T[], existing: Set<string>): T[] {
+  const seen = new Set<string>(existing);
+  const fresh: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.hash)) continue;
+    seen.add(item.hash);
+    fresh.push(item);
+  }
+  return fresh;
+}
+
 export interface IngestRunRow {
   id: number;
   source_type: string;
@@ -175,7 +186,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
       for (const row of res.results) existing.add(row.dedupe_hash);
     }
 
-    const fresh = withHash.filter((x) => !existing.has(x.hash));
+    const fresh = filterFreshUniqueHashes(withHash, existing);
 
     // Resolve/create posts (in-run cache, mirrors the FastAPI implementation).
     const postCache = new Map<string, number>();

@@ -89,8 +89,19 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+export function filterFreshSensorTowerReviews<T extends { hash: string }>(items: T[], existing: Set<string>): T[] {
+  const seen = new Set<string>(existing);
+  const fresh: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.hash)) continue;
+    seen.add(item.hash);
+    fresh.push(item);
+  }
+  return fresh;
+}
+
 export async function ingestSensorTower(
-  env: Env, startDate: string, endDate: string, countries?: string[]
+  env: Env, startDate: string, endDate: string, countries?: string[], note?: Record<string, any>
 ): Promise<IngestRunRow> {
   const db = env.DB;
   const startedAt = new Date().toISOString();
@@ -132,7 +143,7 @@ export async function ingestSensorTower(
             .bind(...c.map((x) => x.hash)).all<{ dedupe_hash: string }>();
           for (const row of res.results) existing.add(row.dedupe_hash);
         }
-        const fresh = withHash.filter((x) => !existing.has(x.hash));
+        const fresh = filterFreshSensorTowerReviews(withHash, existing);
 
         for (const c of chunk(fresh, 100)) {
           const stmts = c.map(({ r, hash }) =>
@@ -152,8 +163,9 @@ export async function ingestSensorTower(
 
   const finishedAt = new Date().toISOString();
   const status = error ? "failed" : "done";
-  await db.prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, error=?, finished_at=? WHERE id=?`)
-    .bind(status, fetched, newCount, error, finishedAt, runId).run();
+  const noteText = note ? JSON.stringify({ ...note, start_date: startDate, end_date: endDate }) : JSON.stringify({ start_date: startDate, end_date: endDate });
+  await db.prepare(`UPDATE ingest_runs SET status=?, rows_fetched=?, rows_new=?, note=?, error=?, finished_at=? WHERE id=?`)
+    .bind(status, fetched, newCount, noteText, error, finishedAt, runId).run();
 
-  return { id: runId, source_type: "store", status, started_at: startedAt, finished_at: finishedAt, rows_fetched: fetched, rows_new: newCount, note: null, error };
+  return { id: runId, source_type: "store", status, started_at: startedAt, finished_at: finishedAt, rows_fetched: fetched, rows_new: newCount, note: noteText, error };
 }

@@ -1,5 +1,25 @@
 import type { LLMProvider } from "./base";
 
+export function parseOpenAIChatContent(raw: string): string {
+  const text = raw.trim();
+  if (!text.startsWith("data:")) {
+    const data: any = JSON.parse(text);
+    return data.choices?.[0]?.message?.content || "";
+  }
+
+  const chunks: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    const data: any = JSON.parse(payload);
+    const content = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? "";
+    if (content) chunks.push(content);
+  }
+  return chunks.join("");
+}
+
 export class AnthropicProvider implements LLMProvider {
   name = "anthropic";
   constructor(public model: string, private apiKey: string) {}
@@ -7,6 +27,7 @@ export class AnthropicProvider implements LLMProvider {
   private async complete(system: string, user: string): Promise<string> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(90000),
       headers: {
         "x-api-key": this.apiKey,
         "anthropic-version": "2023-06-01",
@@ -60,6 +81,7 @@ export class OpenAIProvider implements LLMProvider {
 
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
+      signal: AbortSignal.timeout(90000),
       headers: {
         Authorization: `Bearer ${this.apiKey || "not-needed"}`,
         "content-type": "application/json",
@@ -69,8 +91,7 @@ export class OpenAIProvider implements LLMProvider {
     if (!res.ok) {
       throw new Error(`OpenAI API lỗi ${res.status}: ${await res.text()}`);
     }
-    const data: any = await res.json();
-    return data.choices?.[0]?.message?.content || "";
+    return parseOpenAIChatContent(await res.text());
   }
 
   completeJson(system: string, user: string): Promise<string> {

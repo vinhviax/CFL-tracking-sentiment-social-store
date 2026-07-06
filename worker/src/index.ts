@@ -8,11 +8,20 @@ import { insightsRoute } from "./routes/insights";
 import { postsRoute } from "./routes/posts";
 import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
-import { runAnalysis } from "./services/analysis";
+import { translateRoute } from "./routes/translate";
+import { processAutomatedFeedbackRun, processScheduledPendingFeedback } from "./services/automatedProcessing";
 import { ingestFacebook } from "./services/facebook";
 import { buildProvider } from "./services/llm/providers";
 import { ingestSensorTower } from "./services/sensortower";
-import { PROMPT_VERSION, SENTIMENT_LABELS_VI, TOPIC_LABELS_VI, URGENCIES } from "./taxonomy";
+import { buildSensorTowerCatchupDates, seedSensorTowerCursor, upsertSensorTowerCursor } from "./services/sensortowerCursor";
+import {
+  PROMPT_VERSION,
+  SENTIMENT_LABELS_VI,
+  SENTIMENT_LABELS_ZH_CN,
+  TOPIC_LABELS_VI,
+  TOPIC_LABELS_ZH_CN,
+  URGENCIES,
+} from "./taxonomy";
 import type { Env } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -31,7 +40,14 @@ app.get("/api/health", (c) => {
 });
 
 app.get("/api/meta", (c) =>
-  c.json({ topics: TOPIC_LABELS_VI, sentiments: SENTIMENT_LABELS_VI, urgencies: URGENCIES, prompt_version: PROMPT_VERSION })
+  c.json({
+    topics: TOPIC_LABELS_VI,
+    topics_zh_cn: TOPIC_LABELS_ZH_CN,
+    sentiments: SENTIMENT_LABELS_VI,
+    sentiments_zh_cn: SENTIMENT_LABELS_ZH_CN,
+    urgencies: URGENCIES,
+    prompt_version: PROMPT_VERSION,
+  })
 );
 
 app.route("/api/ingest", ingestRoute);
@@ -42,6 +58,7 @@ app.route("/api/stats", statsRoute);
 app.route("/api/insights", insightsRoute);
 app.route("/api/posts", postsRoute);
 app.route("/api/export", exportRoute);
+app.route("/api/translate", translateRoute);
 
 export default {
   fetch: app.fetch,
@@ -52,12 +69,21 @@ export default {
 };
 
 async function dailyJob(env: Env) {
-  const end = new Date().toISOString().slice(0, 10);
-  const start = new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 10); // small overlap, dedupe handles it
-
   try {
-    const run = await ingestSensorTower(env, start, end);
-    console.log(`sensortower: status=${run.status} new=${run.rows_new}`);
+    const cursor = await seedSensorTowerCursor(env);
+    const dates = buildSensorTowerCatchupDates(cursor);
+    for (const date of dates) {
+      const run = await ingestSensorTower(env, date, date, undefined, { mode: "scheduled_cursor", cursor_key: "sensortower_store" });
+      console.log(`sensortower: date=${date} status=${run.status} new=${run.rows_new}`);
+      if (run.status !== "done") break;
+      await upsertSensorTowerCursor(env, date, run.id);
+      if (run.rows_new > 0) {
+        await processAutomatedFeedbackRun(env, {
+          runId: run.id,
+          progressPrefix: "scheduled-store",
+        });
+      }
+    }
   } catch (e) {
     console.error("sensortower scheduled ingest failed", e);
   }
@@ -65,14 +91,22 @@ async function dailyJob(env: Env) {
   try {
     const run = await ingestFacebook(env);
     console.log(`facebook: status=${run.status} new=${run.rows_new}`);
+    if (run.status === "done" && run.rows_new > 0) {
+      await processAutomatedFeedbackRun(env, {
+        runId: run.id,
+        progressPrefix: "scheduled-facebook",
+      });
+    }
   } catch (e) {
     console.error("facebook scheduled ingest failed", e);
   }
 
   try {
-    const result = await runAnalysis(env, { progressKey: "scheduled" });
-    console.log(`analysis: ${JSON.stringify(result)}`);
+    await processScheduledPendingFeedback(env, {
+      progressPrefix: "scheduled-pending",
+      translationLimit: 1000,
+    });
   } catch (e) {
-    console.error("scheduled analysis failed", e);
+    console.error("scheduled pending analysis/translation failed", e);
   }
 }

@@ -1,16 +1,77 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
-import { TOPIC_LABELS_VI } from "../taxonomy";
+import { TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
 function baseFilters(q: Record<string, string>) {
   const where: string[] = [];
   const params: any[] = [];
+  if (q.group === "store") where.push("c.source_type = 'store'");
+  if (q.group === "facebook") where.push("c.source_type IN ('fb_page','fb_group_csv')");
   if (q.source) { where.push("c.source_type = ?"); params.push(q.source); }
+  if (q.store) { where.push("c.store = ?"); params.push(q.store); }
   if (q.from) { where.push("c.created_at >= ?"); params.push(q.from); }
   if (q.to) { where.push("c.created_at <= ?"); params.push(q.to); }
+  if (q.subtopic) {
+    where.push(`EXISTS (
+      SELECT 1 FROM comment_subtopics cs_filter
+      JOIN taxonomy_subtopics st_filter ON st_filter.id = cs_filter.subtopic_id
+      WHERE cs_filter.comment_id = c.id AND st_filter.key = ?
+    )`);
+    params.push(q.subtopic);
+  }
   return { where, params };
+}
+
+function topicLabel(topic: string, lang?: string) {
+  const labels = lang === "zh-CN" ? TOPIC_LABELS_ZH_CN : TOPIC_LABELS_VI;
+  return labels[topic] || topic;
+}
+
+function subtopicLabel(row: { label_vi: string; label_zh_cn?: string | null }, lang?: string) {
+  return lang === "zh-CN" && row.label_zh_cn ? row.label_zh_cn : row.label_vi;
+}
+
+export async function computeSubtopicRanking(db: D1Database, q: Record<string, string>, limitInput = 12) {
+  const { where, params } = baseFilters(q);
+  const w = [...where];
+  if (q.topic) { w.push("a.topic_main = ?"); params.push(q.topic); }
+  if (q.sentiment) { w.push("a.sentiment = ?"); params.push(q.sentiment); }
+  if (q.urgency) { w.push("a.urgency = ?"); params.push(q.urgency); }
+  const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
+  const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
+  const limit = Math.max(1, Math.min(Number(limitInput) || 12, 50));
+
+  const rows = await db.prepare(
+    `SELECT st.id, st.key, st.parent_topic, st.label_vi, st.label_zh_cn, st.status, st.evidence_count,
+            COUNT(DISTINCT c.id) as count,
+            SUM(CASE WHEN a.sentiment = 'negative' THEN 1 ELSE 0 END) as negative_count,
+            SUM(CASE WHEN a.urgency IN ('medium','high') THEN 1 ELSE 0 END) as urgent_count
+     FROM comments c
+     JOIN analyses a ON a.comment_id = c.id
+     JOIN comment_subtopics cs ON cs.comment_id = c.id
+     JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+     ${whereSql}
+     GROUP BY st.id
+     ORDER BY count DESC, negative_count DESC, st.evidence_count DESC
+     LIMIT ?`
+  ).bind(...params, limit).all<any>();
+
+  return rows.results.map((row) => ({
+    id: row.id,
+    key: row.key,
+    parent_topic: row.parent_topic,
+    parent_label: topicLabel(row.parent_topic, lang),
+    label: subtopicLabel(row, lang),
+    label_vi: row.label_vi,
+    label_zh_cn: row.label_zh_cn || null,
+    status: row.status,
+    evidence_count: Number(row.evidence_count || 0),
+    count: Number(row.count || 0),
+    negative_count: Number(row.negative_count || 0),
+    urgent_count: Number(row.urgent_count || 0),
+  }));
 }
 
 export async function computeOverview(db: D1Database, q: Record<string, string>) {
@@ -31,7 +92,7 @@ export async function computeOverview(db: D1Database, q: Record<string, string>)
   const topicRows = await db
     .prepare(`SELECT a.topic_main, COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id=c.id ${whereSql} GROUP BY a.topic_main ORDER BY n DESC`)
     .bind(...params).all<{ topic_main: string; n: number }>();
-  const topTopics = topicRows.results.map((r) => ({ topic: r.topic_main, label: TOPIC_LABELS_VI[r.topic_main] || r.topic_main, count: r.n }));
+  const topTopics = topicRows.results.map((r) => ({ topic: r.topic_main, label: topicLabel(r.topic_main, q.lang), count: r.n }));
 
   const hotWhere = [...where, "a.sentiment = 'negative'"];
   const hotRows = await db
@@ -44,18 +105,20 @@ export async function computeOverview(db: D1Database, q: Record<string, string>)
        LIMIT 8`
     ).bind(...params).all<{ topic_main: string; negative: number; urgent: number }>();
   const hotIssues = hotRows.results.map((r) => ({
-    topic: r.topic_main, label: TOPIC_LABELS_VI[r.topic_main] || r.topic_main,
+    topic: r.topic_main, label: topicLabel(r.topic_main, q.lang),
     negative: r.negative, urgent: Number(r.urgent || 0),
   }));
 
   const analyzed = analyzedRow?.n || 0;
   const neg = sentiment.negative || 0;
+  const topSubtopics = await computeSubtopicRanking(db, q, 8);
   return {
     total_comments: totalRow?.n || 0,
     analyzed,
     sentiment,
     negative_pct: analyzed ? Math.round((neg / analyzed) * 1000) / 10 : 0,
     top_topics: topTopics,
+    top_subtopics: topSubtopics,
     hot_issues: hotIssues,
   };
 }
@@ -91,12 +154,110 @@ statsRoute.get("/trend", async (c) => {
   return c.json([...series.values()]);
 });
 
+statsRoute.get("/topic-ranking", async (c) => {
+  const q = c.req.query();
+  const { where, params } = baseFilters(q);
+  const w = [...where, "a.topic_main IS NOT NULL"];
+  if (q.topic) { w.push("a.topic_main = ?"); params.push(q.topic); }
+  if (q.sentiment) { w.push("a.sentiment = ?"); params.push(q.sentiment); }
+  if (q.urgency) { w.push("a.urgency = ?"); params.push(q.urgency); }
+  const whereSql = `WHERE ${w.join(" AND ")}`;
+  const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
+  const limit = Math.max(1, Math.min(Number(q.limit) || 12, 50));
+
+  const rows = await c.env.DB.prepare(
+    `SELECT a.topic_main,
+            COUNT(*) as count,
+            SUM(CASE WHEN a.sentiment = 'negative' THEN 1 ELSE 0 END) as negative_count,
+            SUM(CASE WHEN a.urgency IN ('medium','high') THEN 1 ELSE 0 END) as urgent_count
+     FROM comments c
+     JOIN analyses a ON a.comment_id = c.id
+     ${whereSql}
+     GROUP BY a.topic_main
+     ORDER BY count DESC, negative_count DESC
+     LIMIT ?`
+  ).bind(...params, limit).all<{ topic_main: string; count: number; negative_count: number; urgent_count: number }>();
+
+  const ranking = [];
+  for (const row of rows.results) {
+    const sampleRows = await c.env.DB.prepare(
+      `SELECT c.id, c.message, t.message_translated, a.sentiment, a.urgency, a.summary, t.summary_translated
+       FROM comments c
+       JOIN analyses a ON a.comment_id = c.id
+       LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
+       ${whereSql} AND a.topic_main = ?
+       ORDER BY CASE WHEN a.sentiment = 'negative' THEN 0 ELSE 1 END, c.created_at DESC
+       LIMIT 3`
+    ).bind(lang, ...params, row.topic_main).all<any>();
+
+    ranking.push({
+      topic: row.topic_main,
+      label: topicLabel(row.topic_main, lang),
+      count: row.count,
+      negative_count: Number(row.negative_count || 0),
+      urgent_count: Number(row.urgent_count || 0),
+      sample_comments: sampleRows.results.map((r) => ({
+        id: r.id,
+        message: lang === "zh-CN" && r.message_translated ? r.message_translated : r.message,
+        message_original: r.message,
+        sentiment: r.sentiment,
+        urgency: r.urgency,
+        summary: lang === "zh-CN" && r.summary_translated ? r.summary_translated : r.summary,
+      })),
+    });
+  }
+
+  return c.json({ items: ranking });
+});
+
+statsRoute.get("/subtopic-ranking", async (c) => {
+  const q = c.req.query();
+  const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
+  const limit = Math.max(1, Math.min(Number(q.limit) || 12, 50));
+  const items = await computeSubtopicRanking(c.env.DB, q, limit);
+
+  const withSamples = [];
+  for (const item of items) {
+    const { where, params } = baseFilters(q);
+    const w = [...where, "st.key = ?"];
+    const p = [...params, item.key];
+    if (q.topic) { w.push("a.topic_main = ?"); p.push(q.topic); }
+    if (q.sentiment) { w.push("a.sentiment = ?"); p.push(q.sentiment); }
+    if (q.urgency) { w.push("a.urgency = ?"); p.push(q.urgency); }
+    const rows = await c.env.DB.prepare(
+      `SELECT c.id, c.message, t.message_translated, a.sentiment, a.urgency, a.summary, t.summary_translated
+       FROM comments c
+       JOIN analyses a ON a.comment_id = c.id
+       JOIN comment_subtopics cs ON cs.comment_id = c.id
+       JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+       LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
+       WHERE ${w.join(" AND ")}
+       ORDER BY CASE WHEN a.sentiment = 'negative' THEN 0 ELSE 1 END, c.created_at DESC
+       LIMIT 3`
+    ).bind(lang, ...p).all<any>();
+    withSamples.push({
+      ...item,
+      sample_comments: rows.results.map((r) => ({
+        id: r.id,
+        message: lang === "zh-CN" && r.message_translated ? r.message_translated : r.message,
+        message_original: r.message,
+        sentiment: r.sentiment,
+        urgency: r.urgency,
+        summary: lang === "zh-CN" && r.summary_translated ? r.summary_translated : r.summary,
+      })),
+    });
+  }
+
+  return c.json({ items: withSamples });
+});
+
 statsRoute.get("/store", async (c) => {
   const q = c.req.query();
   const where = ["c.source_type = 'store'"];
   const params: any[] = [];
   if (q.from) { where.push("c.created_at >= ?"); params.push(q.from); }
   if (q.to) { where.push("c.created_at <= ?"); params.push(q.to); }
+  if (q.store) { where.push("c.store = ?"); params.push(q.store); }
   const whereSql = `WHERE ${where.join(" AND ")}`;
   const db = c.env.DB;
 

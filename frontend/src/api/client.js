@@ -13,6 +13,20 @@ export const getTrend = (params) =>
   api.get("/api/stats/trend", { params }).then((r) => r.data);
 export const getInsightsSummary = (params) =>
   api.get("/api/insights/summary", { params }).then((r) => r.data);
+export const getInsightPrompt = () =>
+  api.get("/api/insights/prompt").then((r) => r.data);
+export const saveInsightPrompt = (payload) =>
+  api.put("/api/insights/prompt", payload).then((r) => r.data);
+export const generateInsight = (payload) =>
+  api.post("/api/insights/generate", payload).then((r) => r.data);
+export const saveInsight = (payload) =>
+  api.post("/api/insights/save", payload).then((r) => r.data);
+export const listSavedInsights = (params) =>
+  api.get("/api/insights/saved", { params }).then((r) => r.data);
+export const getTopicRanking = (params) =>
+  api.get("/api/stats/topic-ranking", { params }).then((r) => r.data);
+export const getSubtopicRanking = (params) =>
+  api.get("/api/stats/subtopic-ranking", { params }).then((r) => r.data);
 
 export const listComments = (params) =>
   api.get("/api/comments", { params }).then((r) => r.data);
@@ -52,12 +66,20 @@ export const ingestSensorTower = (payload) =>
 
 export const ingestFacebook = (payload) =>
   api.post("/api/ingest/facebook", payload).then((r) => r.data);
+export const getIngestStatus = () =>
+  api.get("/api/ingest/status").then((r) => r.data);
 
 export const runAnalyze = (payload) =>
   api.post("/api/analyze/run", payload).then((r) => r.data);
 
 export const getAnalyzeProgress = (progressKey) =>
   api.get(`/api/analyze/progress/${progressKey}`).then((r) => r.data);
+
+export const runTranslate = (payload) =>
+  api.post("/api/translate/run", payload).then((r) => r.data);
+
+export const getTranslateProgress = (progressKey) =>
+  api.get(`/api/translate/progress/${progressKey}`).then((r) => r.data);
 
 export const exportUrl = (params) => {
   const qs = new URLSearchParams(

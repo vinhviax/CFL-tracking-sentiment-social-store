@@ -1,5 +1,6 @@
 import { PROMPT_VERSION, TOPICS } from "../../taxonomy";
 import type { Env } from "../../types";
+import { TOPIC_KEYWORD_HINTS } from "../topicKeywords";
 import { Classification, CommentInput, validateClassification } from "./base";
 import { classifyFallback } from "./fallback";
 import { buildProvider } from "./providers";
@@ -14,6 +15,9 @@ Với MỖI bình luận, hãy phân loại:
 - summary: 1 câu tiếng Việt ngắn tóm tắt ý chính
 - other_suggested: nếu KHÔNG chủ đề nào khớp, đề xuất tên nhóm mới (tiếng Việt ngắn), ngược lại null
 - confidence: số thực 0..1
+
+Gợi ý keyword cho Chủ Đề Lớn, dùng để hiểu teencode/ngữ cảnh nhưng vẫn đọc toàn câu trước khi quyết định:
+${TOPIC_KEYWORD_HINTS}
 
 TRẢ VỀ DUY NHẤT một JSON object có key "results" là mảng, mỗi phần tử gồm đúng các field:
 id, topic_main, topics_sub, sentiment, urgency, summary, other_suggested, confidence.
