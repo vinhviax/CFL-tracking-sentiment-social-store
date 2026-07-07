@@ -26,6 +26,12 @@ function ReportExportDialog({ open, params, onClose }) {
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
         </div>
+        <div className="report-export-warning" role="note">
+          <strong>Lưu ý trước khi xuất report</strong>
+          <p>Việc xuất report sẽ mất kha khá thời gian, tùy vào khoảng thời gian và phạm vi report bạn chọn.</p>
+          <p>Quá trình này không chỉ gom comment và mention trong khoảng đó, mà còn có gọi LLM phân tích và viết HTML report.</p>
+          <small>Bạn có thể đóng pop-up nếu chưa muốn chạy export ngay.</small>
+        </div>
         <div className="report-export-options">
           <a
             className="btn"

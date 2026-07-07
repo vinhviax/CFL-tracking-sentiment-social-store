@@ -10,6 +10,10 @@ test("Dashboard exposes an HTML report export modal for Store and Facebook", () 
   assert.match(apiSource, /\/api\/report\/html/);
   assert.match(source, /const \[reportDialogOpen, setReportDialogOpen\]/);
   assert.match(source, /function ReportExportDialog/);
+  assert.match(source, /report-export-warning/);
+  assert.match(source, /Việc xuất report sẽ mất kha khá thời gian/);
+  assert.match(source, /gom comment và mention/);
+  assert.match(source, /gọi LLM phân tích và viết HTML/);
   assert.match(source, /group: "store"/);
   assert.match(source, /group: "facebook"/);
   assert.match(source, /Xuất report HTML/);

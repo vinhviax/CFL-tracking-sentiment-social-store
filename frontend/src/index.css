@@ -570,6 +570,36 @@ textarea:focus {
   padding: 18px 20px 20px;
 }
 
+.report-export-warning {
+  display: grid;
+  gap: 7px;
+  margin: 0 20px;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-solid));
+  color: var(--text);
+}
+
+.report-export-warning strong {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.report-export-warning p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.report-export-warning small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .report-export-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

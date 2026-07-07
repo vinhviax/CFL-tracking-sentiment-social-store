@@ -10,6 +10,11 @@ test("workspace exposes header HTML report export with source, date, and languag
   assert.match(source, /aria-label="Xuất report HTML"/);
   assert.match(source, /Xuất report HTML/);
   assert.match(source, /report-export-header-button/);
+  assert.match(source, /report-export-warning/);
+  assert.match(source, /reportExportWarningTitle/);
+  assert.match(source, /reportExportTimeWarning/);
+  assert.match(source, /reportExportWorkWarning/);
+  assert.match(source, /reportExportCloseHint/);
   assert.match(source, /report-export-form/);
   assert.match(source, /value="all"/);
   assert.match(source, /value="store"/);

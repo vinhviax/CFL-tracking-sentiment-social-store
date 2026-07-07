@@ -123,6 +123,10 @@ const UI = {
     loading: "Đang tải...",
     reportExport: "Xuất report HTML",
     reportExportDescription: "Chọn nguồn, khoảng thời gian và ngôn ngữ report.",
+    reportExportWarningTitle: "Lưu ý trước khi xuất report",
+    reportExportTimeWarning: "Việc xuất report sẽ mất kha khá thời gian, tùy vào khoảng thời gian và phạm vi report bạn chọn.",
+    reportExportWorkWarning: "Quá trình này không chỉ gom comment và mention trong khoảng đó, mà còn có gọi LLM phân tích và viết HTML report.",
+    reportExportCloseHint: "Bạn có thể đóng pop-up nếu chưa muốn chạy export ngay.",
     reportSource: "Nguồn report",
     reportSourceAll: "Store + Facebook",
     reportSourceStore: "Store",
@@ -209,6 +213,10 @@ const UI = {
     loading: "加载中...",
     reportExport: "导出 HTML 报告",
     reportExportDescription: "选择来源、时间范围和报告语言。",
+    reportExportWarningTitle: "导出前提示",
+    reportExportTimeWarning: "导出报告可能需要较长时间，具体取决于所选时间范围和报告覆盖范围。",
+    reportExportWorkWarning: "流程不只是收集该时间段内的评论和 mention，还会调用 LLM 进行分析、汇总 insight 并生成 HTML。",
+    reportExportCloseHint: "如果暂时不想开始导出，可以先关闭此弹窗。",
     reportSource: "报告来源",
     reportSourceAll: "Store + Facebook",
     reportSourceStore: "Store",
@@ -307,6 +315,12 @@ function ReportExportDialog({ open, filters, lang, labels, onClose }) {
             <p>{labels.reportExportDescription}</p>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>{labels.close}</button>
+        </div>
+        <div className="report-export-warning" role="note">
+          <strong>{labels.reportExportWarningTitle}</strong>
+          <p>{labels.reportExportTimeWarning}</p>
+          <p>{labels.reportExportWorkWarning}</p>
+          <small>{labels.reportExportCloseHint}</small>
         </div>
         <div className="report-export-form">
           <label>{labels.reportSource}
