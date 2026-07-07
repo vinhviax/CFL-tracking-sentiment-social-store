@@ -75,7 +75,6 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain("Facebook Report");
     expect(html).toContain("Sentiment");
     expect(html).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
-    expect(html).toContain("Post &lt;b&gt;context&lt;/b&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("Post <b>context</b>");
   });
@@ -138,7 +137,6 @@ describe("renderFeedbackReportHtml", () => {
   test("renders Vietnamese report sections without mojibake", () => {
     const html = renderFeedbackReportHtml(baseReport());
 
-    expect(html).toContain("Bộ lọc và nguyên tắc đọc report");
     expect(html).toContain("Bảng ưu tiên vấn đề cần quan tâm");
     expect(html).toContain("Insight and Summarize");
     expect(html).toContain("Bài học rút ra");
@@ -162,6 +160,47 @@ describe("renderFeedbackReportHtml", () => {
     const html = renderFeedbackReportHtml(baseReport());
 
     expect(html).toContain('<a class="post-link" href="https://facebook.com/cfl/posts/5?x=&lt;bad&gt;" target="_blank" rel="noreferrer">Top post</a>');
+  });
+
+  test("renders report evidence dates without ISO timestamps", () => {
+    const report = baseReport();
+    const html = renderFeedbackReportHtml(baseReport({
+      comments: [{
+        ...report.comments[0],
+        created_at: "2026-07-06T00:00:00.000Z",
+      }],
+      top_posts: [{
+        ...report.top_posts[0],
+        published_at: "2026-07-01T08:00:37.000Z",
+      }],
+    }));
+
+    expect(html).toContain("<td>2026-07-06</td>");
+    expect(html).toContain("<td>2026-07-01</td>");
+    expect(html).not.toContain("T00:00:00.000Z");
+    expect(html).not.toContain("T08:00:37.000Z");
+  });
+
+  test("omits internal methodology and context summary columns from exported reports", () => {
+    const html = renderFeedbackReportHtml(baseReport());
+
+    expect(html).toMatch(/<span>01<\/span><h2>[^<]*sentiment/i);
+    expect(html).not.toContain('class="rule-list"');
+    expect(html).not.toContain("<b>Post:</b>");
+    expect(html).not.toContain("Needs &lt;fix&gt;");
+    expect(html).not.toContain("<th>Bối cảnh/Summary</th>");
+  });
+
+  test("labels imported Facebook group data as Group Fanpage in reports", () => {
+    const report = baseReport();
+    const html = renderFeedbackReportHtml(baseReport({
+      channels: [{ source_type: "fb_group_csv", label: "Group CSV", total: 2, positive: 1, neutral: 0, negative: 1 }],
+      comments: [{ ...report.comments[0], source_type: "fb_group_csv" }],
+      top_posts: [{ ...report.top_posts[0], source_type: "fb_group_csv" }],
+    }));
+
+    expect(html).toContain("Group Fanpage");
+    expect(html).not.toContain("Group CSV");
   });
 });
 

@@ -89,7 +89,7 @@ ingestRoute.get("/status", async (c) => {
     },
     {
       key: "facebook_group",
-      label: "Group CSV",
+      label: "Group Fanpage",
       sourceType: "fb_group_csv",
       cursor: null,
       latestRun: latestGroupRun,

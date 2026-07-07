@@ -49,7 +49,7 @@ function isActionableTopic(topic?: string | null) {
 function sourceLabel(sourceType: string, lang: ReportLanguage = "vi") {
   if (sourceType === "store") return "Store";
   if (sourceType === "fb_page") return lang === "zh-CN" ? "粉丝页" : "Fanpage";
-  if (sourceType === "fb_group_csv") return lang === "zh-CN" ? "群组 CSV" : "Group CSV";
+  if (sourceType === "fb_group_csv") return "Group Fanpage";
   return sourceType || (lang === "zh-CN" ? "未知来源" : "Không rõ nguồn");
 }
 

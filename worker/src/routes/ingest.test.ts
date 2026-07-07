@@ -316,7 +316,7 @@ describe("ingestRoute automated processing", () => {
       source_status: [
         { key: "store", label: "Store", latest_data_date: "2026-07-06", cursor_date: "2026-07-06" },
         { key: "facebook_page", label: "Fanpage", latest_data_date: "2026-07-06", cursor_date: "2026-07-07" },
-        { key: "facebook_group", label: "Group CSV", latest_data_date: "2026-07-05", cursor_date: null },
+        { key: "facebook_group", label: "Group Fanpage", latest_data_date: "2026-07-05", cursor_date: null },
       ],
     });
     expect(calls.some((call) => call.sql.includes("GROUP BY source_type"))).toBe(true);

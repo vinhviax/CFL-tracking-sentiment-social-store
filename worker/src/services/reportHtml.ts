@@ -288,6 +288,14 @@ function fmt(value: number | null | undefined, language: ReportLanguage = "vi") 
   return Number(value || 0).toLocaleString(language === "zh-CN" ? "zh-CN" : "vi-VN");
 }
 
+function dateOnly(value?: string | null) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString().slice(0, 10);
+}
+
 function rangeText(data: FeedbackReportData) {
   const copy = t(data);
   if (data.range.from && data.range.to) return `${data.range.from} - ${data.range.to}`;
@@ -298,9 +306,14 @@ function rangeText(data: FeedbackReportData) {
 
 function sourceLabel(sourceType: string, language: ReportLanguage) {
   if (sourceType === "fb_page") return language === "zh-CN" ? "粉丝页" : "Fanpage";
-  if (sourceType === "fb_group_csv") return language === "zh-CN" ? "群组 CSV" : "Group CSV";
+  if (sourceType === "fb_group_csv") return "Group Fanpage";
   if (sourceType === "store") return "Store";
   return sourceType || (language === "zh-CN" ? "未知" : "Không rõ");
+}
+
+function channelLabel(sourceType: string, label: string | null | undefined, language: ReportLanguage) {
+  if (sourceType === "fb_group_csv") return sourceLabel(sourceType, language);
+  return label || sourceLabel(sourceType, language);
 }
 
 function sentimentClass(value: string) {
@@ -445,14 +458,14 @@ function renderChannels(data: FeedbackReportData, sectionNo: string) {
   const total = data.channels.reduce((sum, row) => sum + row.total, 0);
   return `<section>
     <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.channelBreakdown)}</h2></div>
-    <div class="grid two">
-      ${data.channels.map((row) => `<div class="panel">
-        <h3>${esc(row.label || sourceLabel(row.source_type, language))}</h3>
+      <div class="grid two">
+        ${data.channels.map((row) => `<div class="panel">
+        <h3>${esc(channelLabel(row.source_type, row.label, language))}</h3>
         <p class="big">${fmt(row.total, language)}</p>
         <p><span class="pill neg">${fmt(row.negative, language)} ${esc(copy.negative)}</span> <span class="pill pos">${fmt(row.positive, language)} ${esc(copy.positive)}</span></p>
       </div>`).join("") || `<div class="empty">${esc(copy.noData)}</div>`}
     </div>
-    <div class="chart-block">${data.channels.map((row) => bar(row.label || sourceLabel(row.source_type, language), row.total, total, row.source_type === "fb_page" ? "pos" : "neu", language)).join("")}</div>
+    <div class="chart-block">${data.channels.map((row) => bar(channelLabel(row.source_type, row.label, language), row.total, total, row.source_type === "fb_page" ? "pos" : "neu", language)).join("")}</div>
   </section>`;
 }
 
@@ -491,7 +504,7 @@ function renderPosts(data: FeedbackReportData, sectionNo: string) {
       <tbody>
         ${data.top_posts.map((post) => `<tr>
           <td>${esc(sourceLabel(post.source_type, language))}</td>
-          <td>${esc(post.published_at || "")}</td>
+          <td>${esc(dateOnly(post.published_at))}</td>
           <td>${renderPostText(post)}</td>
           <td>${fmt(post.comment_count, language)}</td>
           <td>${fmt(post.negative_count, language)}</td>
@@ -533,17 +546,16 @@ function renderEvidence(data: FeedbackReportData, sectionNo: string) {
   return `<section>
     <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.evidence)}</h2></div>
     <table>
-      <thead><tr><th>${esc(copy.date)}</th><th>${esc(copy.source)}</th><th>${esc(copy.rating)}</th><th>${esc(copy.topic)}</th><th>Sentiment</th><th>Comment</th><th>${esc(copy.contextSummary)}</th></tr></thead>
+      <thead><tr><th>${esc(copy.date)}</th><th>${esc(copy.source)}</th><th>${esc(copy.rating)}</th><th>${esc(copy.topic)}</th><th>Sentiment</th><th>Comment</th></tr></thead>
       <tbody>
         ${data.comments.map((c) => `<tr>
-          <td>${esc(c.created_at || "")}</td>
+          <td>${esc(dateOnly(c.created_at))}</td>
           <td>${esc(sourceLabel(c.source_type, language))}</td>
           <td>${c.rating == null ? "" : esc(c.rating)}</td>
           <td>${esc(c.topic_label)}</td>
           <td><span class="pill ${sentimentClass(c.sentiment)}">${esc(sentimentLabel(c.sentiment, data))}</span></td>
           <td>${esc(c.message)}</td>
-          <td>${c.post_message ? `<b>Post:</b> ${esc(c.post_message)}<br>` : ""}${esc(c.summary)}</td>
-        </tr>`).join("") || `<tr><td colspan="7">${esc(copy.noData)}</td></tr>`}
+        </tr>`).join("") || `<tr><td colspan="6">${esc(copy.noData)}</td></tr>`}
       </tbody>
     </table>
   </section>`;
@@ -590,7 +602,6 @@ function renderReportBody(data: FeedbackReportData) {
         <div class="metric pos"><small>${esc(copy.topPositiveTopic)}</small><strong>${esc(topPositive?.label || "N/A")}</strong><em>${fmt(topPositive ? topicPositiveCount(topPositive) : data.overview.sentiment.positive, language)} ${esc(copy.positive)}</em></div>
       </div>
     </header>
-    ${renderMethodology(data, next())}
     ${renderSentiment(data, next())}
     ${renderChannels(data, next())}
     ${renderIssuePriority(data, next())}
