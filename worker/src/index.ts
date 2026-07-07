@@ -8,6 +8,7 @@ import { insightsRoute } from "./routes/insights";
 import { llmConfigRoute } from "./routes/llmConfig";
 import { postsRoute } from "./routes/posts";
 import { processingRoute } from "./routes/processing";
+import { reportRoute } from "./routes/report";
 import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { translateRoute } from "./routes/translate";
@@ -68,6 +69,7 @@ app.route("/api/stats", statsRoute);
 app.route("/api/insights", insightsRoute);
 app.route("/api/posts", postsRoute);
 app.route("/api/export", exportRoute);
+app.route("/api/report", reportRoute);
 app.route("/api/translate", translateRoute);
 app.route("/api/processing", processingRoute);
 

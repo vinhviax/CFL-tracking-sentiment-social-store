@@ -552,6 +552,18 @@ textarea:focus {
   box-shadow: none;
 }
 
+.export-actions,
+.report-export-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.report-export-options {
+  padding: 18px 20px 20px;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

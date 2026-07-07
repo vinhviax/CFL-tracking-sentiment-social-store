@@ -46,8 +46,39 @@ function isGroupSource(source: string): boolean {
   return source.trim().toLowerCase() === "group";
 }
 
+function isFanpageSource(source: string): boolean {
+  return source.trim().toLowerCase() === "fanpage";
+}
+
+function isFacebookCsvSource(source: string): boolean {
+  return isFanpageSource(source) || isGroupSource(source);
+}
+
+export function sourceTypeForCsvRow(row: Partial<ParsedRow>): "fb_page" | "fb_group_csv" | null {
+  const source = String(row.source || "");
+  if (isFanpageSource(source)) return "fb_page";
+  if (isGroupSource(source)) return "fb_group_csv";
+  return null;
+}
+
+export function filterFacebookCsvRows(rows: ParsedRow[]): ParsedRow[] {
+  return rows.filter((row) => isFacebookCsvSource(row.source));
+}
+
 export function filterGroupCsvRows(rows: ParsedRow[]): ParsedRow[] {
   return rows.filter((row) => isGroupSource(row.source));
+}
+
+export function getFacebookCsvSourceCounts(rows: ParsedRow[]) {
+  const fanpageRows = rows.filter((row) => isFanpageSource(row.source)).length;
+  const groupRows = rows.filter((row) => isGroupSource(row.source)).length;
+  const importableRows = fanpageRows + groupRows;
+  return {
+    fanpage_rows: fanpageRows,
+    group_rows: groupRows,
+    importable_rows: importableRows,
+    skipped_rows: rows.length - importableRows,
+  };
 }
 
 export function validateCsvGroupImport(opts: { totalRows: number; groupRows: number; freshRows: number }): void {
@@ -59,14 +90,31 @@ export function validateCsvGroupImport(opts: { totalRows: number; groupRows: num
   }
 }
 
-function buildCsvRunNote(filename: string, stats: { totalRows: number; groupRows: number; skippedNonGroup: number; duplicateRows: number }): string | null {
-  if (!filename && stats.skippedNonGroup === 0 && stats.duplicateRows === 0) return null;
+export function validateFacebookCsvImport(opts: { totalRows: number; importableRows: number; freshRows: number }): void {
+  if (opts.importableRows === 0) {
+    throw new Error("CSV Facebook khong co dong Fanpage hoac Group hop le o cot A.");
+  }
+  if (opts.freshRows === 0) {
+    throw new Error("CSV Facebook khong co comment Facebook moi de nhap; tat ca da ton tai hoac bi trung trong file.");
+  }
+}
+
+function buildCsvRunNote(filename: string, stats: {
+  totalRows: number;
+  fanpageRows: number;
+  groupRows: number;
+  skippedRows: number;
+  duplicateRows: number;
+}): string | null {
+  if (!filename && stats.skippedRows === 0 && stats.duplicateRows === 0) return null;
   return JSON.stringify({
-    text: filename || "Facebook Group CSV",
+    text: filename || "Facebook CSV",
     filename: filename || null,
     total_rows: stats.totalRows,
+    fanpage_rows: stats.fanpageRows,
     group_rows: stats.groupRows,
-    skipped_non_group: stats.skippedNonGroup,
+    importable_rows: stats.fanpageRows + stats.groupRows,
+    skipped_non_facebook: stats.skippedRows,
     duplicate_rows: stats.duplicateRows,
   });
 }
@@ -146,31 +194,41 @@ export function parseRows(raw: ArrayBuffer): ParsedRow[] {
     const c = cols[2] || "";
     const d = (cols[3] || "").trim();
     const e = cols[4] || "";
-    const f = cols.length > 5 ? (cols[5] || "").trim() : null;
 
     if (!headerSeen) {
       headerSeen = true;
       if (a.toLowerCase() === "source") continue; // skip header row
     }
-    rows.push({ source: a, postPublished: b, postMessage: c, createdDate: d, commentMessage: e, legacyTopic: f });
+    rows.push({ source: a, postPublished: b, postMessage: c, createdDate: d, commentMessage: e, legacyTopic: null });
   }
   return rows;
 }
 
-export function buildGroupCsvPostExternalId(row: Partial<ParsedRow>): string {
+export function buildFacebookCsvPostExternalId(row: Partial<ParsedRow>): string {
+  const sourceType = sourceTypeForCsvRow(row) || "facebook_csv";
+  const prefix = sourceType === "fb_page" ? "fanpage_csv" : sourceType === "fb_group_csv" ? "group_csv" : "facebook_csv";
   const key = [
+    sourceType,
     normalizeIdentityPart(row.postPublished),
     normalizeIdentityPart(row.postMessage),
   ].join("|");
-  return `group_csv:${stableHash(key)}`;
+  return `${prefix}:${stableHash(key)}`;
 }
 
-export function buildGroupCsvDedupeKey(row: Partial<ParsedRow>): string {
+export function buildGroupCsvPostExternalId(row: Partial<ParsedRow>): string {
+  return buildFacebookCsvPostExternalId({ ...row, source: row.source || "Group" });
+}
+
+export function buildFacebookCsvDedupeKey(row: Partial<ParsedRow>): string {
   return [
-    buildGroupCsvPostExternalId(row),
+    buildFacebookCsvPostExternalId(row),
     normalizeIdentityPart(row.createdDate),
     normalizeIdentityPart(row.commentMessage),
   ].join("|");
+}
+
+export function buildGroupCsvDedupeKey(row: Partial<ParsedRow>): string {
+  return buildFacebookCsvDedupeKey({ ...row, source: row.source || "Group" });
 }
 
 function parseVnDate(value: string): string | null {
@@ -257,16 +315,18 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
 
   try {
     const allRows = parseRows(raw);
-    const rows = filterGroupCsvRows(allRows);
+    const sourceCounts = getFacebookCsvSourceCounts(allRows);
+    const rows = filterFacebookCsvRows(allRows);
     rowsCount = rows.length;
-    validateCsvGroupImport({ totalRows: allRows.length, groupRows: rows.length, freshRows: rows.length });
+    validateFacebookCsvImport({ totalRows: allRows.length, importableRows: rows.length, freshRows: rows.length });
 
-    // Resolve dedupe hashes for Group rows only. Fanpage rows from mixed CSV exports are ignored.
+    // Resolve dedupe hashes for Fanpage/Group CSV rows only. Columns after E are deliberately ignored;
+    // LLM analysis remains the source of truth for topic/sentiment labels.
     const withHash = await Promise.all(
       rows.map(async (r) => ({
         row: r,
-        hash: await hashText(buildGroupCsvDedupeKey(r)),
-        legacyHash: await legacyDedupeHash("Group", r.createdDate, r.commentMessage || ""),
+        hash: await hashText(buildFacebookCsvDedupeKey(r)),
+        legacyHash: await legacyDedupeHash(sourceTypeForCsvRow(r) === "fb_group_csv" ? "Group" : "Fanpage", r.createdDate, r.commentMessage || ""),
       }))
     );
 
@@ -290,35 +350,39 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
       seen.add(item.legacyHash);
       fresh.push(item);
     }
-    validateCsvGroupImport({ totalRows: allRows.length, groupRows: rows.length, freshRows: fresh.length });
+    validateFacebookCsvImport({ totalRows: allRows.length, importableRows: rows.length, freshRows: fresh.length });
     dataRange = getCsvDateRange(fresh.map((item) => item.row));
     const duplicateRows = withHash.length - fresh.length;
     note = buildCsvRunNote(filename, {
       totalRows: allRows.length,
-      groupRows: rows.length,
-      skippedNonGroup: allRows.length - rows.length,
+      fanpageRows: sourceCounts.fanpage_rows,
+      groupRows: sourceCounts.group_rows,
+      skippedRows: sourceCounts.skipped_rows,
       duplicateRows,
     });
 
     const runInsert = await db
       .prepare(
-        `INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('fb_group_csv', ?, 'running', ?)`
+        `INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('facebook_csv', ?, 'running', ?)`
       )
       .bind(startedAt, note)
       .run();
     runId = runInsert.meta.last_row_id as number;
 
-    // Resolve/create posts. CSV Group has no Facebook post ID, so use a stable
+    // Resolve/create posts. CSV rows have no Facebook post ID, so use a stable
     // source-local external_id from columns B/C and reuse it across uploads.
     const postCache = new Map<string, number>();
-    const postRows = new Map<string, { externalId: string; sourceType: string; publishedAt: string | null; message: string }>();
+    const postRows = new Map<string, { externalId: string; sourceType: "fb_page" | "fb_group_csv"; publishedAt: string | null; message: string }>();
     for (const { row } of fresh) {
       const pmsg = (row.postMessage || "").trim();
       const published = (row.postPublished || "").trim();
       if (!pmsg && !published) continue;
-      const externalId = buildGroupCsvPostExternalId(row);
-      if (!postRows.has(externalId)) {
-        postRows.set(externalId, { externalId, sourceType: "fb_group_csv", publishedAt: parseVnDate(row.postPublished), message: pmsg });
+      const sourceType = sourceTypeForCsvRow(row);
+      if (!sourceType) continue;
+      const externalId = buildFacebookCsvPostExternalId(row);
+      const postKey = `${sourceType}|${externalId}`;
+      if (!postRows.has(postKey)) {
+        postRows.set(postKey, { externalId, sourceType, publishedAt: parseVnDate(row.postPublished), message: pmsg });
       }
     }
 
@@ -326,13 +390,13 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     for (const c of chunk(postCandidates, 90)) {
       const placeholders = c.map(() => "?").join(",");
       const res = await db
-        .prepare(`SELECT id, external_id FROM posts WHERE source_type='fb_group_csv' AND external_id IN (${placeholders})`)
+        .prepare(`SELECT id, source_type, external_id FROM posts WHERE external_id IN (${placeholders})`)
         .bind(...c.map((p) => p.externalId))
-        .all<{ id: number; external_id: string }>();
-      for (const row of res.results) postCache.set(row.external_id, row.id);
+        .all<{ id: number; source_type: string; external_id: string }>();
+      for (const row of res.results) postCache.set(`${row.source_type}|${row.external_id}`, row.id);
     }
 
-    const postsToInsert = postCandidates.filter((p) => !postCache.has(p.externalId));
+    const postsToInsert = postCandidates.filter((p) => !postCache.has(`${p.sourceType}|${p.externalId}`));
     for (const c of chunk(postsToInsert, getCsvPostInsertChunkSize())) {
       const stmts = c.map((p) =>
         db
@@ -340,7 +404,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
           .bind(p.sourceType, p.externalId, p.publishedAt, p.message)
       );
       const results = await db.batch(stmts);
-      results.forEach((r, idx) => postCache.set(c[idx].externalId, r.meta.last_row_id as number));
+      results.forEach((r, idx) => postCache.set(`${c[idx].sourceType}|${c[idx].externalId}`, r.meta.last_row_id as number));
     }
 
     // Insert new comments.
@@ -348,8 +412,10 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
       const stmts = c.map(({ row, hash }) => {
         const pmsg = (row.postMessage || "").trim();
         const published = (row.postPublished || "").trim();
-        const postKey = pmsg || published ? buildGroupCsvPostExternalId(row) : null;
-        const postId = postKey ? postCache.get(postKey) ?? null : null;
+        const sourceType = sourceTypeForCsvRow(row);
+        if (!sourceType) throw new Error("Invalid Facebook CSV source.");
+        const externalId = pmsg || published ? buildFacebookCsvPostExternalId(row) : null;
+        const postId = externalId ? postCache.get(`${sourceType}|${externalId}`) ?? null : null;
         const msg = row.commentMessage || "";
         return db
           .prepare(
@@ -359,10 +425,10 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
           )
           .bind(
             postId,
-            "fb_group_csv",
+            sourceType,
             parseVnDate(row.createdDate),
             msg,
-            row.legacyTopic,
+            null,
             hash,
             runId,
             isEmptyComment(msg) ? 1 : 0
@@ -393,7 +459,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
 
   return {
     id: runId,
-    source_type: "fb_group_csv",
+    source_type: "facebook_csv",
     status,
     started_at: startedAt,
     finished_at: finishedAt,

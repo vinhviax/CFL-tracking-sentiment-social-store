@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { Env } from "../types";
-import { filterGroupCsvRows, getCsvDateRange, ingestCsv, parseRows } from "../services/csvIngest";
+import { filterFacebookCsvRows, getCsvDateRange, getFacebookCsvSourceCounts, ingestCsv, parseRows } from "../services/csvIngest";
 import { ingestFacebook } from "../services/facebook";
 import { ingestSensorTower } from "../services/sensortower";
 import { FACEBOOK_CURSOR_KEY, SENSOR_TOWER_CURSOR_KEY, upsertSourceCursor } from "../services/sensortowerCursor";
@@ -131,7 +131,7 @@ ingestRoute.post("/upload-csv", async (c) => {
   if (buf.byteLength === 0) return c.json({ detail: "Empty file" }, 400);
   try {
     const run = await ingestCsv(c.env, buf, file.name);
-    const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-fb-group");
+    const auto_processing = await enqueueAutomatedProcessing(c, run, "ingest-facebook-csv");
     return c.json({ ...run, auto_processing });
   } catch (e: any) {
     return c.json({ detail: `Lỗi khi nạp file CSV: ${e.message || e}` }, 422);
@@ -146,20 +146,24 @@ ingestRoute.post("/preview-csv", async (c) => {
   if (buf.byteLength === 0) return c.json({ detail: "Empty file" }, 400);
   try {
     const rows = parseRows(buf);
-    const groupRows = filterGroupCsvRows(rows);
-    const dataRange = getCsvDateRange(groupRows);
+    const facebookRows = filterFacebookCsvRows(rows);
+    const counts = getFacebookCsvSourceCounts(rows);
+    const dataRange = getCsvDateRange(facebookRows);
     return c.json({
       total_rows: rows.length,
-      group_rows: groupRows.length,
-      skipped_non_group_rows: rows.length - groupRows.length,
+      fanpage_rows: counts.fanpage_rows,
+      group_rows: counts.group_rows,
+      importable_rows: counts.importable_rows,
+      skipped_non_group_rows: counts.skipped_rows,
+      skipped_non_facebook_rows: counts.skipped_rows,
       ...dataRange,
-      sample: groupRows.slice(0, 10).map((r) => ({
+      sample: facebookRows.slice(0, 10).map((r) => ({
         source: r.source,
         post_published_date: r.postPublished,
         post_message: (r.postMessage || "").slice(0, 200),
         created_date: r.createdDate,
         comment_message: (r.commentMessage || "").slice(0, 200),
-        legacy_topic: r.legacyTopic,
+        legacy_topic: null,
       })),
     });
   } catch (e: any) {

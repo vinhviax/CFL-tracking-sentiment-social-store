@@ -1,12 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
-  buildGroupCsvDedupeKey,
-  buildGroupCsvPostExternalId,
+  buildFacebookCsvDedupeKey,
+  buildFacebookCsvPostExternalId,
   getCsvDateRange,
+  getFacebookCsvSourceCounts,
   filterFreshUniqueHashes,
-  filterGroupCsvRows,
+  filterFacebookCsvRows,
   parseRows,
-  validateCsvGroupImport,
+  sourceTypeForCsvRow,
+  validateFacebookCsvImport,
   getCsvDedupeLookupChunkSize,
   getCsvCommentInsertChunkSize,
   getCsvPostInsertChunkSize,
@@ -29,7 +31,7 @@ describe("filterFreshUniqueHashes", () => {
   });
 });
 
-describe("Facebook Group CSV guardrails", () => {
+describe("Facebook CSV guardrails", () => {
   test("keeps CSV dedupe lookups under the SQL variable limit", () => {
     expect(getCsvDedupeLookupChunkSize() * 2).toBeLessThanOrEqual(90);
   });
@@ -39,14 +41,14 @@ describe("Facebook Group CSV guardrails", () => {
     expect(getCsvCommentInsertChunkSize()).toBeGreaterThanOrEqual(100);
   });
 
-  test("parses Facebook Group CSV using columns A to E only", () => {
+  test("parses Facebook CSV using columns A to E only and ignores source labels in later columns", () => {
     const csv = [
       "Source\tPost Published Date\tPost Message\tCreated Date\tComment Message\tTopic",
       "Group\t6/7/2026 13:28\tAi cho minh xin 6 manh\t6/7/2026 15:07\tNgoc Phuong cho toi xin manh con voi\titem_skin",
-      "Fanpage\t6/7/2026 13:28\tSkipped post\t6/7/2026 15:08\tSkipped comment\tother",
+      "Fanpage\t6/7/2026 14:00\tCHỈ CẦN comment nhận code\t6/7/2026 15:08\tVNG nay chiều ae thế\tpositive",
     ].join("\n");
 
-    const rows = filterGroupCsvRows(parseRows(new TextEncoder().encode(csv).buffer as ArrayBuffer));
+    const rows = filterFacebookCsvRows(parseRows(new TextEncoder().encode(csv).buffer as ArrayBuffer));
 
     expect(rows).toEqual([
       {
@@ -55,34 +57,56 @@ describe("Facebook Group CSV guardrails", () => {
         postMessage: "Ai cho minh xin 6 manh",
         createdDate: "6/7/2026 15:07",
         commentMessage: "Ngoc Phuong cho toi xin manh con voi",
-        legacyTopic: "item_skin",
+        legacyTopic: null,
+      },
+      {
+        source: "Fanpage",
+        postPublished: "6/7/2026 14:00",
+        postMessage: "CHỈ CẦN comment nhận code",
+        createdDate: "6/7/2026 15:08",
+        commentMessage: "VNG nay chiều ae thế",
+        legacyTopic: null,
       },
     ]);
   });
 
-  test("only keeps rows whose source column is Group", () => {
+  test("keeps rows whose source column is Fanpage or Group", () => {
     const rows = [
       { source: "Group", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "lag", legacyTopic: null },
       { source: "Fanpage", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "event", legacyTopic: null },
       { source: " group ", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "hack", legacyTopic: null },
+      { source: " fanpage ", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "code", legacyTopic: null },
+      { source: "Store", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "skip", legacyTopic: null },
     ];
 
-    expect(filterGroupCsvRows(rows).map((row) => row.commentMessage)).toEqual(["lag", "hack"]);
+    expect(filterFacebookCsvRows(rows).map((row) => row.commentMessage)).toEqual(["lag", "event", "hack", "code"]);
+    expect(getFacebookCsvSourceCounts(rows)).toEqual({
+      fanpage_rows: 2,
+      group_rows: 2,
+      importable_rows: 4,
+      skipped_rows: 1,
+    });
   });
 
-  test("rejects a CSV upload that contains no Group rows", () => {
-    expect(() => validateCsvGroupImport({ totalRows: 2, groupRows: 0, freshRows: 0 }))
-      .toThrow(/khong co dong Group/i);
+  test("maps Fanpage rows to fb_page and Group rows to fb_group_csv", () => {
+    expect(sourceTypeForCsvRow({ source: "Fanpage" })).toBe("fb_page");
+    expect(sourceTypeForCsvRow({ source: "Group" })).toBe("fb_group_csv");
+    expect(sourceTypeForCsvRow({ source: "Store" })).toBeNull();
   });
 
-  test("rejects a CSV upload when every Group row is already imported or duplicated", () => {
-    expect(() => validateCsvGroupImport({ totalRows: 4, groupRows: 3, freshRows: 0 }))
-      .toThrow(/khong co comment Group moi/i);
+  test("rejects a CSV upload that contains no Fanpage or Group rows", () => {
+    expect(() => validateFacebookCsvImport({ totalRows: 2, importableRows: 0, freshRows: 0 }))
+      .toThrow(/khong co dong Fanpage hoac Group/i);
   });
 
-  test("detects the first and last comment date from Group rows", () => {
+  test("rejects a CSV upload when every Facebook row is already imported or duplicated", () => {
+    expect(() => validateFacebookCsvImport({ totalRows: 4, importableRows: 3, freshRows: 0 }))
+      .toThrow(/khong co comment Facebook moi/i);
+  });
+
+  test("detects the first and last comment date from Facebook rows", () => {
     const rows = [
-      { source: "Group", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "lag", legacyTopic: null },
+      { source: "Fanpage", postPublished: "", postMessage: "", createdDate: "6/7/2026", commentMessage: "event", legacyTopic: null },
       { source: "Group", postPublished: "", postMessage: "", createdDate: "4/7/2026 08:30:00", commentMessage: "hack", legacyTopic: null },
       { source: "Group", postPublished: "", postMessage: "", createdDate: "bad date", commentMessage: "ignored", legacyTopic: null },
     ];
@@ -93,9 +117,9 @@ describe("Facebook Group CSV guardrails", () => {
     });
   });
 
-  test("uses post context when identifying CSV Group posts and comments", () => {
+  test("uses source and post context when identifying CSV posts and comments", () => {
     const base = {
-      source: "Group",
+      source: "Fanpage",
       postPublished: "6/7/2026 13:28",
       postMessage: "Ai cho minh xin 6 manh",
       createdDate: "6/7/2026 15:07",
@@ -107,9 +131,12 @@ describe("Facebook Group CSV guardrails", () => {
       postPublished: "6/7/2026 12:56",
       postMessage: "Thay chua",
     };
+    const sameTextFromGroup = { ...base, source: "Group" };
 
-    expect(buildGroupCsvPostExternalId(base)).toBe(buildGroupCsvPostExternalId({ ...base, commentMessage: "comment khac" }));
-    expect(buildGroupCsvPostExternalId(base)).not.toBe(buildGroupCsvPostExternalId(sameCommentDifferentPost));
-    expect(buildGroupCsvDedupeKey(base)).not.toBe(buildGroupCsvDedupeKey(sameCommentDifferentPost));
+    expect(buildFacebookCsvPostExternalId(base)).toBe(buildFacebookCsvPostExternalId({ ...base, commentMessage: "comment khac" }));
+    expect(buildFacebookCsvPostExternalId(base)).not.toBe(buildFacebookCsvPostExternalId(sameCommentDifferentPost));
+    expect(buildFacebookCsvPostExternalId(base)).not.toBe(buildFacebookCsvPostExternalId(sameTextFromGroup));
+    expect(buildFacebookCsvDedupeKey(base)).not.toBe(buildFacebookCsvDedupeKey(sameCommentDifferentPost));
+    expect(buildFacebookCsvDedupeKey(base)).not.toBe(buildFacebookCsvDedupeKey(sameTextFromGroup));
   });
 });

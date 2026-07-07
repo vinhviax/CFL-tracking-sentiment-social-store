@@ -13,7 +13,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../services/csvIngest", () => ({
   ingestCsv: mocks.ingestCsv,
   parseRows: mocks.parseRows,
-  filterGroupCsvRows: (rows: any[]) => rows.filter((row) => String(row.source || "").trim().toLowerCase() === "group"),
+  filterFacebookCsvRows: (rows: any[]) => rows.filter((row) => ["fanpage", "group"].includes(String(row.source || "").trim().toLowerCase())),
+  getFacebookCsvSourceCounts: (rows: any[]) => {
+    const fanpageRows = rows.filter((row) => String(row.source || "").trim().toLowerCase() === "fanpage").length;
+    const groupRows = rows.filter((row) => String(row.source || "").trim().toLowerCase() === "group").length;
+    return {
+      fanpage_rows: fanpageRows,
+      group_rows: groupRows,
+      importable_rows: fanpageRows + groupRows,
+      skipped_rows: rows.length - fanpageRows - groupRows,
+    };
+  },
   getCsvDateRange: (rows: any[]) => {
     const dates = rows
       .map((row) => {
@@ -173,18 +183,18 @@ describe("ingestRoute automated processing", () => {
     expect(mocks.upsertSourceCursor).toHaveBeenCalledWith(testEnv, "facebook_page", "2026-07-06", 55);
   });
 
-  test("queues analysis then zh-CN translation after CSV Group upload", async () => {
+  test("queues analysis then zh-CN translation after Facebook CSV upload", async () => {
     const testEnv = env();
     mocks.ingestCsv.mockResolvedValue({
       id: 53,
-      source_type: "fb_group_csv",
+      source_type: "facebook_csv",
       status: "done",
       rows_fetched: 3,
       rows_new: 3,
     });
     const ctx = executionCtx();
     const form = new FormData();
-    form.append("file", new File(["source\tcreated_date\tcomment_message\nGroup\t2026-07-06\tlag"], "group.csv"));
+    form.append("file", new File(["source\tcreated_date\tcomment_message\nFanpage\t2026-07-06\tlag"], "fanpage.csv"));
 
     const res = await ingestRoute.request(
       "/upload-csv",
@@ -197,16 +207,17 @@ describe("ingestRoute automated processing", () => {
     expect(ctx.scheduled).toHaveLength(1);
     await flushScheduled(ctx);
     expect(mocks.enqueueProcessingJobs).toHaveBeenCalledWith(testEnv, [
-      { job_type: "analysis", run_id: 53, progress_key: "ingest-fb-group-analyze-53" },
-      { job_type: "translation", run_id: 53, progress_key: "ingest-fb-group-translate-53", locale: "zh-CN" },
+      { job_type: "analysis", run_id: 53, progress_key: "ingest-facebook-csv-analyze-53" },
+      { job_type: "translation", run_id: 53, progress_key: "ingest-facebook-csv-translate-53", locale: "zh-CN" },
     ]);
   });
 
-  test("CSV preview counts only Group rows as importable", async () => {
+  test("CSV preview counts Fanpage and Group rows as importable", async () => {
     mocks.parseRows.mockReturnValue([
       { source: "Group", createdDate: "6/7/2026", commentMessage: "lag", legacyTopic: null },
       { source: "Group", createdDate: "4/7/2026 08:30:00", commentMessage: "hack", legacyTopic: null },
       { source: "Fanpage", createdDate: "6/7/2026", commentMessage: "event", legacyTopic: null },
+      { source: "Store", createdDate: "6/7/2026", commentMessage: "ignored", legacyTopic: null },
     ]);
     const form = new FormData();
     form.append("file", new File(["mock"], "mixed.csv"));
@@ -219,12 +230,15 @@ describe("ingestRoute automated processing", () => {
     );
 
     await expect(res.json()).resolves.toMatchObject({
-      total_rows: 3,
+      total_rows: 4,
+      fanpage_rows: 1,
       group_rows: 2,
       skipped_non_group_rows: 1,
+      importable_rows: 3,
       sample: [
         { source: "Group", comment_message: "lag" },
         { source: "Group", comment_message: "hack" },
+        { source: "Fanpage", comment_message: "event" },
       ],
       data_start_date: "2026-07-04",
       data_end_date: "2026-07-06",

@@ -16,8 +16,12 @@ function listFiles(dir) {
 test("frontend date UI does not use browser-locale date formatting", () => {
   const files = listFiles(srcDir).filter((file) => /\.(jsx|js)$/.test(file) && !file.endsWith(".test.js"));
   const source = files.map((file) => readFileSync(file, "utf8")).join("\n");
+  const nonDatePickerSource = files
+    .filter((file) => !file.endsWith("DateTextInput.jsx"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
 
-  assert.doesNotMatch(source, /type="date"/);
+  assert.doesNotMatch(nonDatePickerSource, /type="date"/);
   assert.doesNotMatch(source, /toLocaleDateString\("vi-VN"\)/);
   assert.doesNotMatch(source, /new Date\([^)]*\)\.toLocaleString\("vi-VN"\)/);
 });

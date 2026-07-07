@@ -147,15 +147,19 @@ test("manual run translation does not cap large ingest runs", () => {
   assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);
 });
 
-test("CSV preview makes Facebook Group filtering visible before upload", () => {
+test("CSV preview makes Fanpage and Group Facebook CSV rows visible before upload", () => {
+  assert.match(source, /Upload CSV \(Facebook\)/);
+  assert.match(source, /preview\.fanpage_rows/);
   assert.match(source, /preview\.group_rows/);
+  assert.match(source, /preview\.importable_rows/);
   assert.match(source, /preview\.skipped_non_group_rows/);
-  assert.match(source, /preview\.group_rows === 0/);
+  assert.match(source, /preview\.importable_rows === 0/);
   assert.match(source, /preview\.data_start_date/);
   assert.match(source, /preview\.data_end_date/);
   assert.match(source, /row\.post_published_date/);
   assert.match(source, /row\.post_message/);
   assert.ok(source.indexOf("Post Published") < source.indexOf("Comment Message"));
+  assert.doesNotMatch(source, /Không có dòng Group để nạp/);
 });
 
 test("ingest history prefers the requested pull range when it is available", () => {

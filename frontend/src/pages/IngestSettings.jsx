@@ -120,6 +120,7 @@ function sourceName(sourceType) {
   if (sourceType === "store") return "Store reviews";
   if (sourceType === "fb_page") return "Facebook Fanpage";
   if (sourceType === "fb_group_csv") return "Facebook Group CSV";
+  if (sourceType === "facebook_csv") return "Facebook CSV";
   return sourceType || "Không rõ nguồn";
 }
 
@@ -691,7 +692,7 @@ export default function IngestSettings() {
 
       <div className="two-col">
         <div className="panel">
-          <h3>Upload CSV (Facebook Group)</h3>
+          <h3>Upload CSV (Facebook)</h3>
           <div
             className="upload-zone"
             onClick={() => fileRef.current?.click()}
@@ -713,24 +714,25 @@ export default function IngestSettings() {
           {preview && (
             <>
               <p>
-                Tổng <b>{preview.total_rows}</b> dòng; sẽ nhập <b>{preview.group_rows ?? preview.total_rows}</b> dòng Facebook Group.
+                Tổng <b>{preview.total_rows}</b> dòng; sẽ nhập <b>{preview.importable_rows ?? preview.total_rows}</b> dòng Facebook
+                (<b>{preview.fanpage_rows ?? 0}</b> Fanpage, <b>{preview.group_rows ?? 0}</b> Group).
               </p>
               {preview.skipped_non_group_rows > 0 && (
                 <div className="warning-banner">
-                  Bỏ qua {preview.skipped_non_group_rows} dòng không có cột A = Group (ví dụ Fanpage).
+                  Bỏ qua {preview.skipped_non_group_rows} dòng không có cột A = Fanpage hoặc Group.
                 </div>
               )}
-              {preview.group_rows === 0 && (
+              {preview.importable_rows === 0 && (
                 <div className="error-banner">
-                  File này không có dòng Group hợp lệ, nên không thể nạp vào Facebook Group CSV.
+                  File này không có dòng Fanpage hoặc Group hợp lệ, nên không thể nạp vào Facebook CSV.
                 </div>
               )}
               {(preview.data_start_date || preview.data_end_date) && (
                 <p className="progress-caption">
-                  Khoảng thời gian Group trong file: <b>{formatDate(preview.data_start_date) || "?"}</b> → <b>{formatDate(preview.data_end_date) || "?"}</b>
+                  Khoảng thời gian Facebook trong file: <b>{formatDate(preview.data_start_date) || "?"}</b> → <b>{formatDate(preview.data_end_date) || "?"}</b>
                 </p>
               )}
-              <p className="progress-caption">Xem trước tối đa 10 dòng Group đầu tiên:</p>
+              <p className="progress-caption">Xem trước tối đa 10 dòng Facebook đầu tiên:</p>
               <table>
                 <thead>
                   <tr>
@@ -753,8 +755,8 @@ export default function IngestSettings() {
                   ))}
                 </tbody>
               </table>
-              <button className="btn" disabled={uploading || preview.group_rows === 0} onClick={confirmUpload} style={{ marginTop: 12 }}>
-                {uploading ? "Đang nạp..." : preview.group_rows === 0 ? "Không có dòng Group để nạp" : "Xác nhận nạp dữ liệu Group"}
+              <button className="btn" disabled={uploading || preview.importable_rows === 0} onClick={confirmUpload} style={{ marginTop: 12 }}>
+                {uploading ? "Đang nạp..." : preview.importable_rows === 0 ? "Không có dòng Facebook để nạp" : "Xác nhận nạp dữ liệu Facebook CSV"}
               </button>
             </>
           )}

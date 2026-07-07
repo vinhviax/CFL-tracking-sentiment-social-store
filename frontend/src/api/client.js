@@ -106,4 +106,12 @@ export const exportUrl = (params) => {
   return `${base}/api/export${qs ? `?${qs}` : ""}`;
 };
 
+export const exportReportHtmlUrl = (params) => {
+  const qs = new URLSearchParams(
+    Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null && v !== ""))
+  ).toString();
+  const base = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+  return `${base}/api/report/html${qs ? `?${qs}` : ""}`;
+};
+
 export default api;

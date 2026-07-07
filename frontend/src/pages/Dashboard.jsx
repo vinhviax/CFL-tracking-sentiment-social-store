@@ -5,11 +5,47 @@ import {
 } from "recharts";
 import FiltersBar from "../components/FiltersBar.jsx";
 import useMeta from "../hooks/useMeta.js";
-import { getOverview, getTrend, getInsightsSummary, exportUrl } from "../api/client.js";
+import { getOverview, getTrend, getInsightsSummary, exportUrl, exportReportHtmlUrl } from "../api/client.js";
 import { formatDisplayDate } from "../utils/dateFormat.js";
 
 const SENTIMENT_COLORS = { negative: "#e5484d", neutral: "#8a94a6", positive: "#2fb872" };
 const TOPIC_COLORS = ["#4f8cff", "#2fb872", "#e5a34d", "#e5484d", "#a06cff", "#4dd0e1", "#f06292", "#9ccc65"];
+
+function ReportExportDialog({ open, params, onClose }) {
+  if (!open) return null;
+  const cleanRange = {};
+  if (params.from) cleanRange.from = params.from;
+  if (params.to) cleanRange.to = params.to;
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-label="Xuất report HTML">
+        <div className="modal-header">
+          <div>
+            <h3>Xuất report HTML</h3>
+            <p>Chọn nguồn report cần xuất theo khoảng thời gian hiện tại.</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
+        </div>
+        <div className="report-export-options">
+          <a
+            className="btn"
+            href={exportReportHtmlUrl({ ...cleanRange, group: "store" })}
+            onClick={onClose}
+          >
+            Store report
+          </a>
+          <a
+            className="btn btn-secondary"
+            href={exportReportHtmlUrl({ ...cleanRange, group: "facebook" })}
+            onClick={onClose}
+          >
+            Facebook report
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { meta } = useMeta();
@@ -19,6 +55,7 @@ export default function Dashboard() {
   const [insight, setInsight] = useState(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
   const cleanParams = useCallback(() => {
     const p = {};
@@ -175,9 +212,19 @@ export default function Dashboard() {
             )}
           </div>
 
-          <a className="btn btn-secondary" href={exportUrl(cleanParams())} style={{ display: "inline-block" }}>
-            ⬇ Xuất Excel (theo bộ lọc hiện tại)
-          </a>
+          <div className="export-actions">
+            <button className="btn" type="button" onClick={() => setReportDialogOpen(true)}>
+              Xuất report HTML
+            </button>
+            <a className="btn btn-secondary" href={exportUrl(cleanParams())} style={{ display: "inline-block" }}>
+              ⬇ Xuất Excel (theo bộ lọc hiện tại)
+            </a>
+          </div>
+          <ReportExportDialog
+            open={reportDialogOpen}
+            params={cleanParams()}
+            onClose={() => setReportDialogOpen(false)}
+          />
         </>
       )}
     </>

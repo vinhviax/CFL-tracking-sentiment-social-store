@@ -18,6 +18,7 @@ vi.mock("./routes/insights", () => ({ insightsRoute: { routes: [] } }));
 vi.mock("./routes/llmConfig", () => ({ llmConfigRoute: { routes: [] } }));
 vi.mock("./routes/posts", () => ({ postsRoute: { routes: [] } }));
 vi.mock("./routes/processing", () => ({ processingRoute: { routes: [] } }));
+vi.mock("./routes/report", () => ({ reportRoute: { routes: [] } }));
 vi.mock("./routes/runs", () => ({ runsRoute: { routes: [] } }));
 vi.mock("./routes/stats", () => ({ statsRoute: { routes: [] } }));
 vi.mock("./routes/translate", () => ({ translateRoute: { routes: [] } }));
