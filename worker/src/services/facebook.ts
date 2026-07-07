@@ -133,6 +133,17 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+async function loadFacebookPostIds(db: Env["DB"], externalIds: string[], target: Map<string, number>) {
+  for (const idsChunk of chunk(externalIds, 90)) {
+    if (!idsChunk.length) continue;
+    const placeholders = idsChunk.map(() => "?").join(",");
+    const res = await db
+      .prepare(`SELECT id, external_id FROM posts WHERE source_type='fb_page' AND external_id IN (${placeholders})`)
+      .bind(...idsChunk).all<{ id: number; external_id: string }>();
+    for (const r of res.results) target.set(r.external_id, r.id);
+  }
+}
+
 export async function ingestFacebook(
   env: Env,
   since?: string,
@@ -167,23 +178,17 @@ export async function ingestFacebook(
 
     const postExternalIds = posts.map((p) => p.id);
     const postIdByExternal = new Map<string, number>();
-    for (const idsChunk of chunk(postExternalIds, 90)) {
-      const placeholders = idsChunk.map(() => "?").join(",");
-      const res = await db
-        .prepare(`SELECT id, external_id FROM posts WHERE source_type='fb_page' AND external_id IN (${placeholders})`)
-        .bind(...idsChunk).all<{ id: number; external_id: string }>();
-      for (const r of res.results) postIdByExternal.set(r.external_id, r.id);
-    }
+    await loadFacebookPostIds(db, postExternalIds, postIdByExternal);
     const newPosts = posts.filter((p) => !postIdByExternal.has(p.id));
     for (const c of chunk(newPosts, 50)) {
       const stmts = c.map((p) =>
         db.prepare(
-          `INSERT INTO posts (source_type, external_id, published_at, message, permalink) VALUES ('fb_page', ?, ?, ?, ?)`
+          `INSERT OR IGNORE INTO posts (source_type, external_id, published_at, message, permalink) VALUES ('fb_page', ?, ?, ?, ?)`
         ).bind(p.id, parseFbDate(p.created_time), p.message || "", p.permalink_url || null)
       );
-      const results = await db.batch(stmts);
-      results.forEach((r, idx) => postIdByExternal.set(c[idx].id, r.meta.last_row_id as number));
+      await db.batch(stmts);
     }
+    await loadFacebookPostIds(db, newPosts.map((p) => p.id), postIdByExternal);
 
     const allComments: { postId: number; cm: any; hash: string }[] = [];
     for (const p of posts) {

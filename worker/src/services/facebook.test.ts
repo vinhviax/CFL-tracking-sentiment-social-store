@@ -147,4 +147,66 @@ describe("ingestFacebook", () => {
     expect(insertedComments).toHaveLength(1);
     expect(insertedComments[0][1]).toBe("comment_in_range");
   });
+
+  test("re-queries inserted Fanpage post ids before inserting comments", async () => {
+    const post = {
+      id: "post_1",
+      message: "post 1",
+      created_time: "2026-07-05T01:00:00+0000",
+      permalink_url: "https://facebook.com/post_1",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const full = String(url);
+      if (full.includes("/page/posts")) return new Response(JSON.stringify({ data: [post] }), { status: 200 });
+      if (full.includes("/post_1/comments")) {
+        return new Response(JSON.stringify({
+          data: [{ id: "comment_1", message: "comment 1", created_time: "2026-07-05T02:00:00+0000" }],
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected Graph URL ${full}`);
+    }));
+
+    let postLookupCount = 0;
+    const insertedCommentPostIds: unknown[] = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          sql,
+          params: [] as unknown[],
+          bind(...params: unknown[]) {
+            this.params = params;
+            return this;
+          },
+          async run() {
+            return { meta: { last_row_id: 100 } };
+          },
+          async all() {
+            if (sql.includes("SELECT id, external_id FROM posts")) {
+              postLookupCount += 1;
+              return { results: postLookupCount === 1 ? [] : [{ id: 501, external_id: "post_1" }] };
+            }
+            return { results: [] };
+          },
+        };
+      },
+      async batch(stmts: Array<{ sql: string; params: any[] }>) {
+        for (const stmt of stmts) {
+          if (stmt.sql.includes("INSERT INTO comments")) {
+            insertedCommentPostIds.push(stmt.params[0]);
+            if (stmt.params[0] !== 501) throw new Error("FOREIGN KEY constraint failed");
+          }
+        }
+        return stmts.map((_stmt, index) => ({ meta: { last_row_id: 9000 + index } }));
+      },
+    };
+
+    const run = await ingestFacebook(
+      { DB: db, FB_PAGE_ID: "page", FB_ACCESS_TOKEN: "token" } as any,
+      "2026-07-05",
+      "2026-07-06"
+    );
+
+    expect(run.status).toBe("done");
+    expect(insertedCommentPostIds).toEqual([501]);
+  });
 });
