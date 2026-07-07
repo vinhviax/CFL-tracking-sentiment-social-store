@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { renderFeedbackReportHtml, type FeedbackReportData } from "./reportHtml";
+import { renderFeedbackReportBundleHtml, renderFeedbackReportHtml, type FeedbackReportData } from "./reportHtml";
 
 function baseReport(overrides: Partial<FeedbackReportData> = {}): FeedbackReportData {
   return {
@@ -137,5 +137,26 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain("Next step đề xuất");
     expect(html).toContain("Người chơi đang phàn nàn");
     expect(html).not.toMatch(/Ã|Â|áº|á»|Ä‘|Æ°|ðŸ/);
+  });
+});
+
+describe("renderFeedbackReportBundleHtml", () => {
+  test("renders combined Store/Facebook and VI/ZH reports as switchable tabs", () => {
+    const html = renderFeedbackReportBundleHtml([
+      baseReport({ group: "store", title: "Store VI Report", language: "vi" }),
+      baseReport({ group: "facebook", title: "Facebook VI Report", language: "vi" }),
+      baseReport({ group: "store", title: "Store ZH Report", language: "zh-CN" }),
+      baseReport({ group: "facebook", title: "Facebook ZH Report", language: "zh-CN" }),
+    ]);
+
+    expect(html).toContain("data-report-switcher");
+    expect(html).toContain('data-report-filter="group" data-value="store"');
+    expect(html).toContain('data-report-filter="group" data-value="facebook"');
+    expect(html).toContain('data-report-filter="lang" data-value="vi"');
+    expect(html).toContain('data-report-filter="lang" data-value="zh-CN"');
+    expect(html).toContain('data-report-panel data-report-group="store" data-report-lang="vi"');
+    expect(html).toContain('data-report-panel data-report-group="facebook" data-report-lang="zh-CN"');
+    expect(html).toContain('class="report-panel is-active"');
+    expect(html).toContain('<script id="report-switcher-script">');
   });
 });

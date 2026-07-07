@@ -581,11 +581,98 @@ function renderReportBody(data: FeedbackReportData) {
   </article>`;
 }
 
+function groupLabel(group: FeedbackReportData["group"]) {
+  return group === "store" ? "Store" : "Facebook";
+}
+
+function languageLabel(language: ReportLanguage) {
+  return language === "zh-CN" ? "中文" : "VI";
+}
+
+function uniqueValues<T>(values: T[]) {
+  return [...new Set(values)];
+}
+
+function renderBundleControls(groups: FeedbackReportData["group"][], languages: ReportLanguage[]) {
+  if (groups.length <= 1 && languages.length <= 1) return "";
+  return `<div class="report-switcher" data-report-switcher>
+    ${groups.length > 1 ? `<div class="report-switcher-row">
+      <span>Source</span>
+      <div class="report-toggle">
+        ${groups.map((group, idx) => `<button type="button" class="${idx === 0 ? "is-active" : ""}" data-report-filter="group" data-value="${esc(group)}">${esc(groupLabel(group))}</button>`).join("")}
+      </div>
+    </div>` : ""}
+    ${languages.length > 1 ? `<div class="report-switcher-row">
+      <span>Language</span>
+      <div class="report-toggle">
+        ${languages.map((language, idx) => `<button type="button" class="${idx === 0 ? "is-active" : ""}" data-report-filter="lang" data-value="${esc(language)}">${esc(languageLabel(language))}</button>`).join("")}
+      </div>
+    </div>` : ""}
+  </div>`;
+}
+
+function renderBundleScript() {
+  return `<script id="report-switcher-script">
+    (function () {
+      var root = document.querySelector("[data-report-root]");
+      if (!root) return;
+      var state = {
+        group: root.getAttribute("data-active-group") || "",
+        lang: root.getAttribute("data-active-lang") || ""
+      };
+
+      function render() {
+        root.querySelectorAll("[data-report-panel]").forEach(function (panel) {
+          var visible = panel.getAttribute("data-report-group") === state.group
+            && panel.getAttribute("data-report-lang") === state.lang;
+          panel.hidden = !visible;
+          panel.classList.toggle("is-active", visible);
+        });
+        root.querySelectorAll("[data-report-filter]").forEach(function (button) {
+          var key = button.getAttribute("data-report-filter");
+          button.classList.toggle("is-active", button.getAttribute("data-value") === state[key]);
+        });
+      }
+
+      root.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-report-filter]");
+        if (!target || !root.contains(target)) return;
+        state[target.getAttribute("data-report-filter")] = target.getAttribute("data-value");
+        render();
+      });
+
+      render();
+    })();
+  </script>`;
+}
+
+function renderBundleBody(reports: FeedbackReportData[]) {
+  const groups = uniqueValues(reports.map((report) => report.group));
+  const languages = uniqueValues(reports.map((report) => lang(report)));
+  const activeGroup = groups[0];
+  const activeLanguage = languages[0];
+
+  return `<div class="report-shell" data-report-root data-active-group="${esc(activeGroup)}" data-active-lang="${esc(activeLanguage)}">
+    ${renderBundleControls(groups, languages)}
+    <div class="report-panels">
+      ${reports.map((report) => {
+        const reportLanguage = lang(report);
+        const active = report.group === activeGroup && reportLanguage === activeLanguage;
+        return `<div class="report-panel ${active ? "is-active" : ""}" data-report-panel data-report-group="${esc(report.group)}" data-report-lang="${esc(reportLanguage)}"${active ? "" : " hidden"}>
+          ${renderReportBody(report)}
+        </div>`;
+      }).join("\n")}
+    </div>
+  </div>
+  ${renderBundleScript()}`;
+}
+
 function renderStyles() {
   return `<style>
     :root{--ink:#172033;--muted:#667085;--line:#e4e7ec;--bg:#f6f8fb;--card:#fff;--neg:#e5484d;--pos:#16a164;--neu:#8a94a6;--accent:#b85d1c;}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 Inter,Segoe UI,Arial,sans-serif;}
     .wrap{max-width:1160px;margin:0 auto;padding:34px 24px 56px;}
+    .report-shell{display:grid;gap:18px}.report-switcher{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;background:rgba(246,248,251,.94);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:8px;padding:12px 14px;box-shadow:0 10px 26px rgba(23,32,51,.08)}.report-switcher-row{display:flex;align-items:center;gap:10px}.report-switcher-row>span{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:850}.report-toggle{display:inline-flex;gap:4px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:4px}.report-toggle button{border:0;border-radius:6px;background:transparent;color:var(--muted);font-weight:850;padding:8px 14px;cursor:pointer}.report-toggle button.is-active{background:var(--accent);color:#fff;box-shadow:0 8px 18px rgba(184,93,28,.22)}.report-panel[hidden]{display:none!important}.report-panel.is-active{display:block}.report-panel .report-body{margin-bottom:0}
     .report-body{margin-bottom:34px;break-after:page}.report-body:last-child{break-after:auto}
     header{padding:34px 0 22px;border-bottom:3px solid var(--accent);margin-bottom:22px;}
     .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:800;}
@@ -600,7 +687,7 @@ function renderStyles() {
     .highlight-list{display:grid;gap:12px}.highlight{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:14px;background:#fff}.highlight p{margin:6px 0 0;color:var(--muted)}.empty{color:var(--muted);padding:12px}
     .llm-box{border:1px solid var(--line);border-radius:8px;padding:16px;background:#fbfcfe}.llm-box p{margin:8px 0}.insight-meta{color:var(--muted);font-size:12px}.lesson-list,.next-list{display:grid;gap:8px;margin:0;padding-left:22px}
     footer{color:var(--muted);font-size:12px;margin-top:28px}
-    @media(max-width:820px){.hero-grid,.grid.two,.grid.three{grid-template-columns:1fr}.bar-row{grid-template-columns:1fr}.bar-num{text-align:left}h1{font-size:30px}.wrap{padding:24px 14px}}
+    @media(max-width:820px){.hero-grid,.grid.two,.grid.three{grid-template-columns:1fr}.bar-row{grid-template-columns:1fr}.bar-num{text-align:left}h1{font-size:30px}.wrap{padding:24px 14px}.report-switcher{position:static;align-items:stretch}.report-switcher-row{width:100%;justify-content:space-between}.report-toggle button{padding:8px 10px}}
   </style>`;
 }
 
@@ -628,7 +715,8 @@ export function renderFeedbackReportHtml(data: FeedbackReportData): string {
 }
 
 export function renderFeedbackReportBundleHtml(reports: FeedbackReportData[]): string {
+  if (reports.length === 1) return renderFeedbackReportHtml(reports[0]);
   const title = reports.length === 1 ? reports[0].title : "CFL Combined Feedback Report";
   const language = reports.some((report) => report.language === "zh-CN") ? "zh-CN" : "vi";
-  return renderDocument(title, reports.map(renderReportBody).join("\n"), language);
+  return renderDocument(title, renderBundleBody(reports), language);
 }
