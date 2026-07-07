@@ -100,6 +100,7 @@ async function fetchPostCommentsWithLimit(postExternalId: string, token: string,
   let nextParams: Record<string, string> = {
     access_token: token,
     fields: "id,message,created_time,from,like_count",
+    filter: "stream",
     limit: String(pageLimit),
     order: "chronological",
   };

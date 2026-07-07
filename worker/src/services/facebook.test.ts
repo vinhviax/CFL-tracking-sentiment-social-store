@@ -73,7 +73,9 @@ describe("ingestFacebook", () => {
     expect(run.rows_fetched).toBe(3);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/page/posts");
-    expect(fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/comments"))).toHaveLength(3);
+    const commentUrls = fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/comments"));
+    expect(commentUrls).toHaveLength(3);
+    expect(commentUrls.every((url) => url.includes("filter=stream"))).toBe(true);
   });
 
   test("filters paginated comments to the requested Fanpage comment date range", async () => {
