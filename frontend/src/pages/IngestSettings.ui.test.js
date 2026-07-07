@@ -29,10 +29,10 @@ test("manual ingest follows the automatic processing queue returned by the Worke
 });
 
 test("Facebook Fanpage ingest submits the selected date range", () => {
-  assert.match(source, /const FACEBOOK_POST_LIMIT = 50/);
   assert.match(source, /ingestFacebook\(\{\s*since: stRange\.start_date/);
   assert.match(source, /until: stRange\.end_date/);
-  assert.match(source, /post_limit: FACEBOOK_POST_LIMIT/);
+  assert.doesNotMatch(source, /FACEBOOK_POST_LIMIT/);
+  assert.doesNotMatch(source, /post_limit:/);
   assert.doesNotMatch(source, /ingestFacebook\(\{\}\)/);
 });
 

@@ -1,14 +1,12 @@
 // Facebook Fanpage ingest for Cloudflare Workers.
 //
-// Workers count both fetch() and D1 operations toward per-invocation subrequest
-// limits, so comments are requested as a nested edge on the posts call rather
-// than one /comments request per post.
 import type { Env } from "../types";
 import type { IngestRunRow } from "./csvIngest";
 
 const GRAPH_VERSION = "v19.0";
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
-const NESTED_COMMENT_LIMITS = [25, 10];
+const POST_PAGE_SIZE = 100;
+const COMMENT_PAGE_LIMITS = [100, 50, 25];
 
 class FacebookGraphError extends Error {
   code: number | null;
@@ -19,8 +17,8 @@ class FacebookGraphError extends Error {
   }
 }
 
-function postFields(commentLimit: number) {
-  return `id,message,created_time,permalink_url,comments.limit(${commentLimit}){id,message,created_time,from,like_count}`;
+function postFields() {
+  return "id,message,created_time,permalink_url";
 }
 
 async function dedupeHash(source: string, externalId: string): Promise<string> {
@@ -68,20 +66,17 @@ async function graphGet(url: string, params: Record<string, string>): Promise<an
   return data;
 }
 
-async function fetchPostsWithCommentLimit(
+async function fetchPosts(
   pageId: string,
   token: string,
   since: string | undefined,
   until: string | undefined,
-  limit: number,
-  commentLimit: number
+  maxPosts?: number | null
 ): Promise<any[]> {
-  // `limit` is Graph API's page size, not a total cap. paging.next can keep
-  // walking history, so stop once the requested total is reached.
   const params: Record<string, string> = {
     access_token: token,
-    fields: postFields(commentLimit),
-    limit: String(limit),
+    fields: postFields(),
+    limit: String(POST_PAGE_SIZE),
   };
   if (since) params.since = since;
   if (until) params.until = until;
@@ -89,21 +84,40 @@ async function fetchPostsWithCommentLimit(
   const posts: any[] = [];
   let nextUrl: string | null = `${GRAPH_BASE}/${pageId}/posts`;
   let nextParams: Record<string, string> = params;
-  while (nextUrl && posts.length < limit) {
+  while (nextUrl && (maxPosts == null || posts.length < maxPosts)) {
     const data = await graphGet(nextUrl, nextParams);
     posts.push(...(data.data || []));
     nextUrl = data.paging?.next || null;
     nextParams = {};
     if (!data.data?.length) break;
   }
-  return posts.slice(0, limit);
+  return maxPosts == null ? posts : posts.slice(0, maxPosts);
 }
 
-async function fetchPosts(pageId: string, token: string, since?: string, until?: string, limit = 25): Promise<any[]> {
+async function fetchPostCommentsWithLimit(postExternalId: string, token: string, pageLimit: number): Promise<any[]> {
+  const comments: any[] = [];
+  let nextUrl: string | null = `${GRAPH_BASE}/${postExternalId}/comments`;
+  let nextParams: Record<string, string> = {
+    access_token: token,
+    fields: "id,message,created_time,from,like_count",
+    limit: String(pageLimit),
+    order: "chronological",
+  };
+  while (nextUrl) {
+    const data = await graphGet(nextUrl, nextParams);
+    comments.push(...(data.data || []));
+    nextUrl = data.paging?.next || null;
+    nextParams = {};
+    if (!data.data?.length) break;
+  }
+  return comments;
+}
+
+async function fetchPostComments(postExternalId: string, token: string): Promise<any[]> {
   let lastError: unknown = null;
-  for (const commentLimit of NESTED_COMMENT_LIMITS) {
+  for (const limit of COMMENT_PAGE_LIMITS) {
     try {
-      return await fetchPostsWithCommentLimit(pageId, token, since, until, limit, commentLimit);
+      return await fetchPostCommentsWithLimit(postExternalId, token, limit);
     } catch (e) {
       lastError = e;
       if (!(e instanceof FacebookGraphError) || e.code !== 1) throw e;
@@ -122,7 +136,7 @@ export async function ingestFacebook(
   env: Env,
   since?: string,
   until?: string,
-  postLimit = 50,
+  postLimit?: number | null,
   note?: Record<string, any>,
   commentDateRange?: { startDate?: string | null; endDate?: string | null }
 ): Promise<IngestRunRow> {
@@ -130,7 +144,7 @@ export async function ingestFacebook(
   const startedAt = new Date().toISOString();
   const noteText = note
     ? JSON.stringify(note)
-    : (since || until ? JSON.stringify({ start_date: since || null, end_date: until || null, post_limit: postLimit }) : null);
+    : (since || until ? JSON.stringify({ start_date: since || null, end_date: until || null, post_limit: postLimit ?? "all" }) : null);
   const runInsert = await db
     .prepare(`INSERT INTO ingest_runs (source_type, started_at, status, note) VALUES ('fb_page', ?, 'running', ?)`)
     .bind(startedAt, noteText).run();
@@ -172,7 +186,7 @@ export async function ingestFacebook(
 
     const allComments: { postId: number; cm: any; hash: string }[] = [];
     for (const p of posts) {
-      const comments = (Array.isArray(p.comments?.data) ? p.comments.data : [])
+      const comments = (await fetchPostComments(p.id, token))
         .filter((cm: any) => isFacebookCommentInDateRange(cm.created_time, commentDateRange));
       fetched += comments.length;
       const postId = postIdByExternal.get(p.id)!;

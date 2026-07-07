@@ -9,7 +9,6 @@ import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } f
 export const ingestRoute = new Hono<{ Bindings: Env }>();
 
 type IngestRunLike = { id: number; status?: string };
-const FACEBOOK_DEFAULT_POST_LIMIT = 50;
 
 type SourceStatusSpec = {
   key: string;
@@ -186,11 +185,12 @@ ingestRoute.post("/facebook", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const since = typeof body.since === "string" && body.since.trim() ? body.since : undefined;
   const requestedUntil = typeof body.until === "string" && body.until.trim() ? body.until : undefined;
-  const postLimit = Math.max(1, Number(body.post_limit) || FACEBOOK_DEFAULT_POST_LIMIT);
+  const rawPostLimit = Number(body.post_limit);
+  const postLimit = Number.isFinite(rawPostLimit) && rawPostLimit > 0 ? Math.floor(rawPostLimit) : undefined;
   const run = await ingestFacebook(c.env, since, normalizeFacebookUntil(requestedUntil), postLimit, {
     start_date: since || null,
     end_date: requestedUntil || null,
-    post_limit: postLimit,
+    post_limit: postLimit ?? "all",
   }, { startDate: since || null, endDate: requestedUntil || null });
   if (run.status === "failed") return c.json({ detail: run.error }, 502);
   if (requestedUntil) await upsertSourceCursor(c.env, FACEBOOK_CURSOR_KEY, requestedUntil, run.id);

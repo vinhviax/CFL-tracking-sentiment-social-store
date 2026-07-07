@@ -32,62 +32,33 @@ describe("ingestFacebook", () => {
     vi.unstubAllGlobals();
   });
 
-  test("uses nested Graph API comments instead of fetching comments once per post", async () => {
-    const posts = Array.from({ length: 50 }, (_, index) => ({
+  test("paginates comments for each Fanpage post instead of capping at nested comments", async () => {
+    const posts = Array.from({ length: 2 }, (_, index) => ({
       id: `post_${index}`,
       message: `post ${index}`,
       created_time: "2026-07-06T01:00:00+0000",
       permalink_url: `https://facebook.com/post_${index}`,
-      comments: {
-        data: [{
-          id: `comment_${index}`,
-          message: `comment ${index}`,
-          created_time: "2026-07-06T02:00:00+0000",
-          from: { name: "Player" },
-        }],
-      },
     }));
     const fetchMock = vi.fn(async (url: string) => {
-      if (String(url).includes("/comments")) throw new Error("unexpected per-post comments request");
-      return new Response(JSON.stringify({ data: posts }), { status: 200 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const run = await ingestFacebook(
-      { DB: makeDb(), FB_PAGE_ID: "page", FB_ACCESS_TOKEN: "token" } as any,
-      "2026-06-29",
-      "2026-07-07",
-      50
-    );
-
-    expect(run.status).toBe("done");
-    expect(run.rows_fetched).toBe(50);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0][0])).toContain("/page/posts");
-  });
-
-  test("retries with a smaller nested comment payload when Facebook asks to reduce data", async () => {
-    const post = {
-      id: "post_1",
-      message: "post 1",
-      created_time: "2026-07-06T01:00:00+0000",
-      permalink_url: "https://facebook.com/post_1",
-      comments: {
-        data: [{
-          id: "comment_1",
-          message: "comment 1",
-          created_time: "2026-07-06T02:00:00+0000",
-        }],
-      },
-    };
-    const fetchMock = vi.fn(async (url: string) => {
       const full = String(url);
-      if (full.includes("comments.limit%2825%29")) {
+      if (full.includes("/page/posts")) return new Response(JSON.stringify({ data: posts }), { status: 200 });
+      if (full.includes("/post_0/comments") && full.includes("after=page2")) {
         return new Response(JSON.stringify({
-          error: { code: 1, message: "Please reduce the amount of data you're asking for, then retry your request" },
-        }), { status: 500 });
+          data: [{ id: "comment_0_2", message: "comment 0 page 2", created_time: "2026-07-06T03:00:00+0000" }],
+        }), { status: 200 });
       }
-      return new Response(JSON.stringify({ data: [post] }), { status: 200 });
+      if (full.includes("/post_0/comments")) {
+        return new Response(JSON.stringify({
+          data: [{ id: "comment_0_1", message: "comment 0 page 1", created_time: "2026-07-06T02:00:00+0000" }],
+          paging: { next: `${full}&after=page2` },
+        }), { status: 200 });
+      }
+      if (full.includes("/post_1/comments")) {
+        return new Response(JSON.stringify({
+          data: [{ id: "comment_1_1", message: "comment 1 page 1", created_time: "2026-07-06T02:30:00+0000" }],
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected Graph URL ${full}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -99,19 +70,25 @@ describe("ingestFacebook", () => {
     );
 
     expect(run.status).toBe("done");
-    expect(run.rows_fetched).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1][0])).toContain("comments.limit%2810%29");
+    expect(run.rows_fetched).toBe(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/page/posts");
+    expect(fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/comments"))).toHaveLength(3);
   });
 
-  test("filters nested comments to the requested Fanpage comment date range", async () => {
+  test("filters paginated comments to the requested Fanpage comment date range", async () => {
     const post = {
       id: "post_1",
       message: "post 1",
       created_time: "2026-07-05T01:00:00+0000",
       permalink_url: "https://facebook.com/post_1",
-      comments: {
-        data: [
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      const full = String(url);
+      if (full.includes("/page/posts")) return new Response(JSON.stringify({ data: [post] }), { status: 200 });
+      if (full.includes("/post_1/comments")) {
+        return new Response(JSON.stringify({
+          data: [
           {
             id: "comment_in_range",
             message: "comment in range",
@@ -122,9 +99,11 @@ describe("ingestFacebook", () => {
             message: "comment out of range",
             created_time: "2026-07-05T17:10:00+0000",
           },
-        ],
-      },
-    };
+          ],
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected Graph URL ${full}`);
+    });
     const insertedComments: any[][] = [];
     const db = {
       prepare(sql: string) {
@@ -150,7 +129,7 @@ describe("ingestFacebook", () => {
         return stmts.map((_stmt, index) => ({ meta: { last_row_id: 200 + index } }));
       },
     };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [post] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
 
     const run = await ingestFacebook(
       { DB: db, FB_PAGE_ID: "page", FB_ACCESS_TOKEN: "token" } as any,

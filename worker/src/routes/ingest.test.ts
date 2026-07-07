@@ -172,11 +172,11 @@ describe("ingestRoute automated processing", () => {
       testEnv,
       "2026-06-29",
       "2026-07-07",
-      50,
+      undefined,
       {
         start_date: "2026-06-29",
         end_date: "2026-07-06",
-        post_limit: 50,
+        post_limit: "all",
       },
       { startDate: "2026-06-29", endDate: "2026-07-06" }
     );

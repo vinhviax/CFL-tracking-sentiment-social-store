@@ -22,7 +22,6 @@ import DateTextInput from "../components/DateTextInput.jsx";
 import { StatusPill } from "../components/Badges.jsx";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 
-const FACEBOOK_POST_LIMIT = 50;
 const providerOptions = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
@@ -668,7 +667,6 @@ export default function IngestSettings() {
     ingestFacebook({
       since: stRange.start_date || undefined,
       until: stRange.end_date || undefined,
-      post_limit: FACEBOOK_POST_LIMIT,
     })
       .then((run) => {
         setLastRun(run);
