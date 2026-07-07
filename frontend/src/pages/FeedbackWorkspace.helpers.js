@@ -32,3 +32,25 @@ export function buildTopicOptions(topicLabels = {}, ranking = [], options = {}) 
 
   return topicOptions;
 }
+
+export function isActionableTopic(topic) {
+  return Boolean(topic) && topic !== "other";
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString("vi-VN");
+}
+
+export function buildStoreHighlights(storeBreakdown, ranking, t) {
+  const highlights = [...(storeBreakdown?.highlights || [])];
+  const topIssue = ranking?.find((item) => isActionableTopic(item?.topic));
+  if (topIssue) {
+    highlights.push({
+      key: "top_issue",
+      label: t.topIssueInRange,
+      value: `${topIssue.label} (${formatCount(topIssue.count)})`,
+      tone: "warning",
+    });
+  }
+  return highlights;
+}

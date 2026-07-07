@@ -5,7 +5,7 @@ import {
 import { SentimentBadge, UrgencyBadge } from "../components/Badges.jsx";
 import DateTextInput from "../components/DateTextInput.jsx";
 import useMeta from "../hooks/useMeta.js";
-import { applyWorkspaceFilter, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
+import { applyWorkspaceFilter, buildStoreHighlights, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 import {
   generateInsight,
@@ -251,20 +251,6 @@ function formatRankingMeta(item, t) {
 
 function formatTopicOption(option) {
   return option.count ? `${option.label} (${formatCount(option.count)})` : option.label;
-}
-
-function buildStoreHighlights(storeBreakdown, ranking, t) {
-  const highlights = [...(storeBreakdown?.highlights || [])];
-  const topIssue = ranking?.[0];
-  if (topIssue) {
-    highlights.push({
-      key: "top_issue",
-      label: t.topIssueInRange,
-      value: `${topIssue.label} (${formatCount(topIssue.count)})`,
-      tone: "warning",
-    });
-  }
-  return highlights;
 }
 
 function cleanParams(filters, group, subtab, page, metaLang) {

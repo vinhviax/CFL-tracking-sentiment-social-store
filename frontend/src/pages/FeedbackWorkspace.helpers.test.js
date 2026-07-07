@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyWorkspaceFilter, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
+import { applyWorkspaceFilter, buildStoreHighlights, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
 
 test("changing sentiment resets topic and subtopic filters", () => {
   const current = {
@@ -77,4 +77,23 @@ test("topic options can hide static topics when sentiment narrows the hierarchy"
     { key: "hack_cheat", label: "Hack/Cheat", count: 8 },
     { key: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 5 },
   ]);
+});
+
+test("store highlights skip other when choosing the top issue", () => {
+  const highlights = buildStoreHighlights(
+    { highlights: [] },
+    [
+      { topic: "other", label: "Khác/Không đủ ngữ cảnh", count: 173 },
+      { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 51 },
+    ],
+    { topIssueInRange: "Vấn đề nổi bật" }
+  );
+
+  assert.equal(highlights.length, 1);
+  assert.deepEqual(highlights[0], {
+    key: "top_issue",
+    label: "Vấn đề nổi bật",
+    value: "Lag/Giật/Tụt FPS (51)",
+    tone: "warning",
+  });
 });
