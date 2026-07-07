@@ -47,6 +47,14 @@ function baseReport(overrides: Partial<FeedbackReportData> = {}): FeedbackReport
     store_breakdown: null,
     top_posts: [{ id: 5, source_type: "fb_page", published_at: "2026-07-07", message: "Top post", comment_count: 3, negative_count: 1 }],
     highlights: [{ title: "Lag is rising", detail: "1 urgent negative comment", signal: "negative" }],
+    llm_insight: {
+      title: "Insight đã lưu",
+      summary: "Người chơi đang phàn nàn về lag.",
+      provider: "llm_viax",
+      model: "gpt-5.4",
+      created_at: "2026-07-07T09:30:00.000Z",
+    },
+    language: "vi",
     ...overrides,
   };
 }
@@ -62,5 +70,17 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain("Post &lt;b&gt;context&lt;/b&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("Post <b>context</b>");
+  });
+
+  test("renders Vietnamese report sections without mojibake", () => {
+    const html = renderFeedbackReportHtml(baseReport());
+
+    expect(html).toContain("Bộ lọc và nguyên tắc đọc report");
+    expect(html).toContain("Bảng ưu tiên vấn đề cần quan tâm");
+    expect(html).toContain("Insight and Summarize từ LLM");
+    expect(html).toContain("Bài học rút ra");
+    expect(html).toContain("Next step đề xuất");
+    expect(html).toContain("Người chơi đang phàn nàn");
+    expect(html).not.toMatch(/Ã|Â|áº|á»|Ä‘|Æ°|ðŸ/);
   });
 });

@@ -1,8 +1,8 @@
-import { LEGACY_TOPIC_LABELS_VI, TOPIC_LABELS_VI } from "../taxonomy";
+import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import type { Env } from "../types";
 import { buildTrendSeries, computeOverview, computeSubtopicRanking } from "../routes/stats";
 import { summarizeStoreBreakdown } from "./storeStats";
-import type { FeedbackReportData, ReportComment, ReportPost } from "./reportHtml";
+import type { FeedbackReportData, ReportComment, ReportLanguage, ReportPost, ReportInsight } from "./reportHtml";
 
 export type ReportGroup = "store" | "facebook";
 
@@ -10,6 +10,7 @@ export interface BuildReportParams {
   group: ReportGroup;
   from?: string;
   to?: string;
+  lang?: ReportLanguage;
 }
 
 function dateKey(value?: string | null) {
@@ -28,16 +29,22 @@ function groupWhere(group: ReportGroup) {
   return group === "store" ? "c.source_type = 'store'" : "c.source_type IN ('fb_page','fb_group_csv')";
 }
 
-function topicLabel(topic?: string | null) {
-  if (!topic) return "Chua phan loai";
-  return TOPIC_LABELS_VI[topic] || LEGACY_TOPIC_LABELS_VI[topic] || topic;
+function normalizeLang(value?: string | null): ReportLanguage {
+  return value === "zh-CN" ? "zh-CN" : "vi";
 }
 
-function sourceLabel(sourceType: string) {
+function topicLabel(topic?: string | null, lang: ReportLanguage = "vi") {
+  if (!topic) return lang === "zh-CN" ? "未分类" : "Chưa phân loại";
+  const labels = lang === "zh-CN" ? TOPIC_LABELS_ZH_CN : TOPIC_LABELS_VI;
+  const legacyLabels = lang === "zh-CN" ? LEGACY_TOPIC_LABELS_ZH_CN : LEGACY_TOPIC_LABELS_VI;
+  return labels[topic] || legacyLabels[topic] || topic;
+}
+
+function sourceLabel(sourceType: string, lang: ReportLanguage = "vi") {
   if (sourceType === "store") return "Store";
-  if (sourceType === "fb_page") return "Fanpage";
-  if (sourceType === "fb_group_csv") return "Group CSV";
-  return sourceType || "Khong ro nguon";
+  if (sourceType === "fb_page") return lang === "zh-CN" ? "粉丝页" : "Fanpage";
+  if (sourceType === "fb_group_csv") return lang === "zh-CN" ? "群组 CSV" : "Group CSV";
+  return sourceType || (lang === "zh-CN" ? "未知来源" : "Không rõ nguồn");
 }
 
 function buildBaseWhere(params: BuildReportParams) {
@@ -62,6 +69,7 @@ async function loadTrend(db: D1Database, params: BuildReportParams) {
 }
 
 async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
+  const lang = normalizeLang(params.lang);
   const { where, bind } = buildBaseWhere(params);
   const rows = await db.prepare(
     `SELECT a.topic_main,
@@ -79,25 +87,26 @@ async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
   const items = [];
   for (const row of rows.results) {
     const sampleRows = await db.prepare(
-      `SELECT c.id, c.message, a.sentiment, a.urgency, a.summary
+      `SELECT c.id, c.message, t.message_translated, a.sentiment, a.urgency, a.summary, t.summary_translated
        FROM comments c
        JOIN analyses a ON a.comment_id = c.id
+       LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
        WHERE ${where.join(" AND ")} AND a.topic_main = ?
        ORDER BY CASE WHEN a.sentiment = 'negative' THEN 0 ELSE 1 END, c.created_at DESC
        LIMIT 3`
-    ).bind(...bind, row.topic_main).all<any>();
+    ).bind(lang, ...bind, row.topic_main).all<any>();
     items.push({
       topic: row.topic_main,
-      label: topicLabel(row.topic_main),
+      label: topicLabel(row.topic_main, lang),
       count: Number(row.count || 0),
       negative_count: Number(row.negative_count || 0),
       urgent_count: Number(row.urgent_count || 0),
       sample_comments: sampleRows.results.map((sample: any) => ({
         id: sample.id,
-        message: sample.message,
+        message: lang === "zh-CN" && sample.message_translated ? sample.message_translated : sample.message,
         sentiment: sample.sentiment,
         urgency: sample.urgency,
-        summary: sample.summary,
+        summary: lang === "zh-CN" && sample.summary_translated ? sample.summary_translated : sample.summary,
       })),
     });
   }
@@ -105,37 +114,41 @@ async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
 }
 
 async function loadComments(db: D1Database, params: BuildReportParams): Promise<ReportComment[]> {
+  const lang = normalizeLang(params.lang);
   const { where, bind } = buildBaseWhere(params);
   const rows = await db.prepare(
     `SELECT c.id, c.source_type, c.created_at, c.message, c.rating, c.store,
+            t.message_translated, t.summary_translated,
             p.message as post_message,
             a.topic_main, a.sentiment, a.urgency, a.summary
      FROM comments c
      LEFT JOIN posts p ON p.id = c.post_id
      LEFT JOIN analyses a ON a.comment_id = c.id
+     LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
      WHERE ${where.join(" AND ")}
      ORDER BY CASE WHEN a.sentiment = 'negative' THEN 0 ELSE 1 END,
               CASE WHEN a.urgency IN ('high','medium') THEN 0 ELSE 1 END,
               c.created_at DESC
      LIMIT 30`
-  ).bind(...bind).all<any>();
+  ).bind(lang, ...bind).all<any>();
 
   return rows.results.map((row: any) => ({
     id: row.id,
     source_type: row.source_type,
     created_at: row.created_at || null,
-    message: row.message || "",
+    message: lang === "zh-CN" && row.message_translated ? row.message_translated : row.message || "",
     rating: row.rating ?? null,
     store: row.store || null,
     post_message: row.post_message || null,
-    topic_label: topicLabel(row.topic_main),
+    topic_label: topicLabel(row.topic_main, lang),
     sentiment: row.sentiment || "neutral",
     urgency: row.urgency || "none",
-    summary: row.summary || "",
+    summary: lang === "zh-CN" && row.summary_translated ? row.summary_translated : row.summary || "",
   }));
 }
 
 async function loadChannels(db: D1Database, params: BuildReportParams) {
+  const lang = normalizeLang(params.lang);
   const { where, bind } = buildBaseWhere(params);
   const rows = await db.prepare(
     `SELECT c.source_type,
@@ -151,7 +164,7 @@ async function loadChannels(db: D1Database, params: BuildReportParams) {
   ).bind(...bind).all<any>();
   return rows.results.map((row: any) => ({
     source_type: row.source_type,
-    label: sourceLabel(row.source_type),
+    label: sourceLabel(row.source_type, lang),
     total: Number(row.total || 0),
     positive: Number(row.positive || 0),
     neutral: Number(row.neutral || 0),
@@ -209,46 +222,101 @@ async function loadTopPosts(db: D1Database, params: BuildReportParams): Promise<
 }
 
 function buildHighlights(data: Pick<FeedbackReportData, "group" | "overview" | "channels" | "store_breakdown">) {
+  const lang = normalizeLang((data as any).language);
   const highlights = [];
   const negative = data.overview.sentiment.negative || 0;
   highlights.push({
-    title: data.group === "store" ? "Theo doi rating va review tieu cuc" : "Theo doi sentiment cong dong Facebook",
-    detail: `${data.overview.negative_pct}% negative tren ${data.overview.analyzed} feedback da phan tich.`,
+    title: lang === "zh-CN"
+      ? (data.group === "store" ? "关注评分与负面商店评论" : "关注 Facebook 社群情绪")
+      : (data.group === "store" ? "Theo dõi rating và review tiêu cực" : "Theo dõi sentiment cộng đồng Facebook"),
+    detail: lang === "zh-CN"
+      ? `${data.overview.negative_pct}% negative trên ${data.overview.analyzed} feedback đã phân tích.`
+      : `${data.overview.negative_pct}% negative trên ${data.overview.analyzed} feedback đã phân tích.`,
     signal: negative > 0 ? "negative" : "neutral",
   });
   for (const issue of data.overview.hot_issues.slice(0, 3)) {
     highlights.push({
-      title: `${issue.label} can theo doi`,
-      detail: `${issue.negative} comment negative, ${issue.urgent} comment medium/high urgency.`,
+      title: lang === "zh-CN" ? `需要关注 ${issue.label}` : `${issue.label} cần theo dõi`,
+      detail: lang === "zh-CN"
+        ? `${issue.negative} 条负面评论，${issue.urgent} 条 medium/high urgency。`
+        : `${issue.negative} comment negative, ${issue.urgent} comment medium/high urgency.`,
       signal: issue.urgent > 0 ? "negative" : "mixed",
     });
   }
   if (data.store_breakdown?.platforms?.length) {
     const weakest = [...data.store_breakdown.platforms].sort((a: any, b: any) => a.avg_rating - b.avg_rating)[0];
     highlights.push({
-      title: `${weakest.store === "ios" ? "App Store" : weakest.store === "gp" ? "Google Play" : weakest.store} la diem can uu tien`,
-      detail: `Avg rating ${weakest.avg_rating} tren ${weakest.count} review.`,
+      title: lang === "zh-CN"
+        ? `${weakest.store === "ios" ? "App Store" : weakest.store === "gp" ? "Google Play" : weakest.store} 是需要优先处理的平台`
+        : `${weakest.store === "ios" ? "App Store" : weakest.store === "gp" ? "Google Play" : weakest.store} là điểm cần ưu tiên`,
+      detail: lang === "zh-CN"
+        ? `Avg rating ${weakest.avg_rating} trên ${weakest.count} review.`
+        : `Avg rating ${weakest.avg_rating} trên ${weakest.count} review.`,
       signal: "negative",
     });
   } else if (data.channels.length > 1) {
     const weakest = [...data.channels].sort((a, b) => b.negative - a.negative)[0];
     highlights.push({
-      title: `${weakest.label} co nhieu tin hieu negative nhat`,
-      detail: `${weakest.negative}/${weakest.total} comment negative trong khoang chon.`,
+      title: lang === "zh-CN" ? `${weakest.label} 的负面信号最多` : `${weakest.label} có nhiều tín hiệu negative nhất`,
+      detail: lang === "zh-CN"
+        ? `${weakest.negative}/${weakest.total} 条评论为 negative。`
+        : `${weakest.negative}/${weakest.total} comment negative trong khoảng chọn.`,
       signal: "negative",
     });
   }
   return highlights.slice(0, 5);
 }
 
+function sameDateFilter(saved: any, params: BuildReportParams) {
+  const from = dateKey(params.from);
+  const to = dateKey(params.to);
+  const savedFrom = dateKey(saved?.from);
+  const savedTo = dateKey(saved?.to);
+  if (from && savedFrom !== from) return false;
+  if (to && savedTo !== to) return false;
+  return true;
+}
+
+async function loadLatestInsight(env: Env, params: BuildReportParams): Promise<ReportInsight | null> {
+  const lang = normalizeLang(params.lang);
+  const rows = await env.DB.prepare(
+    `SELECT title, summary, filters, provider, model, created_at
+     FROM saved_insights
+     WHERE source_group = ? AND lang = ?
+     ORDER BY created_at DESC
+     LIMIT 30`
+  ).bind(params.group, lang).all<any>();
+
+  let fallback: any | null = null;
+  for (const row of rows.results) {
+    let filters: any = {};
+    try {
+      filters = JSON.parse(row.filters || "{}");
+    } catch {
+      filters = {};
+    }
+    if (!fallback) fallback = row;
+    if (sameDateFilter(filters, params)) {
+      return { title: row.title, summary: row.summary, provider: row.provider || null, model: row.model || null, created_at: row.created_at };
+    }
+  }
+  return fallback
+    ? { title: fallback.title, summary: fallback.summary, provider: fallback.provider || null, model: fallback.model || null, created_at: fallback.created_at }
+    : null;
+}
+
 export async function buildReportData(env: Env, params: BuildReportParams): Promise<FeedbackReportData> {
-  const q = { group: params.group, from: params.from || "", to: params.to || "" };
+  const lang = normalizeLang(params.lang);
+  const q = { group: params.group, from: params.from || "", to: params.to || "", lang };
   const overview = await computeOverview(env.DB, q);
   const channels = await loadChannels(env.DB, params);
   const storeBreakdown = await loadStoreBreakdown(env.DB, params);
   const base = {
     group: params.group,
-    title: params.group === "store" ? "CFL Store Feedback Report" : "CFL Facebook Feedback Report",
+    language: lang,
+    title: lang === "zh-CN"
+      ? (params.group === "store" ? "CFL 商店反馈报告" : "CFL Facebook 反馈报告")
+      : (params.group === "store" ? "CFL Store Feedback Report" : "CFL Facebook Feedback Report"),
     generated_at: new Date().toISOString(),
     range: { from: dateKey(params.from), to: dateKey(params.to) },
     overview,
@@ -259,6 +327,7 @@ export async function buildReportData(env: Env, params: BuildReportParams): Prom
     channels,
     store_breakdown: storeBreakdown,
     top_posts: await loadTopPosts(env.DB, params),
+    llm_insight: await loadLatestInsight(env, { ...params, lang }),
   };
   return {
     ...base,

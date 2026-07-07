@@ -1,5 +1,8 @@
+export type ReportLanguage = "vi" | "zh-CN";
+
 export interface FeedbackReportData {
   group: "store" | "facebook";
+  language?: ReportLanguage;
   title: string;
   generated_at: string;
   range: { from: string | null; to: string | null };
@@ -27,6 +30,15 @@ export interface FeedbackReportData {
   store_breakdown: any | null;
   top_posts: ReportPost[];
   highlights: Array<{ title: string; detail: string; signal: string }>;
+  llm_insight?: ReportInsight | null;
+}
+
+export interface ReportInsight {
+  title: string;
+  summary: string;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
 }
 
 export interface ReportComment {
@@ -52,6 +64,155 @@ export interface ReportPost {
   negative_count: number;
 }
 
+const COPY = {
+  vi: {
+    docTitle: "Crossfire Legends Feedback Intelligence",
+    rangeAll: "Tất cả dữ liệu",
+    rangeFrom: "Từ",
+    rangeTo: "Đến",
+    generated: "Tạo lúc",
+    subtitle: "Report tổng hợp KPI, sentiment, chủ đề nổi bật, vấn đề cần ưu tiên, bằng chứng comment và khuyến nghị vận hành.",
+    totalFeedback: "Tổng feedback",
+    analyzed: "đã phân tích",
+    negativeRate: "Tỉ lệ tiêu cực",
+    topTopic: "Chủ đề nổi bật",
+    positive: "Tích cực",
+    methodology: "Bộ lọc và nguyên tắc đọc report",
+    methodologyDesc: "Phần này minh bạch cách report được tạo trước khi đọc số liệu.",
+    source: "Nguồn",
+    dateRange: "Khoảng ngày",
+    language: "Ngôn ngữ",
+    promptRule: "Prompt/LLM",
+    promptRuleText: "Export HTML không gọi LLM mới. Phần Insight and Summarize chỉ nhúng insight đã lưu phù hợp với nguồn, khoảng ngày và ngôn ngữ nếu có.",
+    hardRules: "Rule cứng",
+    hardRulesText: "Chỉ dùng dữ liệu đã ingest và phân tích trong DB; xếp ưu tiên theo urgent, negative rồi volume; luôn kèm bằng chứng comment; không tự bịa vấn đề ngoài dữ liệu.",
+    filterRule: "Bộ lọc",
+    filterRuleText: "Nguồn và khoảng ngày được áp dụng theo created_at của comment. Facebook gồm Fanpage và Group CSV; Store gồm Google Play và App Store.",
+    sentiment: "Tổng quan sentiment",
+    negative: "Tiêu cực",
+    neutral: "Trung lập",
+    storePlatform: "Store platform và rating",
+    channelBreakdown: "Phân bổ kênh",
+    reviews: "review",
+    issuePriority: "Bảng ưu tiên vấn đề cần quan tâm",
+    issue: "Vấn đề",
+    total: "Tổng",
+    urgent: "Khẩn cấp",
+    sample: "Comment mẫu",
+    noIssue: "Chưa có vấn đề nổi bật.",
+    topPostContext: "Bối cảnh post nổi bật",
+    date: "Ngày",
+    post: "Post",
+    comments: "Comments",
+    recommendations: "Key highlights và khuyến nghị vận hành",
+    llmInsight: "Insight and Summarize từ LLM",
+    noLlmInsight: "Chưa có insight đã lưu phù hợp với report này. Hãy tạo và lưu Insight and Summarize trước khi xuất nếu cần phần đánh giá LLM.",
+    evidence: "Bằng chứng comment",
+    rating: "Rating",
+    topic: "Chủ đề",
+    contextSummary: "Bối cảnh/Summary",
+    lessons: "Bài học rút ra",
+    nextSteps: "Next step đề xuất",
+    footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments đã ingest và phân tích bằng LLM.",
+    noData: "Không có dữ liệu phù hợp.",
+    lessonsBullets: (data: FeedbackReportData) => {
+      const top = data.overview.top_topics[0]?.label || "vấn đề chính";
+      return [
+        `Người chơi đang tập trung nhiều nhất vào ${top}; đây là tín hiệu cần đọc theo volume và sắc thái, không chỉ nhìn một vài comment lẻ.`,
+        `${data.overview.negative_pct}% feedback đã phân tích là tiêu cực, nên các vấn đề có urgent cao cần được ưu tiên hơn các chủ đề chỉ có tương tác lớn.`,
+        data.group === "facebook"
+          ? "Với Facebook, cần đọc comment cùng bối cảnh post vì nhiều phản hồi ngắn chỉ có nghĩa khi gắn với bài đăng gốc."
+          : "Với Store, rating 1-2 sao là tín hiệu ảnh hưởng trực tiếp đến perception và cần được đối chiếu theo platform.",
+      ];
+    },
+    nextStepBullets: (data: FeedbackReportData) => {
+      const hot = data.overview.hot_issues.slice(0, 3).map((x) => x.label).join(", ");
+      return [
+        hot ? `Rà soát ngay nhóm vấn đề: ${hot}.` : "Tiếp tục theo dõi thêm dữ liệu để xác định nhóm vấn đề đủ lớn.",
+        "Đọc các comment evidence trong report trước khi chốt action để tránh xử lý lệch ngữ cảnh.",
+        "Sau khi xử lý, chạy lại ingest và report cùng khoảng ngày để đo thay đổi sentiment/rating.",
+      ];
+    },
+  },
+  "zh-CN": {
+    docTitle: "Crossfire Legends Feedback Intelligence",
+    rangeAll: "全部数据",
+    rangeFrom: "从",
+    rangeTo: "到",
+    generated: "生成时间",
+    subtitle: "报告汇总 KPI、情绪、重点主题、优先问题、评论证据和运营建议。",
+    totalFeedback: "反馈总量",
+    analyzed: "已分析",
+    negativeRate: "负面比例",
+    topTopic: "主要主题",
+    positive: "正向",
+    methodology: "筛选条件与报告规则",
+    methodologyDesc: "先说明报告生成口径，再阅读数据。",
+    source: "来源",
+    dateRange: "日期范围",
+    language: "语言",
+    promptRule: "Prompt/LLM",
+    promptRuleText: "导出 HTML 时不会重新调用 LLM。Insight and Summarize 只会引用已保存且匹配来源、日期和语言的 LLM insight。",
+    hardRules: "硬规则",
+    hardRulesText: "只使用数据库中已导入和已分析的数据；按 urgent、negative、volume 排优先级；必须附评论证据；不编造数据外的问题。",
+    filterRule: "筛选规则",
+    filterRuleText: "来源和日期按评论 created_at 筛选。Facebook 包含 Fanpage 与 Group CSV；Store 包含 Google Play 与 App Store。",
+    sentiment: "情绪概览",
+    negative: "负面",
+    neutral: "中立",
+    storePlatform: "商店平台与评分",
+    channelBreakdown: "渠道分布",
+    reviews: "条评论",
+    issuePriority: "重点问题优先级排行",
+    issue: "问题",
+    total: "总量",
+    urgent: "紧急",
+    sample: "样例评论",
+    noIssue: "暂无重点问题。",
+    topPostContext: "重点帖子背景",
+    date: "日期",
+    post: "帖子",
+    comments: "评论数",
+    recommendations: "关键发现与运营建议",
+    llmInsight: "LLM Insight and Summarize",
+    noLlmInsight: "当前报告没有匹配的已保存 insight。如需 LLM 评估，请先生成并保存 Insight and Summarize。",
+    evidence: "评论证据",
+    rating: "评分",
+    topic: "主题",
+    contextSummary: "背景/Summary",
+    lessons: "经验总结",
+    nextSteps: "建议下一步",
+    footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments already ingested and analyzed by LLM.",
+    noData: "没有符合条件的数据。",
+    lessonsBullets: (data: FeedbackReportData) => {
+      const top = data.overview.top_topics[0]?.label || "核心问题";
+      return [
+        `玩家讨论最集中的是 ${top}；需要结合量级和情绪一起判断，而不是只看少量评论。`,
+        `${data.overview.negative_pct}% 已分析反馈为负面，urgent 高的问题应优先于单纯互动量高的主题。`,
+        data.group === "facebook"
+          ? "Facebook 评论必须结合原帖背景阅读，因为很多短评论离开帖子后语义不完整。"
+          : "Store 侧 1-2 星评分会直接影响外部感知，需要按平台交叉验证。",
+      ];
+    },
+    nextStepBullets: (data: FeedbackReportData) => {
+      const hot = data.overview.hot_issues.slice(0, 3).map((x) => x.label).join(", ");
+      return [
+        hot ? `优先复盘这些问题：${hot}。` : "继续积累数据，等待问题规模足够清晰后再定优先级。",
+        "先阅读 report 中的评论证据，再决定具体运营动作，避免脱离上下文。",
+        "处理后用同一日期范围重新 ingest 并导出 report，对比 sentiment/rating 变化。",
+      ];
+    },
+  },
+} satisfies Record<ReportLanguage, any>;
+
+function lang(data: FeedbackReportData): ReportLanguage {
+  return data.language === "zh-CN" ? "zh-CN" : "vi";
+}
+
+function t(data: FeedbackReportData) {
+  return COPY[lang(data)];
+}
+
 function esc(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -65,22 +226,23 @@ function pct(part: number, total: number) {
   return total ? Math.round((part / total) * 1000) / 10 : 0;
 }
 
-function fmt(value: number | null | undefined) {
-  return Number(value || 0).toLocaleString("vi-VN");
+function fmt(value: number | null | undefined, language: ReportLanguage = "vi") {
+  return Number(value || 0).toLocaleString(language === "zh-CN" ? "zh-CN" : "vi-VN");
 }
 
 function rangeText(data: FeedbackReportData) {
+  const copy = t(data);
   if (data.range.from && data.range.to) return `${data.range.from} - ${data.range.to}`;
-  if (data.range.from) return `Tu ${data.range.from}`;
-  if (data.range.to) return `Den ${data.range.to}`;
-  return "Tat ca du lieu";
+  if (data.range.from) return `${copy.rangeFrom} ${data.range.from}`;
+  if (data.range.to) return `${copy.rangeTo} ${data.range.to}`;
+  return copy.rangeAll;
 }
 
-function sourceLabel(sourceType: string) {
-  if (sourceType === "fb_page") return "Fanpage";
-  if (sourceType === "fb_group_csv") return "Group CSV";
+function sourceLabel(sourceType: string, language: ReportLanguage) {
+  if (sourceType === "fb_page") return language === "zh-CN" ? "粉丝页" : "Fanpage";
+  if (sourceType === "fb_group_csv") return language === "zh-CN" ? "群组 CSV" : "Group CSV";
   if (sourceType === "store") return "Store";
-  return sourceType || "Khong ro";
+  return sourceType || (language === "zh-CN" ? "未知" : "Không rõ");
 }
 
 function sentimentClass(value: string) {
@@ -89,190 +251,324 @@ function sentimentClass(value: string) {
   return "neu";
 }
 
-function bar(label: string, value: number, total: number, cls = "") {
+function sentimentLabel(value: string, data: FeedbackReportData) {
+  const copy = t(data);
+  if (value === "negative") return copy.negative;
+  if (value === "positive") return copy.positive;
+  return copy.neutral;
+}
+
+function bar(label: string, value: number, total: number, cls = "", language: ReportLanguage = "vi") {
   const width = Math.min(100, Math.max(3, pct(value, total)));
   return `<div class="bar-row">
     <div class="bar-label">${esc(label)}</div>
     <div class="bar-track"><div class="bar-fill ${cls}" style="width:${width}%"></div></div>
-    <div class="bar-num">${fmt(value)}</div>
+    <div class="bar-num">${fmt(value, language)}</div>
   </div>`;
 }
 
-function renderSentiment(data: FeedbackReportData) {
-  const s = data.overview.sentiment || {};
-  const total = Math.max(1, data.overview.analyzed || 0);
+function renderMarkdownLite(text: string) {
+  const blocks: string[] = [];
+  let list: string[] = [];
+  const flush = () => {
+    if (!list.length) return;
+    blocks.push(`<ul>${list.map((item) => `<li>${esc(item).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</li>`).join("")}</ul>`);
+    list = [];
+  };
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    const heading = /^#{1,3}\s+(.+)$/.exec(line);
+    if (heading) {
+      flush();
+      blocks.push(`<h3>${esc(heading[1])}</h3>`);
+      continue;
+    }
+    const bullet = /^[-*]\s+(.+)$/.exec(line);
+    if (bullet) {
+      list.push(bullet[1]);
+      continue;
+    }
+    flush();
+    blocks.push(`<p>${esc(line).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</p>`);
+  }
+  flush();
+  return blocks.join("");
+}
+
+function renderMethodology(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const language = lang(data);
+  const source = data.group === "store"
+    ? "Store: Google Play, App Store"
+    : "Facebook: Fanpage, Group CSV";
   return `<section>
-    <div class="sec-head"><span>01</span><h2>Sentiment overview</h2></div>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.methodology)}</h2></div>
+    <p class="sec-desc">${esc(copy.methodologyDesc)}</p>
     <div class="grid three">
-      <div class="metric neg"><small>Negative</small><strong>${fmt(s.negative)}</strong><em>${pct(s.negative || 0, total)}%</em></div>
-      <div class="metric neu"><small>Neutral</small><strong>${fmt(s.neutral)}</strong><em>${pct(s.neutral || 0, total)}%</em></div>
-      <div class="metric pos"><small>Positive</small><strong>${fmt(s.positive)}</strong><em>${pct(s.positive || 0, total)}%</em></div>
+      <div class="panel"><h3>${esc(copy.source)}</h3><p>${esc(source)}</p></div>
+      <div class="panel"><h3>${esc(copy.dateRange)}</h3><p>${esc(rangeText(data))}</p></div>
+      <div class="panel"><h3>${esc(copy.language)}</h3><p>${language === "zh-CN" ? "中文" : "Tiếng Việt"}</p></div>
     </div>
-    <div class="chart-block">
-      ${bar("Negative", s.negative || 0, total, "neg")}
-      ${bar("Neutral", s.neutral || 0, total, "neu")}
-      ${bar("Positive", s.positive || 0, total, "pos")}
+    <div class="rule-list">
+      <div><strong>${esc(copy.promptRule)}</strong><p>${esc(copy.promptRuleText)}</p></div>
+      <div><strong>${esc(copy.hardRules)}</strong><p>${esc(copy.hardRulesText)}</p></div>
+      <div><strong>${esc(copy.filterRule)}</strong><p>${esc(copy.filterRuleText)}</p></div>
     </div>
   </section>`;
 }
 
-function renderChannels(data: FeedbackReportData) {
+function renderSentiment(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const language = lang(data);
+  const s = data.overview.sentiment || {};
+  const total = Math.max(1, data.overview.analyzed || 0);
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.sentiment)}</h2></div>
+    <div class="grid three">
+      <div class="metric neg"><small>${esc(copy.negative)}</small><strong>${fmt(s.negative, language)}</strong><em>${pct(s.negative || 0, total)}%</em></div>
+      <div class="metric neu"><small>${esc(copy.neutral)}</small><strong>${fmt(s.neutral, language)}</strong><em>${pct(s.neutral || 0, total)}%</em></div>
+      <div class="metric pos"><small>${esc(copy.positive)}</small><strong>${fmt(s.positive, language)}</strong><em>${pct(s.positive || 0, total)}%</em></div>
+    </div>
+    <div class="chart-block">
+      ${bar(copy.negative, s.negative || 0, total, "neg", language)}
+      ${bar(copy.neutral, s.neutral || 0, total, "neu", language)}
+      ${bar(copy.positive, s.positive || 0, total, "pos", language)}
+    </div>
+  </section>`;
+}
+
+function renderChannels(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const language = lang(data);
   if (data.group === "store" && data.store_breakdown) {
     const platforms = data.store_breakdown.platforms || [];
     const rating = data.store_breakdown.rating_distribution || {};
     const ratingTotal = Object.values(rating).reduce((sum: number, value: any) => sum + Number(value || 0), 0);
     return `<section>
-      <div class="sec-head"><span>02</span><h2>Store platform and rating</h2></div>
+      <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.storePlatform)}</h2></div>
       <div class="grid two">
         ${platforms.map((p: any) => `<div class="panel">
           <h3>${esc(p.store === "gp" ? "Google Play" : p.store === "ios" ? "App Store" : p.store)}</h3>
           <p class="big">${esc(p.avg_rating)}</p>
-          <p>${fmt(p.count)} reviews</p>
-        </div>`).join("")}
+          <p>${fmt(p.count, language)} ${esc(copy.reviews)}</p>
+        </div>`).join("") || `<div class="empty">${esc(copy.noData)}</div>`}
       </div>
       <div class="chart-block">
-        ${["1", "2", "3", "4", "5"].map((star) => bar(`${star} sao`, Number(rating[star] || 0), ratingTotal, Number(star) <= 2 ? "neg" : Number(star) >= 4 ? "pos" : "neu")).join("")}
+        ${["1", "2", "3", "4", "5"].map((star) => bar(`${star} sao`, Number(rating[star] || 0), ratingTotal, Number(star) <= 2 ? "neg" : Number(star) >= 4 ? "pos" : "neu", language)).join("")}
       </div>
     </section>`;
   }
 
   const total = data.channels.reduce((sum, row) => sum + row.total, 0);
   return `<section>
-    <div class="sec-head"><span>02</span><h2>Channel breakdown</h2></div>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.channelBreakdown)}</h2></div>
     <div class="grid two">
       ${data.channels.map((row) => `<div class="panel">
-        <h3>${esc(row.label)}</h3>
-        <p class="big">${fmt(row.total)}</p>
-        <p><span class="pill neg">${fmt(row.negative)} negative</span> <span class="pill pos">${fmt(row.positive)} positive</span></p>
-      </div>`).join("") || `<div class="empty">Khong co du lieu kenh.</div>`}
+        <h3>${esc(row.label || sourceLabel(row.source_type, language))}</h3>
+        <p class="big">${fmt(row.total, language)}</p>
+        <p><span class="pill neg">${fmt(row.negative, language)} ${esc(copy.negative)}</span> <span class="pill pos">${fmt(row.positive, language)} ${esc(copy.positive)}</span></p>
+      </div>`).join("") || `<div class="empty">${esc(copy.noData)}</div>`}
     </div>
-    <div class="chart-block">${data.channels.map((row) => bar(row.label, row.total, total, row.source_type === "fb_page" ? "pos" : "neu")).join("")}</div>
+    <div class="chart-block">${data.channels.map((row) => bar(row.label || sourceLabel(row.source_type, language), row.total, total, row.source_type === "fb_page" ? "pos" : "neu", language)).join("")}</div>
   </section>`;
 }
 
-function renderTopics(data: FeedbackReportData) {
-  const total = data.topic_ranking.reduce((sum, row) => sum + row.count, 0);
+function renderIssuePriority(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const language = lang(data);
+  const rows = [...data.topic_ranking]
+    .sort((a, b) => b.urgent_count - a.urgent_count || b.negative_count - a.negative_count || b.count - a.count)
+    .slice(0, 10);
   return `<section>
-    <div class="sec-head"><span>03</span><h2>Top topics and urgent issues</h2></div>
-    <div class="grid two">
-      <div class="panel">
-        <h3>Topic ranking</h3>
-        <div class="chart-block compact">
-          ${data.topic_ranking.slice(0, 8).map((row) => bar(row.label, row.count, total, row.negative_count > 0 ? "neg" : "pos")).join("") || `<div class="empty">Chua co topic.</div>`}
-        </div>
-      </div>
-      <div class="panel">
-        <h3>Hot issues</h3>
-        <table>
-          <thead><tr><th>Issue</th><th>Negative</th><th>Urgent</th></tr></thead>
-          <tbody>
-            ${data.overview.hot_issues.map((row) => `<tr><td>${esc(row.label)}</td><td>${fmt(row.negative)}</td><td>${fmt(row.urgent)}</td></tr>`).join("") || `<tr><td colspan="3">Khong co issue noi bat.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>`;
-}
-
-function renderPosts(data: FeedbackReportData) {
-  if (data.group !== "facebook") return "";
-  return `<section>
-    <div class="sec-head"><span>04</span><h2>Top post context</h2></div>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.issuePriority)}</h2></div>
     <table>
-      <thead><tr><th>Source</th><th>Date</th><th>Post</th><th>Comments</th><th>Negative</th></tr></thead>
+      <thead><tr><th>#</th><th>${esc(copy.issue)}</th><th>${esc(copy.total)}</th><th>${esc(copy.negative)}</th><th>${esc(copy.urgent)}</th><th>${esc(copy.sample)}</th></tr></thead>
       <tbody>
-        ${data.top_posts.map((post) => `<tr>
-          <td>${esc(sourceLabel(post.source_type))}</td>
-          <td>${esc(post.published_at || "")}</td>
-          <td>${esc(post.message).slice(0, 260)}</td>
-          <td>${fmt(post.comment_count)}</td>
-          <td>${fmt(post.negative_count)}</td>
-        </tr>`).join("") || `<tr><td colspan="5">Khong co post trong khoang nay.</td></tr>`}
+        ${rows.map((row, idx) => `<tr>
+          <td>${idx + 1}</td>
+          <td><strong>${esc(row.label)}</strong></td>
+          <td>${fmt(row.count, language)}</td>
+          <td>${fmt(row.negative_count, language)}</td>
+          <td>${fmt(row.urgent_count, language)}</td>
+          <td>${row.sample_comments.slice(0, 2).map((sample) => `<p class="sample">${esc(sample.message)}<br><small>${esc(sample.summary || "")}</small></p>`).join("")}</td>
+        </tr>`).join("") || `<tr><td colspan="6">${esc(copy.noIssue)}</td></tr>`}
       </tbody>
     </table>
   </section>`;
 }
 
-function renderHighlights(data: FeedbackReportData) {
+function renderPosts(data: FeedbackReportData, sectionNo: string) {
+  if (data.group !== "facebook") return "";
+  const copy = t(data);
+  const language = lang(data);
   return `<section>
-    <div class="sec-head"><span>${data.group === "facebook" ? "05" : "04"}</span><h2>Key highlights and operations recommendations</h2></div>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.topPostContext)}</h2></div>
+    <table>
+      <thead><tr><th>${esc(copy.source)}</th><th>${esc(copy.date)}</th><th>${esc(copy.post)}</th><th>${esc(copy.comments)}</th><th>${esc(copy.negative)}</th></tr></thead>
+      <tbody>
+        ${data.top_posts.map((post) => `<tr>
+          <td>${esc(sourceLabel(post.source_type, language))}</td>
+          <td>${esc(post.published_at || "")}</td>
+          <td>${esc(post.message).slice(0, 260)}</td>
+          <td>${fmt(post.comment_count, language)}</td>
+          <td>${fmt(post.negative_count, language)}</td>
+        </tr>`).join("") || `<tr><td colspan="5">${esc(copy.noData)}</td></tr>`}
+      </tbody>
+    </table>
+  </section>`;
+}
+
+function renderHighlights(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.recommendations)}</h2></div>
     <div class="highlight-list">
       ${data.highlights.map((h, idx) => `<div class="highlight ${sentimentClass(h.signal)}">
-        <strong>Highlight ${idx + 1}: ${esc(h.title)}</strong>
+        <strong>${idx + 1}. ${esc(h.title)}</strong>
         <p>${esc(h.detail)}</p>
-      </div>`).join("")}
+      </div>`).join("") || `<div class="empty">${esc(copy.noData)}</div>`}
     </div>
   </section>`;
 }
 
-function renderEvidence(data: FeedbackReportData) {
+function renderLlmInsight(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const insight = data.llm_insight;
   return `<section>
-    <div class="sec-head"><span>${data.group === "facebook" ? "06" : "05"}</span><h2>Comment evidence</h2></div>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.llmInsight)}</h2></div>
+    ${insight?.summary ? `<div class="llm-box">
+      <p class="insight-meta">${esc(insight.title)} - ${esc(insight.provider || "unknown")} / ${esc(insight.model || "unknown")} - ${esc(insight.created_at)}</p>
+      ${renderMarkdownLite(insight.summary)}
+    </div>` : `<div class="empty">${esc(copy.noLlmInsight)}</div>`}
+  </section>`;
+}
+
+function renderEvidence(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  const language = lang(data);
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.evidence)}</h2></div>
     <table>
-      <thead><tr><th>Date</th><th>Source</th><th>Rating</th><th>Topic</th><th>Sentiment</th><th>Comment</th><th>Context/Summary</th></tr></thead>
+      <thead><tr><th>${esc(copy.date)}</th><th>${esc(copy.source)}</th><th>${esc(copy.rating)}</th><th>${esc(copy.topic)}</th><th>Sentiment</th><th>Comment</th><th>${esc(copy.contextSummary)}</th></tr></thead>
       <tbody>
         ${data.comments.map((c) => `<tr>
           <td>${esc(c.created_at || "")}</td>
-          <td>${esc(sourceLabel(c.source_type))}</td>
+          <td>${esc(sourceLabel(c.source_type, language))}</td>
           <td>${c.rating == null ? "" : esc(c.rating)}</td>
           <td>${esc(c.topic_label)}</td>
-          <td><span class="pill ${sentimentClass(c.sentiment)}">${esc(c.sentiment)}</span></td>
+          <td><span class="pill ${sentimentClass(c.sentiment)}">${esc(sentimentLabel(c.sentiment, data))}</span></td>
           <td>${esc(c.message)}</td>
           <td>${c.post_message ? `<b>Post:</b> ${esc(c.post_message)}<br>` : ""}${esc(c.summary)}</td>
-        </tr>`).join("") || `<tr><td colspan="7">Khong co comment phu hop.</td></tr>`}
+        </tr>`).join("") || `<tr><td colspan="7">${esc(copy.noData)}</td></tr>`}
       </tbody>
     </table>
   </section>`;
 }
 
-export function renderFeedbackReportHtml(data: FeedbackReportData): string {
+function renderLessons(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.lessons)}</h2></div>
+    <ul class="lesson-list">${copy.lessonsBullets(data).map((item: string) => `<li>${esc(item)}</li>`).join("")}</ul>
+  </section>`;
+}
+
+function renderNextSteps(data: FeedbackReportData, sectionNo: string) {
+  const copy = t(data);
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.nextSteps)}</h2></div>
+    <ol class="next-list">${copy.nextStepBullets(data).map((item: string) => `<li>${esc(item)}</li>`).join("")}</ol>
+  </section>`;
+}
+
+function sectionNumber(index: number) {
+  return String(index).padStart(2, "0");
+}
+
+function renderReportBody(data: FeedbackReportData) {
+  const copy = t(data);
+  const language = lang(data);
   const generated = new Date(data.generated_at);
   const generatedText = Number.isNaN(generated.getTime()) ? data.generated_at : generated.toISOString().slice(0, 19).replace("T", " ");
-  return `<!doctype html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${esc(data.title)}</title>
-  <style>
+  let section = 1;
+  const next = () => sectionNumber(section++);
+  return `<article class="report-body lang-${language}">
+    <header>
+      <div class="eyebrow">${esc(copy.docTitle)}</div>
+      <h1>${esc(data.title)}</h1>
+      <p class="sub">${esc(copy.dateRange)}: <b>${esc(rangeText(data))}</b>. ${esc(copy.generated)} ${esc(generatedText)}. ${esc(copy.subtitle)}</p>
+      <div class="hero-grid">
+        <div class="metric"><small>${esc(copy.totalFeedback)}</small><strong>${fmt(data.overview.total_comments, language)}</strong><em>${fmt(data.overview.analyzed, language)} ${esc(copy.analyzed)}</em></div>
+        <div class="metric neg"><small>${esc(copy.negativeRate)}</small><strong>${esc(data.overview.negative_pct)}%</strong><em>${fmt(data.overview.sentiment.negative, language)} ${esc(copy.negative)}</em></div>
+        <div class="metric neu"><small>${esc(copy.topTopic)}</small><strong>${esc(data.overview.top_topics[0]?.label || "N/A")}</strong><em>${fmt(data.overview.top_topics[0]?.count || 0, language)} mentions</em></div>
+        <div class="metric pos"><small>${esc(copy.positive)}</small><strong>${fmt(data.overview.sentiment.positive, language)}</strong><em>community signal</em></div>
+      </div>
+    </header>
+    ${renderMethodology(data, next())}
+    ${renderSentiment(data, next())}
+    ${renderChannels(data, next())}
+    ${renderIssuePriority(data, next())}
+    ${data.group === "facebook" ? renderPosts(data, next()) : ""}
+    ${renderHighlights(data, next())}
+    ${renderLlmInsight(data, next())}
+    ${renderEvidence(data, next())}
+    ${renderLessons(data, next())}
+    ${renderNextSteps(data, next())}
+  </article>`;
+}
+
+function renderStyles() {
+  return `<style>
     :root{--ink:#172033;--muted:#667085;--line:#e4e7ec;--bg:#f6f8fb;--card:#fff;--neg:#e5484d;--pos:#16a164;--neu:#8a94a6;--accent:#b85d1c;}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 Inter,Segoe UI,Arial,sans-serif;}
     .wrap{max-width:1160px;margin:0 auto;padding:34px 24px 56px;}
+    .report-body{margin-bottom:34px;break-after:page}.report-body:last-child{break-after:auto}
     header{padding:34px 0 22px;border-bottom:3px solid var(--accent);margin-bottom:22px;}
     .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:800;}
     h1{font-size:38px;line-height:1.05;margin:8px 0 10px;} h2{font-size:20px;margin:0;} h3{margin:0 0 10px;font-size:15px;}
-    .sub{color:var(--muted);max-width:780px}.hero-grid,.grid{display:grid;gap:14px}.hero-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:20px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .sub,.sec-desc{color:var(--muted);max-width:860px}.hero-grid,.grid{display:grid;gap:14px}.hero-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:20px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
     .metric,.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}.metric small{display:block;color:var(--muted);font-weight:700}.metric strong,.big{display:block;font-size:30px;line-height:1.15;margin:5px 0;font-weight:850}.metric em{font-style:normal;color:var(--muted)}.metric.neg strong{color:var(--neg)}.metric.pos strong{color:var(--pos)}
     section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px;margin:18px 0}.sec-head{display:flex;align-items:center;gap:12px;margin-bottom:15px}.sec-head span{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#fff3e8;color:var(--accent);font-weight:850}
-    .chart-block{display:grid;gap:10px;margin-top:14px}.chart-block.compact{margin-top:0}.bar-row{display:grid;grid-template-columns:180px 1fr 70px;gap:10px;align-items:center}.bar-label{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar-track{height:12px;background:#eef1f5;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--accent)}.bar-fill.neg{background:var(--neg)}.bar-fill.pos{background:var(--pos)}.bar-fill.neu{background:var(--neu)}.bar-num{text-align:right;color:var(--muted);font-weight:700}
-    table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top} th{font-size:12px;color:var(--muted);text-transform:uppercase} td{font-size:13px}
+    .rule-list{display:grid;gap:10px;margin-top:16px}.rule-list>div{border-left:4px solid var(--accent);background:#fff8f1;padding:12px 14px;border-radius:6px}.rule-list p{margin:4px 0 0;color:var(--muted)}
+    .chart-block{display:grid;gap:10px;margin-top:14px}.bar-row{display:grid;grid-template-columns:180px 1fr 70px;gap:10px;align-items:center}.bar-label{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar-track{height:12px;background:#eef1f5;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--accent)}.bar-fill.neg{background:var(--neg)}.bar-fill.pos{background:var(--pos)}.bar-fill.neu{background:var(--neu)}.bar-num{text-align:right;color:var(--muted);font-weight:700}
+    table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top} th{font-size:12px;color:var(--muted);text-transform:uppercase} td{font-size:13px}.sample{margin:0 0 8px}.sample small{color:var(--muted)}
     .pill{display:inline-flex;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:800;background:#eef1f5;color:var(--muted)}.pill.neg,.highlight.neg{background:#fff1f1;color:#b42318}.pill.pos,.highlight.pos{background:#ecfdf3;color:#067647}.pill.neu{background:#f2f4f7;color:#475467}
     .highlight-list{display:grid;gap:12px}.highlight{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:14px;background:#fff}.highlight p{margin:6px 0 0;color:var(--muted)}.empty{color:var(--muted);padding:12px}
+    .llm-box{border:1px solid var(--line);border-radius:8px;padding:16px;background:#fbfcfe}.llm-box p{margin:8px 0}.insight-meta{color:var(--muted);font-size:12px}.lesson-list,.next-list{display:grid;gap:8px;margin:0;padding-left:22px}
     footer{color:var(--muted);font-size:12px;margin-top:28px}
     @media(max-width:820px){.hero-grid,.grid.two,.grid.three{grid-template-columns:1fr}.bar-row{grid-template-columns:1fr}.bar-num{text-align:left}h1{font-size:30px}.wrap{padding:24px 14px}}
-  </style>
+  </style>`;
+}
+
+function renderDocument(title: string, body: string, language: ReportLanguage) {
+  const footer = COPY[language].footer;
+  return `<!doctype html>
+<html lang="${language === "zh-CN" ? "zh-CN" : "vi"}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${esc(title)}</title>
+  ${renderStyles()}
 </head>
 <body>
   <div class="wrap">
-    <header>
-      <div class="eyebrow">Crossfire Legends Feedback Intelligence</div>
-      <h1>${esc(data.title)}</h1>
-      <p class="sub">Khoang du lieu: <b>${esc(rangeText(data))}</b>. Tao luc ${esc(generatedText)}. Report gom KPI, Sentiment, chu de noi bat, dan chung comment va khuyen nghi van hanh.</p>
-      <div class="hero-grid">
-        <div class="metric"><small>Total feedback</small><strong>${fmt(data.overview.total_comments)}</strong><em>${fmt(data.overview.analyzed)} analyzed</em></div>
-        <div class="metric neg"><small>Negative rate</small><strong>${esc(data.overview.negative_pct)}%</strong><em>${fmt(data.overview.sentiment.negative)} negative</em></div>
-        <div class="metric neu"><small>Top topic</small><strong>${esc(data.overview.top_topics[0]?.label || "N/A")}</strong><em>${fmt(data.overview.top_topics[0]?.count || 0)} mentions</em></div>
-        <div class="metric pos"><small>Positive</small><strong>${fmt(data.overview.sentiment.positive)}</strong><em>community signal</em></div>
-      </div>
-    </header>
-    ${renderSentiment(data)}
-    ${renderChannels(data)}
-    ${renderTopics(data)}
-    ${renderPosts(data)}
-    ${renderHighlights(data)}
-    ${renderEvidence(data)}
-    <footer>CFL Feedback Agent Report · Internal liveops use · Data source: Store/Facebook comments already ingested and analyzed by LLM.</footer>
+    ${body}
+    <footer>${esc(footer)}</footer>
   </div>
 </body>
 </html>`;
+}
+
+export function renderFeedbackReportHtml(data: FeedbackReportData): string {
+  return renderDocument(data.title, renderReportBody(data), lang(data));
+}
+
+export function renderFeedbackReportBundleHtml(reports: FeedbackReportData[]): string {
+  const title = reports.length === 1 ? reports[0].title : "CFL Combined Feedback Report";
+  const language = reports.some((report) => report.language === "zh-CN") ? "zh-CN" : "vi";
+  return renderDocument(title, reports.map(renderReportBody).join("\n"), language);
 }

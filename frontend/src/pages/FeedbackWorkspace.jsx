@@ -117,6 +117,17 @@ const UI = {
     close: "Đóng",
     noData: "Chưa có dữ liệu phù hợp bộ lọc.",
     loading: "Đang tải...",
+    reportExport: "Xuất report HTML",
+    reportExportDescription: "Chọn nguồn, khoảng thời gian và ngôn ngữ report.",
+    reportSource: "Nguồn report",
+    reportSourceAll: "Store + Facebook",
+    reportSourceStore: "Store",
+    reportSourceFacebook: "Facebook",
+    reportLanguage: "Ngôn ngữ report",
+    reportLanguageVi: "Tiếng Việt",
+    reportLanguageZh: "中文",
+    reportLanguageBoth: "VI + 中文",
+    reportDownload: "Xuất report",
   },
   "zh-CN": {
     title: "用户反馈",
@@ -189,6 +200,17 @@ const UI = {
     close: "关闭",
     noData: "当前筛选条件下没有数据。",
     loading: "加载中...",
+    reportExport: "导出 HTML 报告",
+    reportExportDescription: "选择来源、时间范围和报告语言。",
+    reportSource: "报告来源",
+    reportSourceAll: "Store + Facebook",
+    reportSourceStore: "Store",
+    reportSourceFacebook: "Facebook",
+    reportLanguage: "报告语言",
+    reportLanguageVi: "Tiếng Việt",
+    reportLanguageZh: "中文",
+    reportLanguageBoth: "VI + 中文",
+    reportDownload: "导出报告",
   },
 };
 
@@ -260,29 +282,59 @@ function cleanParams(filters, group, subtab, page, metaLang) {
   return params;
 }
 
-function ReportExportDialog({ open, filters, onClose }) {
+function ReportExportDialog({ open, filters, lang, labels, onClose }) {
+  const [reportGroup, setReportGroup] = useState("all");
+  const [reportFrom, setReportFrom] = useState(filters.from || "");
+  const [reportTo, setReportTo] = useState(filters.to || "");
+  const [reportLang, setReportLang] = useState(lang === "zh-CN" ? "zh-CN" : "vi");
+
+  useEffect(() => {
+    if (!open) return;
+    setReportGroup("all");
+    setReportFrom(filters.from || "");
+    setReportTo(filters.to || "");
+    setReportLang(lang === "zh-CN" ? "zh-CN" : "vi");
+  }, [open, filters.from, filters.to, lang]);
+
   if (!open) return null;
-  const range = {};
-  if (filters.from) range.from = filters.from;
-  if (filters.to) range.to = filters.to;
+
+  const href = exportReportHtmlUrl({
+    group: reportGroup,
+    from: reportFrom,
+    to: reportTo,
+    lang: reportLang,
+  });
 
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal-panel" role="dialog" aria-modal="true" aria-label="Xuất report HTML">
         <div className="modal-header">
           <div>
-            <h3>Xuất report HTML</h3>
-            <p>Chọn nguồn report cần xuất theo khoảng thời gian hiện tại.</p>
+            <h3>{labels.reportExport}</h3>
+            <p>{labels.reportExportDescription}</p>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>{labels.close}</button>
+        </div>
+        <div className="report-export-form">
+          <label>{labels.reportSource}
+            <select value={reportGroup} onChange={(event) => setReportGroup(event.target.value)}>
+              <option value="all">{labels.reportSourceAll}</option>
+              <option value="store">{labels.reportSourceStore}</option>
+              <option value="facebook">{labels.reportSourceFacebook}</option>
+            </select>
+          </label>
+          <label>{labels.from}<DateTextInput value={reportFrom} onChange={setReportFrom} /></label>
+          <label>{labels.to}<DateTextInput value={reportTo} onChange={setReportTo} /></label>
+          <label>{labels.reportLanguage}
+            <select value={reportLang} onChange={(event) => setReportLang(event.target.value)}>
+              <option value="vi">{labels.reportLanguageVi}</option>
+              <option value="zh-CN">{labels.reportLanguageZh}</option>
+              <option value="both">{labels.reportLanguageBoth}</option>
+            </select>
+          </label>
         </div>
         <div className="report-export-options">
-          <a className="btn" href={exportReportHtmlUrl({ ...range, group: "store" })} onClick={onClose}>
-            Store report
-          </a>
-          <a className="btn btn-secondary" href={exportReportHtmlUrl({ ...range, group: "facebook" })} onClick={onClose}>
-            Facebook report
-          </a>
+          <a className="btn" href={href} onClick={onClose}>{labels.reportDownload}</a>
         </div>
       </div>
     </div>
@@ -577,6 +629,9 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
           <p className="page-subtitle">{t.subtitle}</p>
         </div>
         <div className="header-actions">
+          <button className="btn btn-secondary report-export-header-button" type="button" onClick={() => setReportDialogOpen(true)}>
+            {t.reportExport}
+          </button>
           <div className="segmented">
             <button className={theme === "light" ? "active" : ""} onClick={() => onThemeChange("light")}>{t.light}</button>
             <button className={theme === "dark" ? "active" : ""} onClick={() => onThemeChange("dark")}>{t.dark}</button>
@@ -706,7 +761,6 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                 <button className="btn" onClick={createInsight} disabled={insightBusy}>
                   {insightBusy ? t.loading : t.createInsight}
                 </button>
-                <button className="btn btn-secondary" type="button" onClick={() => setReportDialogOpen(true)}>Xuất report HTML</button>
                 <button className="btn btn-secondary" onClick={() => setPromptOpen((v) => !v)}>{t.editPrompt}</button>
                 <button className="btn btn-secondary" onClick={persistInsight} disabled={!insight?.summary}>{t.save}</button>
               </div>
@@ -893,6 +947,8 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       <ReportExportDialog
         open={reportDialogOpen}
         filters={filters}
+        lang={lang}
+        labels={t}
         onClose={() => setReportDialogOpen(false)}
       />
 
