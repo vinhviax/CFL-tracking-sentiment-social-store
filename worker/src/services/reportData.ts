@@ -208,7 +208,7 @@ async function loadTopPosts(db: D1Database, params: BuildReportParams): Promise<
   if (params.group !== "facebook") return [];
   const { where, bind } = buildBaseWhere(params);
   const rows = await db.prepare(
-    `SELECT p.id, p.source_type, p.published_at, p.message,
+    `SELECT p.id, p.source_type, p.published_at, p.message, p.permalink,
             COUNT(c.id) as comment_count,
             SUM(CASE WHEN a.sentiment = 'negative' THEN 1 ELSE 0 END) as negative_count
      FROM comments c
@@ -224,6 +224,7 @@ async function loadTopPosts(db: D1Database, params: BuildReportParams): Promise<
     source_type: row.source_type,
     published_at: row.published_at || null,
     message: row.message || "",
+    permalink: row.permalink || null,
     comment_count: Number(row.comment_count || 0),
     negative_count: Number(row.negative_count || 0),
   }));
@@ -324,8 +325,8 @@ async function generateReportInsight(env: Env, params: BuildReportParams, overvi
   const result = await generateSummary(env, overview, samples, undefined, lang);
   return {
     title: lang === "zh-CN"
-      ? `${params.group === "store" ? "Store" : "Facebook"} LLM Insight`
-      : `${params.group === "store" ? "Store" : "Facebook"} Insight tự động`,
+      ? `${params.group === "store" ? "Store" : "Facebook"} Insight`
+      : `${params.group === "store" ? "Store" : "Facebook"} Insight`,
     summary: result.summary,
     provider: result.provider,
     model: result.model,

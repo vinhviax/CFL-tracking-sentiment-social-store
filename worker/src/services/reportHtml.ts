@@ -61,6 +61,7 @@ export interface ReportPost {
   source_type: string;
   published_at: string | null;
   message: string;
+  permalink?: string | null;
   comment_count: number;
   negative_count: number;
 }
@@ -137,8 +138,8 @@ const COPY = {
     source: "Nguồn",
     dateRange: "Khoảng ngày",
     language: "Ngôn ngữ",
-    promptRule: "Prompt/LLM",
-    promptRuleText: "Khi export HTML, hệ thống tự chạy Insight and Summarize bằng LLM cho đúng nguồn, khoảng ngày và ngôn ngữ của từng tab report.",
+    promptRule: "Cách tạo insight",
+    promptRuleText: "Khi export HTML, hệ thống tự tổng hợp Insight and Summarize theo đúng nguồn, khoảng ngày và ngôn ngữ của từng tab report.",
     hardRules: "Rule cứng",
     hardRulesText: "Chỉ dùng dữ liệu đã ingest và phân tích trong DB; xếp ưu tiên theo urgent, negative rồi volume; luôn kèm bằng chứng comment; không tự bịa vấn đề ngoài dữ liệu.",
     filterRule: "Bộ lọc",
@@ -160,15 +161,15 @@ const COPY = {
     post: "Post",
     comments: "Comments",
     recommendations: "Key highlights và khuyến nghị vận hành",
-    llmInsight: "Insight and Summarize từ LLM",
-    noLlmInsight: "Không tạo được Insight and Summarize tự động cho tab này. Vui lòng kiểm tra provider/API key LLM rồi xuất lại.",
+    llmInsight: "Insight and Summarize",
+    noLlmInsight: "Không tạo được Insight and Summarize cho tab này. Vui lòng kiểm tra cấu hình hệ thống rồi xuất lại.",
     evidence: "Bằng chứng comment",
     rating: "Rating",
     topic: "Chủ đề",
     contextSummary: "Bối cảnh/Summary",
     lessons: "Bài học rút ra",
     nextSteps: "Next step đề xuất",
-    footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments đã ingest và phân tích bằng LLM.",
+    footer: "CFL Feedback Report - Internal liveops use - Data source: Store/Facebook comments đã ingest và phân tích.",
     noData: "Không có dữ liệu phù hợp.",
     lessonsBullets: (data: FeedbackReportData) => {
       const top = topNegativeTopic(data)?.label || topPositiveTopic(data)?.label || "vấn đề chính";
@@ -208,8 +209,8 @@ const COPY = {
     source: "来源",
     dateRange: "日期范围",
     language: "语言",
-    promptRule: "Prompt/LLM",
-    promptRuleText: "导出 HTML 时会按每个报告 tab 的来源、日期和语言自动调用 LLM 生成 Insight and Summarize。",
+    promptRule: "Insight 生成方式",
+    promptRuleText: "导出 HTML 时会按每个报告 tab 的来源、日期和语言自动生成 Insight and Summarize。",
     hardRules: "硬规则",
     hardRulesText: "只使用数据库中已导入和已分析的数据；按 urgent、negative、volume 排优先级；必须附评论证据；不编造数据外的问题。",
     filterRule: "筛选规则",
@@ -231,15 +232,15 @@ const COPY = {
     post: "帖子",
     comments: "评论数",
     recommendations: "关键发现与运营建议",
-    llmInsight: "LLM Insight and Summarize",
-    noLlmInsight: "此 tab 暂未自动生成 Insight and Summarize。请检查 LLM provider/API key 后重新导出。",
+    llmInsight: "Insight and Summarize",
+    noLlmInsight: "此 tab 暂未生成 Insight and Summarize。请检查系统配置后重新导出。",
     evidence: "评论证据",
     rating: "评分",
     topic: "主题",
     contextSummary: "背景/Summary",
     lessons: "经验总结",
     nextSteps: "建议下一步",
-    footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments already ingested and analyzed by LLM.",
+    footer: "CFL Feedback Report - Internal liveops use - Data source: Store/Facebook comments already ingested and analyzed.",
     noData: "没有符合条件的数据。",
     lessonsBullets: (data: FeedbackReportData) => {
       const top = topNegativeTopic(data)?.label || topPositiveTopic(data)?.label || "核心问题";
@@ -356,6 +357,27 @@ function renderMarkdownLite(text: string) {
   return blocks.join("");
 }
 
+function publicInsightTitle(title?: string | null) {
+  const cleaned = String(title || "")
+    .replace(/\bLLM\b/gi, "")
+    .replace(/\bAI\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "Insight and Summarize";
+}
+
+function compactPostText(text?: string | null) {
+  const clean = String(text || "").trim();
+  if (!clean) return "Mở bài viết";
+  return clean.length > 260 ? `${clean.slice(0, 260)}...` : clean;
+}
+
+function renderPostText(post: ReportPost) {
+  const text = compactPostText(post.message);
+  if (!post.permalink) return esc(text);
+  return `<a class="post-link" href="${esc(post.permalink)}" target="_blank" rel="noreferrer">${esc(text)}</a>`;
+}
+
 function renderMethodology(data: FeedbackReportData, sectionNo: string) {
   const copy = t(data);
   const language = lang(data);
@@ -470,7 +492,7 @@ function renderPosts(data: FeedbackReportData, sectionNo: string) {
         ${data.top_posts.map((post) => `<tr>
           <td>${esc(sourceLabel(post.source_type, language))}</td>
           <td>${esc(post.published_at || "")}</td>
-          <td>${esc(post.message).slice(0, 260)}</td>
+          <td>${renderPostText(post)}</td>
           <td>${fmt(post.comment_count, language)}</td>
           <td>${fmt(post.negative_count, language)}</td>
         </tr>`).join("") || `<tr><td colspan="5">${esc(copy.noData)}</td></tr>`}
@@ -498,8 +520,8 @@ function renderLlmInsight(data: FeedbackReportData, sectionNo: string) {
   const insight = data.llm_insight;
   return `<section>
     <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.llmInsight)}</h2></div>
-    ${insight?.summary ? `<div class="llm-box">
-      <p class="insight-meta">${esc(insight.title)} - ${esc(insight.provider || "unknown")} / ${esc(insight.model || "unknown")} - ${esc(insight.created_at)}</p>
+    ${insight?.summary ? `<div class="insight-box">
+      <p class="insight-meta">${esc(publicInsightTitle(insight.title))} - ${esc(insight.created_at)}</p>
       ${renderMarkdownLite(insight.summary)}
     </div>` : `<div class="empty">${esc(copy.noLlmInsight)}</div>`}
   </section>`;
@@ -685,7 +707,7 @@ function renderStyles() {
     table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top} th{font-size:12px;color:var(--muted);text-transform:uppercase} td{font-size:13px}.sample{margin:0 0 8px}.sample small{color:var(--muted)}
     .pill{display:inline-flex;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:800;background:#eef1f5;color:var(--muted)}.pill.neg,.highlight.neg{background:#fff1f1;color:#b42318}.pill.pos,.highlight.pos{background:#ecfdf3;color:#067647}.pill.neu{background:#f2f4f7;color:#475467}
     .highlight-list{display:grid;gap:12px}.highlight{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:14px;background:#fff}.highlight p{margin:6px 0 0;color:var(--muted)}.empty{color:var(--muted);padding:12px}
-    .llm-box{border:1px solid var(--line);border-radius:8px;padding:16px;background:#fbfcfe}.llm-box p{margin:8px 0}.insight-meta{color:var(--muted);font-size:12px}.lesson-list,.next-list{display:grid;gap:8px;margin:0;padding-left:22px}
+    .insight-box{border:1px solid var(--line);border-radius:8px;padding:16px;background:#fbfcfe}.insight-box p{margin:8px 0}.insight-meta{color:var(--muted);font-size:12px}.post-link{color:var(--accent);font-weight:750;text-decoration:none}.post-link:hover{text-decoration:underline}.lesson-list,.next-list{display:grid;gap:8px;margin:0;padding-left:22px}
     footer{color:var(--muted);font-size:12px;margin-top:28px}
     @media(max-width:820px){.hero-grid,.grid.two,.grid.three{grid-template-columns:1fr}.bar-row{grid-template-columns:1fr}.bar-num{text-align:left}h1{font-size:30px}.wrap{padding:24px 14px}.report-switcher{position:static;align-items:stretch}.report-switcher-row{width:100%;justify-content:space-between}.report-toggle button{padding:8px 10px}}
   </style>`;

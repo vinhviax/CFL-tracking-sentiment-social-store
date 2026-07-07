@@ -45,7 +45,15 @@ function baseReport(overrides: Partial<FeedbackReportData> = {}): FeedbackReport
     ],
     channels: [{ source_type: "fb_page", label: "Fanpage", total: 3, positive: 1, neutral: 1, negative: 1 }],
     store_breakdown: null,
-    top_posts: [{ id: 5, source_type: "fb_page", published_at: "2026-07-07", message: "Top post", comment_count: 3, negative_count: 1 }],
+    top_posts: [{
+      id: 5,
+      source_type: "fb_page",
+      published_at: "2026-07-07",
+      message: "Top post",
+      permalink: "https://facebook.com/cfl/posts/5?x=<bad>",
+      comment_count: 3,
+      negative_count: 1,
+    }],
     highlights: [{ title: "Lag is rising", detail: "1 urgent negative comment", signal: "negative" }],
     llm_insight: {
       title: "Insight đã lưu",
@@ -132,11 +140,28 @@ describe("renderFeedbackReportHtml", () => {
 
     expect(html).toContain("Bộ lọc và nguyên tắc đọc report");
     expect(html).toContain("Bảng ưu tiên vấn đề cần quan tâm");
-    expect(html).toContain("Insight and Summarize từ LLM");
+    expect(html).toContain("Insight and Summarize");
     expect(html).toContain("Bài học rút ra");
     expect(html).toContain("Next step đề xuất");
     expect(html).toContain("Người chơi đang phàn nàn");
     expect(html).not.toMatch(/Ã|Â|áº|á»|Ä‘|Æ°|ðŸ/);
+  });
+  test("does not expose AI or provider wording in the visible report chrome", () => {
+    const html = renderFeedbackReportHtml(baseReport());
+
+    expect(html).toContain("Insight and Summarize");
+    expect(html).not.toContain("Prompt/LLM");
+    expect(html).not.toContain("Insight and Summarize từ LLM");
+    expect(html).not.toContain("llm_viax");
+    expect(html).not.toContain("gpt-5.4");
+    expect(html).not.toContain("analyzed by LLM");
+    expect(html).not.toContain("phân tích bằng LLM");
+  });
+
+  test("renders Facebook top posts as links when permalinks are available", () => {
+    const html = renderFeedbackReportHtml(baseReport());
+
+    expect(html).toContain('<a class="post-link" href="https://facebook.com/cfl/posts/5?x=&lt;bad&gt;" target="_blank" rel="noreferrer">Top post</a>');
   });
 });
 
