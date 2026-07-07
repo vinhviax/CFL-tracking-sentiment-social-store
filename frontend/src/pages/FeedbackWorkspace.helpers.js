@@ -43,7 +43,14 @@ function formatCount(value) {
 
 export function buildStoreHighlights(storeBreakdown, ranking, t) {
   const highlights = [...(storeBreakdown?.highlights || [])];
-  const topIssue = ranking?.find((item) => isActionableTopic(item?.topic));
+  const actionableRanking = (ranking || []).filter((item) => isActionableTopic(item?.topic));
+  const negativeRanking = actionableRanking.filter((item) => Number(item?.negative_count || item?.negative || 0) > 0);
+  const topIssue = [...(negativeRanking.length ? negativeRanking : actionableRanking)]
+    .sort((a, b) => (
+      Number(b?.negative_count || b?.negative || 0) - Number(a?.negative_count || a?.negative || 0)
+      || Number(b?.urgent_count || b?.urgent || 0) - Number(a?.urgent_count || a?.urgent || 0)
+      || Number(b?.count || 0) - Number(a?.count || 0)
+    ))[0];
   if (topIssue) {
     highlights.push({
       key: "top_issue",

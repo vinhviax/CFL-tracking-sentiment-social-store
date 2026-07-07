@@ -84,7 +84,8 @@ test("store highlights skip other when choosing the top issue", () => {
     { highlights: [] },
     [
       { topic: "other", label: "Khác/Không đủ ngữ cảnh", count: 173 },
-      { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 51 },
+      { topic: "positive_feedback", label: "Khen/Trải nghiệm tốt", count: 94, negative_count: 0, urgent_count: 0 },
+      { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 51, negative_count: 10, urgent_count: 10 },
     ],
     { topIssueInRange: "Vấn đề nổi bật" }
   );
