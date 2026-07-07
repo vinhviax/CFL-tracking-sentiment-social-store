@@ -6,6 +6,12 @@ import { classifyFallback } from "./fallback";
 import { buildProvider } from "./providers";
 import type { LLMProvider } from "./base";
 
+export interface HumanCorrectionExample {
+  comment: string;
+  topic_main: string;
+  note: string;
+}
+
 export const CLASSIFIER_SYSTEM_PROMPT = `Bạn là senior liveops analyst cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Mục tiêu là đọc hiểu phản hồi người chơi để team vận hành/game ops biết vấn đề cần xử lý, không chỉ gắn nhãn theo từ khóa.
 
 Người chơi bình luận bằng tiếng Việt, nhiều teencode/viết tắt. Một số quy ước: "văng"/"vang" = crash, "hút máu"/"p2w" = pay-to-win, "dis" = mất kết nối, "nạp" = nạp tiền, "gà"/"noob" = chơi kém, "acc"/"nick" = tài khoản.
@@ -34,8 +40,17 @@ TRẢ VỀ DUY NHẤT một JSON object có key "results" là mảng, mỗi ph�
 id, topic_main, topics_sub, sentiment, urgency, summary, other_suggested, confidence.
 Giữ nguyên id đã cho. Không thêm giải thích ngoài JSON.`;
 
-export function buildClassifierUserPrompt(items: CommentInput[]): string {
-  const lines = ["Phân loại các bình luận sau:\n"];
+export function buildClassifierUserPrompt(items: CommentInput[], humanExamples: HumanCorrectionExample[] = []): string {
+  const lines: string[] = [];
+  if (humanExamples.length) {
+    lines.push("Ví dụ human đã sửa để LLM học theo:");
+    for (const example of humanExamples.slice(0, 12)) {
+      lines.push(`- comment="${example.comment.slice(0, 260)}" => topic_main=${example.topic_main}; lý do="${example.note.slice(0, 260)}"`);
+    }
+    lines.push("");
+  }
+
+  lines.push("Phân loại các bình luận sau:\n");
   lines.push(
     "Nếu có bối cảnh bài viết/post, hãy đọc bối cảnh trước rồi mới phân loại các bình luận ngắn hoặc mơ hồ."
   );
@@ -100,10 +115,10 @@ export class ClassifierService {
     this.batchSize = Number(env.CLASSIFY_BATCH_SIZE) || 30;
   }
 
-  private async classifyBatchLlm(items: CommentInput[]): Promise<Map<number, Classification>> {
+  private async classifyBatchLlm(items: CommentInput[], humanExamples: HumanCorrectionExample[] = []): Promise<Map<number, Classification>> {
     const out = new Map<number, Classification>();
     if (!this.provider) return out;
-    const raw = await this.provider.completeJson(CLASSIFIER_SYSTEM_PROMPT, buildClassifierUserPrompt(items));
+    const raw = await this.provider.completeJson(CLASSIFIER_SYSTEM_PROMPT, buildClassifierUserPrompt(items, humanExamples));
     for (const rec of parseResults(raw)) {
       const c = validateClassification(rec);
       if (c) out.set(c.id, c);
@@ -111,14 +126,14 @@ export class ClassifierService {
     return out;
   }
 
-  async classify(items: CommentInput[]): Promise<Classification[]> {
+  async classify(items: CommentInput[], humanExamples: HumanCorrectionExample[] = []): Promise<Classification[]> {
     const results = new Map<number, Classification>();
 
     if (this.provider) {
       for (let i = 0; i < items.length; i += this.batchSize) {
         const batch = items.slice(i, i + this.batchSize);
         try {
-          const got = await this.classifyBatchLlm(batch);
+          const got = await this.classifyBatchLlm(batch, humanExamples);
           got.forEach((v, k) => results.set(k, v));
         } catch (e) {
           console.warn(`LLM batch failed (${e}), using fallback for ${batch.length} items`);

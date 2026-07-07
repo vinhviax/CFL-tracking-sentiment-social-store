@@ -68,6 +68,8 @@ const UI = {
     reset: "Reset filter",
     reviewOther: "Review Khác",
     humanReview: "Human review",
+    humanReviewNote: "Lý do cho LLM",
+    humanReviewNotePlaceholder: "Ghi lý do vì sao comment này thuộc chủ đề đã chọn...",
     assignTopic: "Gán chủ đề",
     negativeCount: "tiêu cực",
     actionNeededCount: "cần xử lý",
@@ -138,6 +140,8 @@ const UI = {
     reset: "重置筛选",
     reviewOther: "复核其他",
     humanReview: "人工复核",
+    humanReviewNote: "给 LLM 的理由",
+    humanReviewNotePlaceholder: "说明为什么这条评论属于所选主题...",
     assignTopic: "指定主题",
     negativeCount: "负面",
     actionNeededCount: "需处理",
@@ -346,6 +350,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [savedInsights, setSavedInsights] = useState([]);
   const [selected, setSelected] = useState(null);
   const [manualReviewTopic, setManualReviewTopic] = useState("");
+  const [manualReviewNote, setManualReviewNote] = useState("");
   const [manualReviewBusy, setManualReviewBusy] = useState(false);
   const [manualReviewError, setManualReviewError] = useState(null);
   const [page, setPage] = useState(1);
@@ -432,6 +437,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
 
   useEffect(() => {
     setManualReviewTopic(selected?.analysis?.topic_main || "");
+    setManualReviewNote("");
     setManualReviewError(null);
   }, [selected?.id, selected?.analysis?.topic_main]);
 
@@ -508,7 +514,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     setManualReviewError(null);
     updateCommentAnalysis(selected.id, {
       topic_main: manualReviewTopic,
-      note: "Manual review from Other queue",
+      note: manualReviewNote,
     })
       .then((result) => {
         setSelected((current) => current
@@ -893,11 +899,24 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                   type="button"
                   className="btn btn-secondary"
                   onClick={saveManualReviewTopic}
-                  disabled={manualReviewBusy || !manualReviewTopic || manualReviewTopic === selected.analysis?.topic_main}
+                  disabled={
+                    manualReviewBusy
+                    || !manualReviewTopic
+                    || (manualReviewTopic === selected.analysis?.topic_main && !manualReviewNote.trim())
+                  }
                 >
                   {manualReviewBusy ? t.loading : t.assignTopic}
                 </button>
               </div>
+              <label className="manual-review-note">
+                <span>{t.humanReviewNote}</span>
+                <textarea
+                  value={manualReviewNote}
+                  onChange={(e) => setManualReviewNote(e.target.value)}
+                  placeholder={t.humanReviewNotePlaceholder}
+                  rows={3}
+                />
+              </label>
               {manualReviewError && <div className="error-banner manual-review-error">{manualReviewError}</div>}
             </div>
             <div className="drawer-badges">

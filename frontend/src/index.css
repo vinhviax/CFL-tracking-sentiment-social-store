@@ -1325,6 +1325,23 @@ tbody tr {
   align-items: center;
 }
 
+.manual-review-note {
+  display: grid;
+  gap: 6px;
+}
+
+.manual-review-note span {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.035em;
+}
+
+.manual-review-note textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
 .manual-review-error {
   margin: 0;
 }

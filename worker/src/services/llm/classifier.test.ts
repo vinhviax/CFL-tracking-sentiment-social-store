@@ -26,4 +26,25 @@ describe("classifier prompt", () => {
       prompt.indexOf("sao chưa vào được")
     );
   });
+
+  test("includes recent human correction examples before classifying new comments", () => {
+    const prompt = buildClassifierUserPrompt([
+      {
+        id: 9,
+        message: "qe thế quen =))",
+        rating: null,
+      },
+    ], [
+      {
+        comment: "VNG nay chiều qe thế quen =))",
+        topic_main: "positive_feedback",
+        note: "Human hiểu đây là lời khen/đùa thân thiện, không phải lỗi game.",
+      },
+    ]);
+
+    expect(prompt).toContain("Ví dụ human đã sửa để LLM học theo:");
+    expect(prompt).toContain("topic_main=positive_feedback");
+    expect(prompt).toContain("Human hiểu đây là lời khen/đùa thân thiện");
+    expect(prompt.indexOf("Ví dụ human đã sửa")).toBeLessThan(prompt.indexOf("Phân loại các bình luận sau"));
+  });
 });

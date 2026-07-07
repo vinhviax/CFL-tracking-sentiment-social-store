@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPostContext, getAnalysisBatchSize, getLlmBatchConcurrency } from "./analysis";
+import { buildPostContext, getAnalysisBatchSize, getLlmBatchConcurrency, loadHumanCorrectionExamples } from "./analysis";
 
 describe("analysis post context", () => {
   test("builds classifier context with source, date, permalink, and post content", () => {
@@ -21,5 +21,40 @@ describe("analysis post context", () => {
     expect(getAnalysisBatchSize({ CLASSIFY_BATCH_SIZE: "500" } as any)).toBe(100);
     expect(getLlmBatchConcurrency({ LLM_BATCH_CONCURRENCY: "3" } as any)).toBe(3);
     expect(getLlmBatchConcurrency({ LLM_BATCH_CONCURRENCY: "30" } as any)).toBe(5);
+  });
+
+  test("loads recent human correction notes as classifier examples", async () => {
+    const env = {
+      DB: {
+        prepare(sql: string) {
+          expect(sql).toContain("analysis_corrections");
+          return {
+            bind(limit: number) {
+              expect(limit).toBe(12);
+              return this;
+            },
+            async all() {
+              return {
+                results: [
+                  {
+                    comment: "VNG nay chiều qe thế quen =))",
+                    topic_main: "positive_feedback",
+                    note: "Human hiểu đây là lời khen/đùa thân thiện.",
+                  },
+                ],
+              };
+            },
+          };
+        },
+      },
+    } as any;
+
+    await expect(loadHumanCorrectionExamples(env)).resolves.toEqual([
+      {
+        comment: "VNG nay chiều qe thế quen =))",
+        topic_main: "positive_feedback",
+        note: "Human hiểu đây là lời khen/đùa thân thiện.",
+      },
+    ]);
   });
 });

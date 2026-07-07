@@ -6,7 +6,7 @@ import { PROMPT_VERSION } from "../taxonomy";
 import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { CommentInput } from "./llm/base";
-import { ClassifierService } from "./llm/classifier";
+import { ClassifierService, type HumanCorrectionExample } from "./llm/classifier";
 import { resolveLlmProvider } from "./llmAgentConfig";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
@@ -43,6 +43,23 @@ export function buildPostContext(post: PostContextRow) {
   if (post.permalink) lines.push(`Link post: ${post.permalink}`);
   if (post.message) lines.push(`Nội dung post: ${post.message}`);
   return lines.join("\n");
+}
+
+export async function loadHumanCorrectionExamples(env: Env, limit = 12): Promise<HumanCorrectionExample[]> {
+  const rows = await env.DB.prepare(
+    `SELECT c.message AS comment, ac.new_topic_main AS topic_main, ac.note
+     FROM analysis_corrections ac
+     JOIN comments c ON c.id = ac.comment_id
+     WHERE ac.note IS NOT NULL AND TRIM(ac.note) != ''
+     ORDER BY ac.corrected_at DESC
+     LIMIT ?`
+  ).bind(Math.max(1, Math.min(limit, 30))).all<HumanCorrectionExample>();
+
+  return rows.results.map((row) => ({
+    comment: String(row.comment || ""),
+    topic_main: String(row.topic_main || ""),
+    note: String(row.note || ""),
+  }));
 }
 
 async function pendingComments(
@@ -104,6 +121,7 @@ export async function runAnalysis(
   const svc = new ClassifierService(env, provider);
   await opts.shouldContinue?.();
   const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
+  const humanExamples = await loadHumanCorrectionExamples(env);
   const previousProgress = await getProgressJob(env, opts.progressKey);
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
   const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
@@ -162,7 +180,7 @@ export async function runAnalysis(
 
     let results: Awaited<ReturnType<ClassifierService["classify"]>>;
     try {
-      results = await svc.classify(inputs);
+      results = await svc.classify(inputs, humanExamples);
     } catch (e: any) {
       if (opts.jobId != null) {
         await safeAddProcessingLog(env, {

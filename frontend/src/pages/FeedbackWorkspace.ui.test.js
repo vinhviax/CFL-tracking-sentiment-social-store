@@ -20,9 +20,13 @@ test("workspace supports human review of Other topic comments", () => {
   assert.match(source, /function reviewOtherComments\(\)/);
   assert.match(source, /setFilters\(\(current\) => applyWorkspaceFilter\(current, "topic", "other"\)\)/);
   assert.match(source, /manualReviewTopic/);
+  assert.match(source, /manualReviewNote/);
   assert.match(source, /updateCommentAnalysis\(selected\.id/);
+  assert.match(source, /note: manualReviewNote/);
   assert.match(source, /className="manual-review-card"/);
   assert.match(source, /value=\{manualReviewTopic\}/);
+  assert.match(source, /textarea/);
+  assert.match(source, /value=\{manualReviewNote\}/);
 });
 
 test("drawer keeps Facebook post context visible while human reviews a topic", () => {

@@ -110,7 +110,7 @@ describe("commentsRoute human topic correction", () => {
 
     const res = await commentsRoute.request("/10/analysis", {
       method: "PATCH",
-      body: JSON.stringify({ topic_main: "lag_fps", note: "Human reviewed from Other queue" }),
+      body: JSON.stringify({ topic_main: "lag_fps", note: "Human says this is lag because FPS drops during combat" }),
     }, env);
 
     expect(res.status).toBe(200);
@@ -121,6 +121,7 @@ describe("commentsRoute human topic correction", () => {
       corrected_by: "human",
     });
     expect(calls.some((call) => call.sql.includes("INSERT INTO analysis_corrections"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("INSERT INTO analysis_corrections") && call.args.includes("Human says this is lag because FPS drops during combat"))).toBe(true);
     expect(calls.some((call) => call.sql.includes("UPDATE analyses") && call.args.includes("lag_fps"))).toBe(true);
   });
 
