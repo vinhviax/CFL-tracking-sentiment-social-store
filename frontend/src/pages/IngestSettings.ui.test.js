@@ -44,8 +44,18 @@ test("Ingest Settings always renders latest data status for Store, Fanpage, and 
   assert.match(source, /Fanpage/);
   assert.match(source, /Group CSV/);
   assert.match(source, /loadIngestStatus/);
-  assert.match(source, /formatDate\(row\.latest_data_date\)/);
+  assert.match(source, /sourceStatusDate\(row\)/);
   assert.doesNotMatch(source, /row\.latest_data_date \|\| row\.cursor_date/);
+});
+
+test("source status uses the latest pull end date when a source has been pulled through a newer date", () => {
+  assert.match(source, /function sourceStatusDate\(row\)/);
+  assert.match(source, /row\.latest_run\?\.note/);
+  assert.match(source, /note\.end_date/);
+  assert.match(source, /row\.latest_data_date/);
+  assert.ok(
+    source.indexOf("note.end_date") < source.indexOf("return row.latest_data_date")
+  );
 });
 
 test("processing area tracks multiple queued jobs instead of one overwritten key", () => {
@@ -118,6 +128,18 @@ test("Ingest Settings exposes LLM Agent configuration for reasoning and simple s
   assert.match(source, /providerOptions/);
   assert.match(source, /api_key/);
   assert.match(source, /endpoint_url/);
+});
+
+test("LLM Agent configuration masks endpoint and shortens model display values", () => {
+  assert.match(source, /function maskLlmEndpoint\(endpointUrl, provider\)/);
+  assert.match(source, /function formatConfigModelName\(model\)/);
+  assert.match(source, /value=\{formatConfigModelName\(form\.model\)\}/);
+  assert.match(source, /value=\{maskLlmEndpoint\(form\.endpoint_url, form\.provider\)\}/);
+  assert.match(source, /readOnly/);
+  assert.match(source, /endpoint_url: form\.endpoint_url/);
+  assert.match(source, /model: form\.model/);
+  assert.doesNotMatch(source, /value=\{form\.endpoint_url\}/);
+  assert.doesNotMatch(source, /value=\{form\.model\} onChange=\{\(event\) => update\("model"/);
 });
 
 test("manual run translation does not cap large ingest runs", () => {

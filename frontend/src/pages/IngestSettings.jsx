@@ -210,6 +210,17 @@ function formatLogModel(model) {
   return parts.at(-1) || String(model);
 }
 
+function formatConfigModelName(model) {
+  if (!model) return "—";
+  const parts = String(model).split("/");
+  return parts.at(-1) || String(model);
+}
+
+function maskLlmEndpoint(endpointUrl, provider) {
+  if (endpointUrl || provider === "custom") return "LLM của Viax";
+  return "Mặc định provider";
+}
+
 function ProcessingLogList({ logs }) {
   if (!logs?.length) {
     return <div className="llm-log-empty">Chưa có log LLM cho task này.</div>;
@@ -240,6 +251,12 @@ const DEFAULT_SOURCE_STATUS = [
   { key: "facebook_group", label: "Group CSV", latest_data_date: null, cursor_date: null, latest_run: null },
 ];
 
+function sourceStatusDate(row) {
+  const note = parseRunNote(row.latest_run?.note);
+  if (note.end_date && (!row.latest_data_date || note.end_date > row.latest_data_date)) return note.end_date;
+  return row.latest_data_date;
+}
+
 function SourceStatusStrip({ ingestStatus }) {
   const rows = ingestStatus?.source_status?.length ? ingestStatus.source_status : DEFAULT_SOURCE_STATUS;
   return (
@@ -248,7 +265,7 @@ function SourceStatusStrip({ ingestStatus }) {
       {rows.map((row) => (
         <div className="source-status-item" key={row.key}>
           <span>{row.label}</span>
-          <b>{formatDate(row.latest_data_date) || "Chưa có dữ liệu"}</b>
+          <b>{formatDate(sourceStatusDate(row)) || "Chưa có dữ liệu"}</b>
           {row.latest_run?.id && <small>Run #{row.latest_run.id} · {row.latest_run.status}</small>}
         </div>
       ))}
@@ -360,14 +377,14 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave }) {
         </label>
         <label>
           <span>Model</span>
-          <input value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="model-name" />
+          <input value={formatConfigModelName(form.model)} readOnly aria-label="Model hiển thị" />
         </label>
         <label>
           <span>Endpoint</span>
           <input
-            value={form.endpoint_url}
-            onChange={(event) => update("endpoint_url", event.target.value)}
-            placeholder={form.provider === "custom" ? "https://host/v1" : "Mặc định provider"}
+            value={maskLlmEndpoint(form.endpoint_url, form.provider)}
+            readOnly
+            aria-label="Endpoint đã ẩn"
           />
         </label>
         <label>
