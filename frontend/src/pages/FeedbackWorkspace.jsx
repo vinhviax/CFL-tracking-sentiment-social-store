@@ -20,6 +20,7 @@ import {
   listPosts,
   saveInsight,
   saveInsightPrompt,
+  updateCommentAnalysis,
 } from "../api/client.js";
 
 const PAGE_SIZE = 25;
@@ -65,6 +66,9 @@ const UI = {
     urgency: "Mức khẩn cấp",
     all: "Tất cả",
     reset: "Reset filter",
+    reviewOther: "Review Khác",
+    humanReview: "Human review",
+    assignTopic: "Gán chủ đề",
     negativeCount: "tiêu cực",
     actionNeededCount: "cần xử lý",
     high: "Cao",
@@ -132,6 +136,9 @@ const UI = {
     urgency: "紧急度",
     all: "全部",
     reset: "重置筛选",
+    reviewOther: "复核其他",
+    humanReview: "人工复核",
+    assignTopic: "指定主题",
     negativeCount: "负面",
     actionNeededCount: "需处理",
     high: "高",
@@ -338,6 +345,9 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [promptOpen, setPromptOpen] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [manualReviewTopic, setManualReviewTopic] = useState("");
+  const [manualReviewBusy, setManualReviewBusy] = useState(false);
+  const [manualReviewError, setManualReviewError] = useState(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState(null);
 
@@ -371,6 +381,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const topicOptions = useMemo(
     () => buildTopicOptions(topicLabels, topicOptionRanking, { includeEmpty: !filters.sentiment }),
     [topicLabels, topicOptionRanking, filters.sentiment]
+  );
+  const manualTopicOptions = useMemo(
+    () => Object.entries(topicLabels || {}).map(([key, label]) => ({ key, label })),
+    [topicLabels]
   );
   const storeHighlights = useMemo(() => buildStoreHighlights(storeBreakdown, ranking, t), [storeBreakdown, ranking, t]);
 
@@ -416,6 +430,11 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     listSavedInsights({ limit: 30 }).then(setSavedInsights).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    setManualReviewTopic(selected?.analysis?.topic_main || "");
+    setManualReviewError(null);
+  }, [selected?.id, selected?.analysis?.topic_main]);
+
   const setFilter = (key) => (event) => {
     setFilters((current) => applyWorkspaceFilter(current, key, event.target.value));
     setPage(1);
@@ -430,6 +449,11 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     setFilters(getDefaultFilters());
     setPage(1);
   };
+
+  function reviewOtherComments() {
+    setFilters((current) => applyWorkspaceFilter(current, "topic", "other"));
+    setPage(1);
+  }
 
   const selectTopic = (topic) => {
     setFilters((current) => applyWorkspaceFilter(current, "topic", topic));
@@ -476,6 +500,36 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     saveInsightPrompt({ prompt: insightPrompt })
       .then((r) => setInsightPrompt(r.prompt))
       .catch((e) => setError(e?.response?.data?.detail || e.message));
+  };
+
+  const saveManualReviewTopic = () => {
+    if (!selected?.id || !manualReviewTopic) return;
+    setManualReviewBusy(true);
+    setManualReviewError(null);
+    updateCommentAnalysis(selected.id, {
+      topic_main: manualReviewTopic,
+      note: "Manual review from Other queue",
+    })
+      .then((result) => {
+        setSelected((current) => current
+          ? {
+              ...current,
+              analysis: {
+                ...(current.analysis || {}),
+                topic_main: result.topic_main,
+                topics_sub: [],
+                subtopics_dynamic: [],
+                other_suggested: null,
+                confidence: 1,
+                provider: "human_review",
+                model: null,
+              },
+            }
+          : current);
+        loadData();
+      })
+      .catch((e) => setManualReviewError(e?.response?.data?.detail || e.message))
+      .finally(() => setManualReviewBusy(false));
   };
 
   return (
@@ -557,6 +611,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
             <option value="low">{t.low}</option>
           </select>
         </label>
+        <button type="button" className="btn btn-secondary filter-reset" onClick={reviewOtherComments}>{t.reviewOther}</button>
         <button type="button" className="btn btn-secondary filter-reset" onClick={resetFilters}>{t.reset}</button>
       </div>
 
@@ -826,6 +881,25 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                 )}
               </>
             )}
+            <div className="manual-review-card">
+              <p className="drawer-label">{t.humanReview}</p>
+              <div className="manual-review-controls">
+                <select value={manualReviewTopic} onChange={(e) => setManualReviewTopic(e.target.value)}>
+                  {manualTopicOptions.map((option) => (
+                    <option key={option.key} value={option.key}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={saveManualReviewTopic}
+                  disabled={manualReviewBusy || !manualReviewTopic || manualReviewTopic === selected.analysis?.topic_main}
+                >
+                  {manualReviewBusy ? t.loading : t.assignTopic}
+                </button>
+              </div>
+              {manualReviewError && <div className="error-banner manual-review-error">{manualReviewError}</div>}
+            </div>
             <div className="drawer-badges">
               <SentimentBadge value={selected.analysis?.sentiment} lang={lang} />
               <UrgencyBadge value={selected.analysis?.urgency} lang={lang} />

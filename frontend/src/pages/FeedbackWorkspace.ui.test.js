@@ -14,6 +14,23 @@ test("Facebook comments show parent post context in the table and drawer", () =>
   assert.match(source, /href=\{selected\.post\.permalink\}/);
 });
 
+test("workspace supports human review of Other topic comments", () => {
+  assert.match(source, /updateCommentAnalysis/);
+  assert.match(source, /reviewOther/);
+  assert.match(source, /function reviewOtherComments\(\)/);
+  assert.match(source, /setFilters\(\(current\) => applyWorkspaceFilter\(current, "topic", "other"\)\)/);
+  assert.match(source, /manualReviewTopic/);
+  assert.match(source, /updateCommentAnalysis\(selected\.id/);
+  assert.match(source, /className="manual-review-card"/);
+  assert.match(source, /value=\{manualReviewTopic\}/);
+});
+
+test("drawer keeps Facebook post context visible while human reviews a topic", () => {
+  assert.ok(source.indexOf("{selected.post &&") < source.indexOf("manual-review-card"));
+  assert.match(source, /\{t\.postContext\}/);
+  assert.match(source, /selected\.post\.message/);
+});
+
 test("comment drawer shortens provider-prefixed model names", () => {
   assert.match(source, /function formatModelName\(model\)/);
   assert.match(source, /formatModelName\(selected\.analysis\?\.model\)/);

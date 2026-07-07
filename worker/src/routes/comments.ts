@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
+import { isTopic } from "../taxonomy";
 import type { Env } from "../types";
 
 export const commentsRoute = new Hono<{ Bindings: Env }>();
@@ -134,6 +135,75 @@ export function mapCommentRow(r: any, lang = "vi") {
       : null,
   };
 }
+
+commentsRoute.patch("/:id/analysis", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) {
+    return c.json({ detail: "Invalid comment id" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const topicMain = String(body?.topic_main || "").trim();
+  if (!isTopic(topicMain)) {
+    return c.json({ detail: "Invalid topic_main" }, 400);
+  }
+
+  const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : null;
+  const correctedAt = new Date().toISOString();
+  const current = await c.env.DB
+    .prepare(
+      `SELECT c.id AS comment_id, a.topic_main, a.topics_sub
+       FROM comments c
+       LEFT JOIN analyses a ON a.comment_id = c.id
+       WHERE c.id = ?`
+    )
+    .bind(id)
+    .first<any>();
+
+  if (!current) {
+    return c.json({ detail: "Comment not found" }, 404);
+  }
+  if (!current.topic_main) {
+    return c.json({ detail: "Comment has no analysis to correct" }, 409);
+  }
+
+  const newTopicsSub = "[]";
+  await c.env.DB
+    .prepare(
+      `INSERT INTO analysis_corrections
+       (comment_id, previous_topic_main, previous_topics_sub, new_topic_main, new_topics_sub, note, corrected_by, corrected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      id,
+      current.topic_main,
+      current.topics_sub || "[]",
+      topicMain,
+      newTopicsSub,
+      note,
+      "human",
+      correctedAt
+    )
+    .run();
+
+  await c.env.DB
+    .prepare(
+      `UPDATE analyses
+       SET topic_main = ?, topics_sub = ?, other_suggested = NULL,
+           confidence = 1, provider = 'human_review', model = NULL, analyzed_at = ?
+       WHERE comment_id = ?`
+    )
+    .bind(topicMain, newTopicsSub, correctedAt, id)
+    .run();
+
+  return c.json({
+    comment_id: id,
+    previous_topic_main: current.topic_main,
+    topic_main: topicMain,
+    corrected_by: "human",
+    corrected_at: correctedAt,
+  });
+});
 
 commentsRoute.get("/", async (c) => {
   const q = c.req.query();

@@ -34,6 +34,8 @@ export const getSubtopicRanking = (params) =>
 
 export const listComments = (params) =>
   api.get("/api/comments", { params }).then((r) => r.data);
+export const updateCommentAnalysis = (id, payload) =>
+  api.patch(`/api/comments/${id}/analysis`, payload).then((r) => r.data);
 
 export const listRuns = (params) =>
   api.get("/api/runs", { params }).then((r) => r.data);
