@@ -89,7 +89,7 @@ Chude lon v3:
 
 `lag_fps`, `crash_freeze`, `network_ping`, `login_account`, `account_ban_security`, `payment_topup`, `purchase_delivery`, `update_download`, `ui_control`, `gameplay_mode_map`, `shooting_mechanics`, `matchmaking`, `rank_competition`, `balance`, `hack_cheat`, `event_mission`, `reward_giftcode`, `gacha_rate`, `item_skin_weapon`, `social_chat_voice`, `community_behavior`, `customer_support`, `feature_request`, `content_esports`, `spam_ads_scam`, `game_comparison`, `positive_feedback`, `technical_other`, `other`
 
-Prompt version trong code hien tai: `v4`. Production van la ban deploy gan nhat cho den khi user yeu cau deploy.
+Prompt version trong code hien tai va production: `v4`. Da deploy Worker/Pages tu commit `0669ef4` trong session 2026-07-07.
 
 Topic moi `game_comparison` hien label UI la `So Sánh Game`; dung cho comment nhac toi CFM, CrossFire Mobile, ban Trung/China, ban SEA, ban Viet/VN, global/quoc te hoac game khac lien quan, ke ca khi khong so sanh truc tiep.
 

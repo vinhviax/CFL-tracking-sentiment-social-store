@@ -7,20 +7,20 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 - Workspace dang lam: `J:\My Drive\CFL\Agent\Tracking Store Social`.
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`.
 - Branch: `main`.
-- HEAD da push: `56b0039 Fix CSV ingest D1 batching`.
-- Git working tree hien co cac thay doi chua commit cho taxonomy v4, semantic subtopic grouping, prompt liveops, test va handoff/memory; chua push/deploy.
+- Code deploy commit: `0669ef4 Add game comparison taxonomy and liveops prompts`.
+- Git working tree sau deploy duoc cap nhat them handoff/memory de ghi trang thai production moi.
 - Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev`.
 - Pages production: `https://cfl-feedback.pages.dev`.
-- Latest Worker deploy version: `0f2ae722-6989-4208-938f-1f109b9a8913`.
-- Latest Pages deploy URL: `https://3c9a3165.cfl-feedback.pages.dev`.
-- Production health da verify sau deploy: `/api/health` tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v3`.
+- Latest Worker deploy version: `d5575ee4-f98f-4315-bb25-5df5e1467a3e`.
+- Latest Pages deploy URL: `https://9ab378d0.cfl-feedback.pages.dev`.
+- Production health da verify sau deploy: `/api/health` tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v4`.
 
 ## Deploy/verify vua chay
 
-- Commit/push moi nhat: `56b0039 Fix CSV ingest D1 batching`.
+- Commit/push moi nhat: `0669ef4 Add game comparison taxonomy and liveops prompts`.
 - Worker deploy bang checkout verify:
-  `C:\Users\PC\AppData\Local\Temp\cfl-feedback-verify-4a4fb46f900f4dd39b057f5b58dcf10b`.
-- Worker full tests: 26 test files pass, 89 tests pass.
+  `C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-worker-verify`.
+- Worker full tests: 26 test files pass, 96 tests pass.
 - Sau update prompt liveops: worker full tests pass 26 files / 96 tests, `npm run typecheck` pass trong `C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-worker-verify\worker`.
 - Worker typecheck: pass.
 - Frontend build: pass; Vite van co warning cu ve chunk lon hon 500 kB.
@@ -49,8 +49,8 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
      `lag_fps`, `crash_freeze`, `network_ping`.
    - Topic list hien tai:
      `lag_fps`, `crash_freeze`, `network_ping`, `login_account`, `account_ban_security`, `payment_topup`, `purchase_delivery`, `update_download`, `ui_control`, `gameplay_mode_map`, `shooting_mechanics`, `matchmaking`, `rank_competition`, `balance`, `hack_cheat`, `event_mission`, `reward_giftcode`, `gacha_rate`, `item_skin_weapon`, `social_chat_voice`, `community_behavior`, `customer_support`, `feature_request`, `content_esports`, `spam_ads_scam`, `positive_feedback`, `technical_other`, `other`.
-   - Prompt version production hien la `v3`.
-   - Working tree hien da them topic `game_comparison` / `So Sánh Game` va bump code prompt version len `v4`; chua commit/push/deploy.
+   - Prompt version production hien la `v4`.
+   - Da them topic `game_comparison` / `So Sánh Game` va bump prompt version len `v4`; da commit/push/deploy trong commit `0669ef4`.
    - Topic `game_comparison` bat comment nhac toi CFM, CrossFire Mobile, ban Trung/China, ban SEA, ban Viet/VN, global/quoc te hoac game khac lien quan, ke ca khi khong so sanh truc tiep.
 
 4. CSV Facebook Group
@@ -74,9 +74,9 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
    - Facebook tab co filter Fanpage/Group.
    - Comment detail drawer hien bai post goc va link mo post neu co.
    - Topic/subtopic filters dung taxonomy moi.
-   - Working tree hien da them semantic grouping cho subtopic: cac bien the update nhu `nhat xong`, `cap nhat xong`, `phien ban moi`, `cap nhat moi` duoc gom ve `Cập nhật/phiên bản mới`; API ranking/filter dung alias keys de chon mot nhom van loc du comment cu. Chua commit/push/deploy.
+   - Da them semantic grouping cho subtopic: cac bien the update nhu `nhat xong`, `cap nhat xong`, `phien ban moi`, `cap nhat moi` duoc gom ve `Cập nhật/phiên bản mới`; API ranking/filter dung alias keys de chon mot nhom van loc du comment cu. Da commit/push/deploy.
 
-7. Prompt liveops (working tree, chua deploy)
+7. Prompt liveops (da deploy)
    - `worker/src/services/llm/classifier.ts`: classifier prompt duoc nang thanh senior liveops analyst, yeu cau doc hieu comment/context/rating, khong keyword-only, chon issue driver, rule ro cho `game_comparison` / `So Sánh Game` khi nhac CFM/China/SEA/ban Viet/global/game khac.
    - `worker/src/services/translation.ts`: translation prompt dich zh-CN cho product/liveops/QA operators, giu technical meaning, severity va thuat ngu CFL/CFM/SEA/China.
    - `worker/src/services/taxonomyMemory.ts`: taxonomy memory prompt yeu cau gop semantic duplicate, khong tao subtopic chi vi n-gram/cum text lap; vi du update variants gom ve `Cập nhật/phiên bản mới`.
