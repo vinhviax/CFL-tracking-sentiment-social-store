@@ -1,5 +1,5 @@
 // Ported from backend/app/taxonomy.py — keep both in sync if the taxonomy changes.
-export const PROMPT_VERSION = "v3";
+export const PROMPT_VERSION = "v4";
 
 export const TOPICS = [
   "lag_fps",
@@ -27,6 +27,7 @@ export const TOPICS = [
   "feature_request",
   "content_esports",
   "spam_ads_scam",
+  "game_comparison",
   "positive_feedback",
   "technical_other",
   "other",
@@ -60,6 +61,7 @@ export const TOPIC_LABELS_VI: Record<string, string> = {
   feature_request: "Góp ý/Yêu cầu thêm tính năng",
   content_esports: "Esports/Stream/Content",
   spam_ads_scam: "Spam/Quảng cáo/Lừa đảo",
+  game_comparison: "So Sánh Game",
   positive_feedback: "Khen/Trải nghiệm tốt",
   technical_other: "Lỗi kỹ thuật khác",
   other: "Khác/Không đủ ngữ cảnh",
@@ -91,6 +93,7 @@ export const TOPIC_LABELS_ZH_CN: Record<string, string> = {
   feature_request: "建议/功能需求",
   content_esports: "电竞/直播/内容",
   spam_ads_scam: "垃圾信息/广告/诈骗",
+  game_comparison: "游戏版本/竞品对比",
   positive_feedback: "好评/正向体验",
   technical_other: "其他技术问题",
   other: "其他/上下文不足",

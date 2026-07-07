@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import { summarizeStoreBreakdown } from "../services/storeStats";
+import { getSemanticSubtopic } from "../services/subtopicSemantics";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +29,26 @@ function addDateFilter(where: string[], params: any[], column: string, operator:
   if (!key) return;
   where.push(`substr(${column}, 1, 10) ${operator} ?`);
   params.push(key);
+}
+
+function parseSubtopicKeys(value?: string) {
+  return String(value || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+function addSubtopicFilter(where: string[], params: any[], value?: string, alias = "st_filter") {
+  const keys = parseSubtopicKeys(value);
+  if (!keys.length) return;
+  const placeholders = keys.map(() => "?").join(",");
+  where.push(`EXISTS (
+      SELECT 1 FROM comment_subtopics cs_filter
+      JOIN taxonomy_subtopics ${alias} ON ${alias}.id = cs_filter.subtopic_id
+      WHERE cs_filter.comment_id = c.id AND ${alias}.key IN (${placeholders})
+    )`);
+  params.push(...keys);
 }
 
 export function buildTrendSeries(rows: TrendRow[], q: Record<string, string> = {}): TrendPoint[] {
@@ -72,14 +93,7 @@ function baseFilters(q: Record<string, string>) {
   if (q.post_id) { where.push("c.post_id = ?"); params.push(Number(q.post_id)); }
   addDateFilter(where, params, "c.created_at", ">=", q.from);
   addDateFilter(where, params, "c.created_at", "<=", q.to);
-  if (q.subtopic) {
-    where.push(`EXISTS (
-      SELECT 1 FROM comment_subtopics cs_filter
-      JOIN taxonomy_subtopics st_filter ON st_filter.id = cs_filter.subtopic_id
-      WHERE cs_filter.comment_id = c.id AND st_filter.key = ?
-    )`);
-    params.push(q.subtopic);
-  }
+  addSubtopicFilter(where, params, q.subtopic);
   return { where, params };
 }
 
@@ -103,6 +117,7 @@ export async function computeSubtopicRanking(db: D1Database, q: Record<string, s
   const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
   const limit = Math.max(1, Math.min(Number(limitInput) || 12, 50));
 
+  const rowLimit = Math.max(limit * 6, limit);
   const rows = await db.prepare(
     `SELECT st.id, st.key, st.parent_topic, st.label_vi, st.label_zh_cn, st.status, st.evidence_count,
             COUNT(DISTINCT c.id) as count,
@@ -116,22 +131,64 @@ export async function computeSubtopicRanking(db: D1Database, q: Record<string, s
      GROUP BY st.id
      ORDER BY count DESC, negative_count DESC, st.evidence_count DESC
      LIMIT ?`
-  ).bind(...params, limit).all<any>();
+  ).bind(...params, rowLimit).all<any>();
 
-  return rows.results.map((row) => ({
-    id: row.id,
-    key: row.key,
-    parent_topic: row.parent_topic,
-    parent_label: topicLabel(row.parent_topic, lang),
-    label: subtopicLabel(row, lang),
-    label_vi: row.label_vi,
-    label_zh_cn: row.label_zh_cn || null,
-    status: row.status,
-    evidence_count: Number(row.evidence_count || 0),
-    count: Number(row.count || 0),
-    negative_count: Number(row.negative_count || 0),
-    urgent_count: Number(row.urgent_count || 0),
-  }));
+  const groups = new Map<string, any>();
+  for (const row of rows.results) {
+    const semantic = getSemanticSubtopic(row.parent_topic, row.label_vi);
+    const groupKey = semantic?.key || row.key;
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.keys.push(row.key);
+      existing.source_rows.push(row);
+      existing.evidence_count += Number(row.evidence_count || 0);
+      existing.status = existing.status === "active" || row.status === "active" ? "active" : existing.status;
+      continue;
+    }
+    groups.set(groupKey, {
+      id: row.id,
+      key: row.key,
+      keys: [row.key],
+      source_rows: [row],
+      parent_topic: row.parent_topic,
+      parent_label: topicLabel(row.parent_topic, lang),
+      label: semantic ? (lang === "zh-CN" && semantic.label_zh_cn ? semantic.label_zh_cn : semantic.label_vi) : subtopicLabel(row, lang),
+      label_vi: semantic?.label_vi || row.label_vi,
+      label_zh_cn: semantic?.label_zh_cn || row.label_zh_cn || null,
+      status: row.status,
+      evidence_count: Number(row.evidence_count || 0),
+      count: Number(row.count || 0),
+      negative_count: Number(row.negative_count || 0),
+      urgent_count: Number(row.urgent_count || 0),
+    });
+  }
+
+  const out = [];
+  for (const group of groups.values()) {
+    if (group.keys.length > 1) {
+      const keyPlaceholders = group.keys.map(() => "?").join(",");
+      const counts = await db.prepare(
+        `SELECT COUNT(DISTINCT c.id) as count,
+                COUNT(DISTINCT CASE WHEN a.sentiment = 'negative' THEN c.id END) as negative_count,
+                COUNT(DISTINCT CASE WHEN a.urgency IN ('medium','high') THEN c.id END) as urgent_count
+         FROM comments c
+         JOIN analyses a ON a.comment_id = c.id
+         JOIN comment_subtopics cs ON cs.comment_id = c.id
+         JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+         ${whereSql ? `${whereSql} AND` : "WHERE"} st.key IN (${keyPlaceholders})`
+      ).bind(...params, ...group.keys).first<any>();
+      group.count = Number(counts?.count || 0);
+      group.negative_count = Number(counts?.negative_count || 0);
+      group.urgent_count = Number(counts?.urgent_count || 0);
+    }
+    group.key = group.keys.join(",");
+    delete group.source_rows;
+    out.push(group);
+  }
+
+  return out
+    .sort((a, b) => b.count - a.count || b.negative_count - a.negative_count || b.evidence_count - a.evidence_count)
+    .slice(0, limit);
 }
 
 export async function computeOverview(db: D1Database, q: Record<string, string>) {
@@ -273,8 +330,9 @@ statsRoute.get("/subtopic-ranking", async (c) => {
   const withSamples = [];
   for (const item of items) {
     const { where, params } = baseFilters(q);
-    const w = [...where, "st.key = ?"];
-    const p = [...params, item.key];
+    const itemKeys = Array.isArray((item as any).keys) && (item as any).keys.length ? (item as any).keys : parseSubtopicKeys(item.key);
+    const w = [...where, `st.key IN (${itemKeys.map(() => "?").join(",")})`];
+    const p = [...params, ...itemKeys];
     if (q.topic) { w.push("a.topic_main = ?"); p.push(q.topic); }
     if (q.sentiment) { w.push("a.sentiment = ?"); p.push(q.sentiment); }
     if (q.urgency) { w.push("a.urgency = ?"); p.push(q.urgency); }

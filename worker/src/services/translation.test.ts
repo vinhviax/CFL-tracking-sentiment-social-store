@@ -1,5 +1,32 @@
 import { describe, expect, test } from "vitest";
-import { buildTranslationLimit, getTranslationBatchSize, getTranslationModel, parseTranslationResults } from "./translation";
+import {
+  TRANSLATION_SYSTEM_PROMPT,
+  buildTranslationLimit,
+  buildTranslationUserPrompt,
+  getTranslationBatchSize,
+  getTranslationModel,
+  parseTranslationResults,
+} from "./translation";
+
+describe("translation prompt", () => {
+  test("preserves liveops meaning and version/game terms for Chinese operators", () => {
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("liveops");
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("Simplified Chinese");
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("CFL");
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("CFM");
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("SEA");
+    expect(TRANSLATION_SYSTEM_PROMPT).toContain("technical meaning");
+  });
+
+  test("asks the model to return only the translation JSON contract", () => {
+    const prompt = buildTranslationUserPrompt([{ id: 1, message: "CFM SEA mượt hơn bản Việt", summary: "Người chơi so sánh bản SEA." }]);
+
+    expect(prompt).toContain("Return only JSON");
+    expect(prompt).toContain("message_zh");
+    expect(prompt).toContain("summary_zh");
+    expect(prompt).toContain("CFM SEA");
+  });
+});
 
 describe("parseTranslationResults", () => {
   test("accepts direct data-line translation records", () => {

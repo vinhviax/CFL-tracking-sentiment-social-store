@@ -25,7 +25,9 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 
 - GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
 - Branch lam viec hien tai: `main`
-- Workspace moi de lam tiep: `J:\My Drive\CFL\Agent\Tracking Store Social`
+- Workspace dang lam trong session 2026-07-07: `J:\My Drive\CFL\Agent\Tracking Store Social`
+- Checkout verify/deploy co dependency on dinh: `C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-worker-verify`
+- Workspace chinh hien tai: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Workspace cu: `G:\CFM\Research\Crossfire Legends Sea`
 
 ## Cloudflare config
@@ -63,7 +65,7 @@ npx wrangler secret put FB_ACCESS_TOKEN
 
 ## Chuc nang da co
 
-- Ingest CSV Facebook Group co preview va dedupe.
+- Ingest CSV Facebook Group co preview day du 5 cot A-E: Source, Post Published Date, Post Message, Created Date, Comment Message; chi nhap dong co Source = `Group`, bo qua dong khac.
 - Ingest Fanpage qua Graph API.
 - Ingest Sensor Tower Store VN, Google Play `gp`, App Store `ios`.
 - Cron Sensor Tower incremental theo cursor, chi keo ngay tiep theo den hom qua GMT+7.
@@ -76,14 +78,20 @@ npx wrangler secret put FB_ACCESS_TOKEN
 - Light/Dark mode co persist localStorage.
 - Ingest Settings hien ro run dang phan tich/dich gi, nguon nao, ngay nao, da xong bao nhieu.
 - Ingest Settings co nut xoa tung ingest run; backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
+- Ingest Settings co nut huy task dang cho/dang chay/bi loi; task da xong tu an khoi hang doi.
+- Co cau hinh LLM Agent cho provider mac dinh worker hoac custom OpenAI-compatible endpoint/key/model; phan tich dung model cao, dich dung model thap.
+- Log LLM hien theo batch trong hang doi xu ly, ten model duoc rut gon bo prefix provider/path.
+- Prompt LLM trong code hien tai da duoc nang theo huong liveops: classifier doc hieu nguyen nhan van hanh thay vi keyword-only, translation zh-CN giu dung thuat ngu CFL/CFM/SEA/China, taxonomy memory gom subtopic theo nghia thay vi theo text lap.
 
 ## Taxonomy hien tai
 
-Chude lon:
+Chude lon v3:
 
-`function`, `ping_network`, `bug`, `event`, `hack_cheat`, `payment_topup`, `login_account`, `performance_lag_crash`, `update_patch`, `customer_support`, `gameplay`, `matchmaking`, `balance`, `reward_gift`, `community_player_behavior`, `item_skin`, `gacha`, `esports_content`, `suggestion_request`, `spam_ads`, `other`
+`lag_fps`, `crash_freeze`, `network_ping`, `login_account`, `account_ban_security`, `payment_topup`, `purchase_delivery`, `update_download`, `ui_control`, `gameplay_mode_map`, `shooting_mechanics`, `matchmaking`, `rank_competition`, `balance`, `hack_cheat`, `event_mission`, `reward_giftcode`, `gacha_rate`, `item_skin_weapon`, `social_chat_voice`, `community_behavior`, `customer_support`, `feature_request`, `content_esports`, `spam_ads_scam`, `game_comparison`, `positive_feedback`, `technical_other`, `other`
 
-Prompt version hien tai: `v2`.
+Prompt version trong code hien tai: `v4`. Production van la ban deploy gan nhat cho den khi user yeu cau deploy.
+
+Topic moi `game_comparison` hien label UI la `So Sánh Game`; dung cho comment nhac toi CFM, CrossFire Mobile, ban Trung/China, ban SEA, ban Viet/VN, global/quoc te hoac game khac lien quan, ke ca khi khong so sanh truc tiep.
 
 Keyword rules nam o `worker/src/services/topicKeywords.ts`.
 
@@ -92,6 +100,9 @@ Subtopic memory:
 - LLM phat hien chu de con sau moi run.
 - Fallback detector bat cum 2-4 tu lap lai trong run.
 - Neu cum xuat hien trong it nhat 3 comment cung topic va khong phai keyword lon qua chung, luu thanh subtopic candidate.
+- Code hien tai co semantic canonicalization cho subtopic `update_download`: cac bien the nhu `cap nhat xong`, `phien ban moi`, `cap nhat moi`, `nhat xong` duoc gom ve `Cập nhật/phiên bản mới` thay vi tao nhieu subtopic theo exact text.
+- Prompt taxonomy memory yeu cau gop cac cach dien dat cung nghia, khong tao chu de con chi vi mot n-gram/cum chu lap lai.
+- API subtopic ranking/filter gom alias subtopic cu bang danh sach key, nen dropdown khong con lap cac bien the text cua cung mot y sau khi deploy.
 
 ## Lenh verify chinh
 
@@ -123,7 +134,9 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 
 - D1 unique constraint co the loi neu dedupe hash trung khi upload CSV/Sensor Tower; ingest service da co dedupe, neu sua can giu logic idempotent.
 - D1 bound parameter limit thap, query `IN` can chunk.
+- CSV Group file lon gap 2 gioi han khac nhau: dedupe lookup `IN (...)` phai chunk nho de khong vuot SQL variable, nhung insert `db.batch` phai du lon de khong tao qua nhieu D1 subrequest trong mot Worker invocation. Ban moi giu dedupe 45 rows/chunk va insert 100 rows/batch.
 - Facebook pagination khong duoc keo vo han; giu limit de tranh Too many subrequests.
 - Worker background job dung `ctx.waitUntil`; progress khong luu in-memory ma luu D1.
 - CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua. Neu file khong co dong Group moi hoac toan duplicate, upload bi tu choi truoc khi tao ingest run.
+- Store Sensor Tower ngay hien thi co fix de uu tien requested range va parse ngay nguon khong bi lech timezone. Run cu da import truoc fix co the van mang data date cu trong D1 neu khong xoa/keo lai.
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.

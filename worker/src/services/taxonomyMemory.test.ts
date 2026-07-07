@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildDiscoverySystem,
   extractRepeatedSubtopicCandidates,
   MEMORY_ACTIVE_EVIDENCE_THRESHOLD,
   nextSubtopicStatus,
@@ -8,9 +9,24 @@ import {
 } from "./taxonomyMemory";
 
 describe("taxonomy memory helpers", () => {
+  test("prompts discovery to group semantic intents instead of repeated text fragments", () => {
+    const prompt = buildDiscoverySystem();
+
+    expect(prompt).toContain("đọc hiểu");
+    expect(prompt).toContain("Không tạo chủ đề con chỉ vì một n-gram");
+    expect(prompt).toContain("gộp");
+    expect(prompt).toContain("Cập nhật/phiên bản mới");
+  });
+
   test("normalizes Vietnamese subtopic labels into stable parent-scoped keys", () => {
     expect(normalizeSubtopicKey("gameplay_mode_map", "Cơ chế đặt bom / gỡ bom")).toBe("gameplay_mode_map:co_che_dat_bom_go_bom");
     expect(normalizeSubtopicKey("lag_fps", "Giật, lag & drop FPS!!!")).toBe("lag_fps:giat_lag_drop_fps");
+  });
+
+  test("normalizes semantically equivalent update subtopics into one key", () => {
+    expect(normalizeSubtopicKey("update_download", "cap nhat xong")).toBe("update_download:cap_nhat_phien_ban_moi");
+    expect(normalizeSubtopicKey("update_download", "phien ban moi")).toBe("update_download:cap_nhat_phien_ban_moi");
+    expect(normalizeSubtopicKey("update_download", "cap nhat moi")).toBe("update_download:cap_nhat_phien_ban_moi");
   });
 
   test("parses LLM subtopic discovery output and deduplicates evidence comment ids", () => {
@@ -68,6 +84,22 @@ describe("taxonomy memory helpers", () => {
     ] as any);
 
     expect(candidates.some((candidate) => candidate.label_vi.includes("lag"))).toBe(false);
+  });
+
+  test("collapses overlapping update phrases into one semantic subtopic", () => {
+    const candidates = extractRepeatedSubtopicCandidates([
+      memoryComment(1, "cap nhat xong lag qua", "update_download"),
+      memoryComment(2, "sau khi cap nhat xong game loi", "update_download"),
+      memoryComment(3, "phien ban moi giat lag", "update_download"),
+      memoryComment(4, "cap nhat moi khong vao game duoc", "update_download"),
+    ] as any, 2);
+
+    const updateCandidates = candidates.filter((candidate) => candidate.parent_topic === "update_download");
+    expect(updateCandidates).toHaveLength(1);
+    expect(updateCandidates[0]).toMatchObject({
+      label_vi: "Cập nhật/phiên bản mới",
+      comment_ids: [1, 2, 3, 4],
+    });
   });
 });
 

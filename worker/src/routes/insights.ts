@@ -14,6 +14,14 @@ function normalizeFilters(raw: Record<string, any>): Record<string, string> {
   return out;
 }
 
+function parseSubtopicKeys(value?: string) {
+  return String(value || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
 async function sampleBySentiment(env: Env, q: Record<string, string>): Promise<SentimentSamples> {
   const baseWhere: string[] = [];
   const baseParams: any[] = [];
@@ -25,12 +33,15 @@ async function sampleBySentiment(env: Env, q: Record<string, string>): Promise<S
   if (q.to) { baseWhere.push("c.created_at <= ?"); baseParams.push(q.to); }
   if (q.topic) { baseWhere.push("a.topic_main = ?"); baseParams.push(q.topic); }
   if (q.subtopic) {
+    const subtopicKeys = parseSubtopicKeys(q.subtopic);
+    if (!subtopicKeys.length) return { negative: [], neutral: [], positive: [] };
+    const placeholders = subtopicKeys.map(() => "?").join(",");
     baseWhere.push(`EXISTS (
       SELECT 1 FROM comment_subtopics cs
       JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
-      WHERE cs.comment_id = c.id AND st.key = ?
+      WHERE cs.comment_id = c.id AND st.key IN (${placeholders})
     )`);
-    baseParams.push(q.subtopic);
+    baseParams.push(...subtopicKeys);
   }
 
   const samples: SentimentSamples = { negative: [], neutral: [], positive: [] };

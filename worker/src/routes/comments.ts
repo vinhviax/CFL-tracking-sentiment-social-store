@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getSemanticSubtopic } from "../services/subtopicSemantics";
 import type { Env } from "../types";
 
 export const commentsRoute = new Hono<{ Bindings: Env }>();
@@ -27,6 +28,14 @@ function addDateFilter(where: string[], params: any[], column: string, operator:
   if (!key) return;
   where.push(`substr(${column}, 1, 10) ${operator} ?`);
   params.push(key);
+}
+
+function parseSubtopicKeys(value?: string) {
+  return String(value || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, 30);
 }
 
 async function loadCommentSubtopics(db: D1Database, commentIds: number[], lang: string): Promise<Map<number, any[]>> {
@@ -62,9 +71,29 @@ export function mapCommentRow(r: any, lang = "vi") {
   const wantsZh = lang === "zh-CN";
   const message = wantsZh && r.message_translated ? r.message_translated : r.message;
   const summary = wantsZh && r.summary_translated ? r.summary_translated : r.summary;
-  const dynamicSubtopics = (r.dynamic_subtopics || []).map((subtopic: any) => ({
+  const subtopicGroups = new Map<string, any>();
+  for (const subtopic of r.dynamic_subtopics || []) {
+    const semantic = getSemanticSubtopic(subtopic.parent_topic, subtopic.label_vi || subtopic.label || subtopic.key);
+    const groupKey = semantic?.key || subtopic.key;
+    const existing = subtopicGroups.get(groupKey);
+    if (existing) {
+      existing.keys.push(subtopic.key);
+      continue;
+    }
+    subtopicGroups.set(groupKey, {
+      ...subtopic,
+      key: subtopic.key,
+      keys: [subtopic.key],
+      label: semantic
+        ? (wantsZh && semantic.label_zh_cn ? semantic.label_zh_cn : semantic.label_vi)
+        : (wantsZh && subtopic.label_zh_cn ? subtopic.label_zh_cn : (subtopic.label || subtopic.label_vi)),
+      label_vi: semantic?.label_vi || subtopic.label_vi,
+      label_zh_cn: semantic?.label_zh_cn || subtopic.label_zh_cn,
+    });
+  }
+  const dynamicSubtopics = [...subtopicGroups.values()].map((subtopic) => ({
     ...subtopic,
-    label: wantsZh && subtopic.label_zh_cn ? subtopic.label_zh_cn : (subtopic.label || subtopic.label_vi),
+    key: subtopic.keys.join(","),
   }));
   return {
     id: r.id,
@@ -122,12 +151,15 @@ commentsRoute.get("/", async (c) => {
   addDateFilter(where, filterParams, "c.created_at", "<=", q.to);
   if (q.topic) { where.push("a.topic_main = ?"); filterParams.push(q.topic); }
   if (q.subtopic) {
+    const subtopicKeys = parseSubtopicKeys(q.subtopic);
+    if (!subtopicKeys.length) return c.json({ detail: "Invalid subtopic filter" }, 400);
+    const placeholders = subtopicKeys.map(() => "?").join(",");
     where.push(`EXISTS (
       SELECT 1 FROM comment_subtopics cs
       JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
-      WHERE cs.comment_id = c.id AND st.key = ?
+      WHERE cs.comment_id = c.id AND st.key IN (${placeholders})
     )`);
-    filterParams.push(q.subtopic);
+    filterParams.push(...subtopicKeys);
   }
   if (q.sentiment) { where.push("a.sentiment = ?"); filterParams.push(q.sentiment); }
   if (q.urgency) { where.push("a.urgency = ?"); filterParams.push(q.urgency); }

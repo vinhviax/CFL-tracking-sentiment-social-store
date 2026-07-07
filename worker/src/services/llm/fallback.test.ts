@@ -25,4 +25,11 @@ describe("classifyFallback topic keywords", () => {
     expect(result.topic_main).toBe("ui_control");
     expect(result.sentiment).toBe("negative");
   });
+
+  test("routes mentions of CFM, China, or SEA game versions into game comparison", () => {
+    expect(classify("CFM SEA muot hon ban Viet nhieu").topic_main).toBe("game_comparison");
+    expect(classify("Ban Trung nhieu sung hon CFL VN").topic_main).toBe("game_comparison");
+    expect(classify("Game China event ngon hon game nay").topic_main).toBe("game_comparison");
+    expect(classify("SEA event ngon hon game nay").topic_main).toBe("game_comparison");
+  });
 });

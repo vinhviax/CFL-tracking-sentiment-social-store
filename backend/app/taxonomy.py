@@ -5,7 +5,7 @@ so analyses can be selectively re-run without re-processing everything.
 """
 from __future__ import annotations
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v4"
 
 # Canonical topic keys. LLM may propose new groups via `other_suggested`.
 TOPICS: list[str] = [
@@ -29,6 +29,7 @@ TOPICS: list[str] = [
     "esports_content",
     "suggestion_request",
     "spam_ads",
+    "game_comparison",
     "other",
 ]
 
@@ -54,6 +55,7 @@ TOPIC_LABELS_VI: dict[str, str] = {
     "esports_content": "Esports/Nội dung",
     "suggestion_request": "Góp ý/Yêu cầu",
     "spam_ads": "Spam/Quảng cáo",
+    "game_comparison": "So Sánh Game",
     "other": "Khác",
 }
 

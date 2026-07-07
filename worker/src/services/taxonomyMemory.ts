@@ -1,6 +1,7 @@
 import { isTopic, TOPIC_LABELS_VI, type Topic } from "../taxonomy";
 import type { Env } from "../types";
 import { resolveLlmProvider } from "./llmAgentConfig";
+import { getSemanticSubtopic } from "./subtopicSemantics";
 import { isGenericMajorTopicKeyword, normalizeTopicText } from "./topicKeywords";
 
 export const MEMORY_ACTIVE_EVIDENCE_THRESHOLD = 3;
@@ -28,6 +29,8 @@ export interface RunCommentForMemory {
 }
 
 export function normalizeSubtopicKey(parentTopic: string, label: string): string {
+  const semantic = getSemanticSubtopic(parentTopic, label);
+  if (semantic) return semantic.key;
   const normalized = label
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -95,13 +98,16 @@ export function parseSubtopicDiscoveryResults(raw: string): SubtopicCandidate[] 
   return out;
 }
 
-function buildDiscoverySystem(): string {
+export function buildDiscoverySystem(): string {
   return [
-    "Bạn là taxonomy memory agent cho game Crossfire Legends.",
-    "Nhiệm vụ: đọc comment đã được phân loại theo chủ đề lớn và phát hiện chủ đề con cụ thể bên trong từng chủ đề lớn.",
-    "Chủ đề con phải ngắn, dễ hiểu, không trùng chủ đề lớn, ví dụ Gameplay -> cơ chế đặt bom, rank khó, vũ khí mất cân bằng.",
-    "Ưu tiên các cụm vấn đề lặp lại trong nhiều comment của cùng một lượt phân tích, kể cả khi chúng chưa nằm trong taxonomy lớn hiện tại.",
-    "Chỉ tạo chủ đề con khi có evidence từ comment. Nếu một chủ đề đã biết xuất hiện lại, hãy dùng lại label gần nhất.",
+    "Bạn là taxonomy memory agent cho liveops game Crossfire Legends.",
+    "Nhiệm vụ: đọc hiểu comment đã được phân loại theo chủ đề lớn và phát hiện chủ đề con theo ý định/vấn đề vận hành bên trong từng chủ đề lớn.",
+    "Không tạo chủ đề con chỉ vì một n-gram hoặc cụm chữ lặp lại. Cụm chữ chỉ là evidence; label cuối cùng phải phản ánh cùng một vấn đề thật mà người chơi đang nói.",
+    "Hãy gộp các cách diễn đạt giống nghĩa vào một label canonical ngắn, dễ hiểu, không trùng chủ đề lớn. Ví dụ update_download: \"nhật xong\", \"cập nhật xong\", \"phiên bản mới\", \"cập nhật mới\", \"nhật phiên bản mới\" đều gộp về \"Cập nhật/phiên bản mới\".",
+    "Nếu existing active/pending subtopic đã bao phủ ý nghĩa của comment mới, hãy dùng lại label gần nhất thay vì tạo biến thể text mới.",
+    "Ưu tiên các vấn đề lặp lại trong nhiều comment của cùng một lượt phân tích, kể cả khi chúng chưa nằm trong taxonomy lớn hiện tại.",
+    "Chỉ tạo chủ đề con khi có evidence từ comment; không suy đoán campaign, lỗi kỹ thuật hoặc nguyên nhân nếu comment không nói rõ.",
+    "Chủ đề con tốt cho liveops nên trả lời được: người chơi đang gặp/khen/chê điều gì, team nào có thể triage, và nó khác gì với chủ đề lớn.",
     "Trả về duy nhất JSON: {\"subtopics\":[{\"parent_topic\":\"gameplay_mode_map\",\"label_vi\":\"...\",\"label_zh_cn\":\"...\",\"description\":\"...\",\"comment_ids\":[1,2],\"confidence\":0.8,\"novelty\":\"new|known|emerging\"}]}",
   ].join("\n");
 }
@@ -169,11 +175,12 @@ export function extractRepeatedSubtopicCandidates(
         const phraseTokens = tokens.slice(start, start + size);
         if (!usefulPhrase(phraseTokens)) continue;
         const normalizedPhrase = phraseTokens.map((token) => token.normalized).join(" ");
-        const key = `${comment.topic_main}:${normalizedPhrase}`;
+        const semantic = getSemanticSubtopic(comment.topic_main, normalizedPhrase);
+        const key = semantic?.key || `${comment.topic_main}:${normalizedPhrase}`;
         if (seenInComment.has(key)) continue;
         seenInComment.add(key);
 
-        const label = phraseTokens.map((token) => token.raw).join(" ");
+        const label = semantic?.label_vi || phraseTokens.map((token) => token.raw).join(" ");
         const existing = byKey.get(key);
         if (existing) {
           existing.ids.add(comment.id);
@@ -208,13 +215,21 @@ function mergeSubtopicCandidates(candidates: SubtopicCandidate[]): SubtopicCandi
   const byKey = new Map<string, SubtopicCandidate>();
   for (const candidate of candidates) {
     const key = normalizeSubtopicKey(candidate.parent_topic, candidate.label_vi);
+    const semantic = getSemanticSubtopic(candidate.parent_topic, candidate.label_vi);
+    const normalizedCandidate = semantic
+      ? {
+          ...candidate,
+          label_vi: semantic.label_vi,
+          label_zh_cn: candidate.label_zh_cn || semantic.label_zh_cn,
+        }
+      : candidate;
     const existing = byKey.get(key);
     if (existing) {
-      existing.comment_ids = Array.from(new Set([...existing.comment_ids, ...candidate.comment_ids])).sort((a, b) => a - b);
-      existing.confidence = Math.max(existing.confidence ?? 0, candidate.confidence ?? 0.7);
+      existing.comment_ids = Array.from(new Set([...existing.comment_ids, ...normalizedCandidate.comment_ids])).sort((a, b) => a - b);
+      existing.confidence = Math.max(existing.confidence ?? 0, normalizedCandidate.confidence ?? 0.7);
       continue;
     }
-    byKey.set(key, { ...candidate, comment_ids: Array.from(new Set(candidate.comment_ids)).sort((a, b) => a - b) });
+    byKey.set(key, { ...normalizedCandidate, comment_ids: Array.from(new Set(normalizedCandidate.comment_ids)).sort((a, b) => a - b) });
   }
   return [...byKey.values()];
 }

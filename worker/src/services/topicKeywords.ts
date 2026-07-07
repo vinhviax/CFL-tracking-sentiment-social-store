@@ -109,6 +109,14 @@ export const TOPIC_KEYWORDS: Record<Topic, string[]> = {
     "spam", "quảng cáo", "bán acc", "bán nick", "shop acc", "link lạ", "http", "www.",
     "zalo", "liên hệ", "lừa đảo", "scam", "bán kc", "nạp thuê",
   ],
+  game_comparison: [
+    "cfm", "crossfire mobile", "cf mobile", "cross fire mobile", "cfl vn", "cfl việt",
+    "bản việt", "ban viet", "bản vn", "ban vn", "bản trung", "ban trung", "trung quốc",
+    "trung quoc", "china", "cn", "bản china", "ban china", "server trung", "sever trung",
+    "bản sea", "ban sea", "server sea", "sever sea", "sea", "cfm sea", "cfm china",
+    "cfm trung", "bản quốc tế", "ban quoc te", "global", "bản nước ngoài", "ban nuoc ngoai",
+    "game khác", "game khac", "game bên kia", "game ben kia",
+  ],
   positive_feedback: [
     "game hay", "hay quá", "rất hay", "mượt", "đỉnh", "vui", "thích", "tuyệt",
     "ổn", "ngon", "tốt", "ủng hộ", "hài lòng", "good", "great", "nice", "love",
@@ -125,7 +133,8 @@ const GENERIC_MAJOR_TOPIC_TERMS = new Set([
   "delay", "hack", "cheat", "nap", "thanh toan", "dang nhap", "tai khoan", "event",
   "su kien", "update", "cap nhat", "support", "ho tro", "skin", "gacha", "ruong",
   "spam", "quang cao", "gameplay", "loi choi", "matchmaking", "ghep tran", "rank",
-  "can bang", "qua", "gift", "code", "ui", "chat", "voice",
+  "can bang", "qua", "gift", "code", "ui", "chat", "voice", "cfm", "china", "sea",
+  "ban trung", "ban sea", "ban viet", "game khac",
 ]);
 
 export function normalizeTopicText(input: string): string {
@@ -152,7 +161,8 @@ function keywordScore(normalizedText: string, keyword: string): number {
 export function scoreTopicByKeywords(text: string, topic: Topic): number {
   const normalizedText = normalizeTopicText(text);
   if (!normalizedText) return 0;
-  return TOPIC_KEYWORDS[topic].reduce((sum, keyword) => sum + keywordScore(normalizedText, keyword), 0);
+  const score = TOPIC_KEYWORDS[topic].reduce((sum, keyword) => sum + keywordScore(normalizedText, keyword), 0);
+  return topic === "game_comparison" ? score * 4 : score;
 }
 
 export function rankTopicsByKeywords(text: string): Topic[] {

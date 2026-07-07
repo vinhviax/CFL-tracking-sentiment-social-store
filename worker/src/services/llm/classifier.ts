@@ -6,7 +6,17 @@ import { classifyFallback } from "./fallback";
 import { buildProvider } from "./providers";
 import type { LLMProvider } from "./base";
 
-const SYSTEM = `Bạn là chuyên gia phân tích phản hồi người chơi cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Người chơi bình luận bằng tiếng Việt, nhiều teencode/viết tắt. Một số quy ước: "văng"/"vang" = crash, "hút máu"/"p2w" = pay-to-win, "dis" = mất kết nối, "nạp" = nạp tiền, "gà"/"noob" = chơi kém, "acc"/"nick" = tài khoản.
+export const CLASSIFIER_SYSTEM_PROMPT = `Bạn là senior liveops analyst cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Mục tiêu là đọc hiểu phản hồi người chơi để team vận hành/game ops biết vấn đề cần xử lý, không chỉ gắn nhãn theo từ khóa.
+
+Người chơi bình luận bằng tiếng Việt, nhiều teencode/viết tắt. Một số quy ước: "văng"/"vang" = crash, "hút máu"/"p2w" = pay-to-win, "dis" = mất kết nối, "nạp" = nạp tiền, "gà"/"noob" = chơi kém, "acc"/"nick" = tài khoản.
+
+Nguyên tắc đọc hiểu liveops:
+- Đọc toàn bộ bình luận, bối cảnh bài viết/post và rating trước khi quyết định. Bình luận ngắn như "vẫn lỗi", "chưa được", "xong rồi lag" phải dựa vào context nếu có.
+- Không phân loại chỉ vì thấy keyword. Keyword chỉ là tín hiệu; quyết định cuối cùng phải dựa trên ý định, nguyên nhân vận hành chính và tác động tới người chơi.
+- Chọn topic_main là vấn đề chính cần triage. Nếu comment có cả triệu chứng và nguyên nhân, ưu tiên nguyên nhân/driver rõ nhất; đưa vấn đề phụ quan trọng vào topics_sub.
+- Không tạo nhóm mới bằng cách chép lại text thô. Nếu cần other_suggested, đặt tên nhóm ngắn, canonical, theo ý nghĩa vận hành.
+- Với update_download, các cách nói như "nhật xong", "cập nhật xong", "phiên bản mới", "cập nhật mới", "nhật phiên bản mới" đều hiểu là cùng ý "Cập nhật/phiên bản mới" trong summary/other_suggested khi cần.
+- Chủ đề So Sánh Game: mọi comment nhắc CFM/China/SEA, CFM China, CFM SEA, bản Trung, bản SEA, bản Việt/VN, global/quốc tế, CrossFire Mobile hoặc game/bản game khác trong ngữ cảnh CFL đều tính vào topic_main game_comparison, kể cả không so sánh trực tiếp. Nếu người chơi vừa nhắc bản game khác vừa phàn nàn lag/hack/nạp/event, đặt game_comparison làm topic_main và đưa vấn đề cụ thể vào topics_sub nếu đủ rõ.
 
 Với MỖI bình luận, hãy phân loại:
 - topic_main: MỘT chủ đề chính, chọn từ danh sách: ${TOPICS.join(", ")}
@@ -93,7 +103,7 @@ export class ClassifierService {
   private async classifyBatchLlm(items: CommentInput[]): Promise<Map<number, Classification>> {
     const out = new Map<number, Classification>();
     if (!this.provider) return out;
-    const raw = await this.provider.completeJson(SYSTEM, buildClassifierUserPrompt(items));
+    const raw = await this.provider.completeJson(CLASSIFIER_SYSTEM_PROMPT, buildClassifierUserPrompt(items));
     for (const rec of parseResults(raw)) {
       const c = validateClassification(rec);
       if (c) out.set(c.id, c);

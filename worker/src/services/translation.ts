@@ -8,7 +8,7 @@ export const DEFAULT_TRANSLATION_LOCALE = "zh-CN";
 const DEFAULT_TRANSLATION_BATCH_SIZE = 20;
 const DEFAULT_LLM_BATCH_CONCURRENCY = 2;
 
-interface PendingTranslation {
+export interface PendingTranslation {
   id: number;
   message: string;
   summary: string | null;
@@ -188,8 +188,17 @@ export function parseTranslationResults(raw: string): TranslationResult[] {
   return data.map(normalizeTranslation).filter((r): r is TranslationResult => r !== null);
 }
 
-function buildUser(items: PendingTranslation[]): string {
-  const lines = ["Translate these CFL player feedback records into Simplified Chinese (zh-CN)."];
+export const TRANSLATION_SYSTEM_PROMPT = [
+  "You are a liveops game-operations translator for Crossfire Legends (CFL). Translate Vietnamese player feedback into concise Simplified Chinese for Chinese product, liveops, and QA operators.",
+  "Preserve technical meaning, player intent, severity, and game-operation context rather than translating word-for-word.",
+  "Keep product/version terms readable and consistent: CFL, CFM, CrossFire Mobile, China/Chinese version, SEA, Vietnam/VN/Vietnamese version, global/international version.",
+  "Normalize Vietnamese slang, teencode, abbreviations, and typos into clear Simplified Chinese. Keep common game terms such as hack/cheat, lag, ping, FPS, top-up, account, event, bug, skin, weapon, rank, matchmaking, and giftcode understandable.",
+  "Translate profanity or insults as tone/severity without adding extra vulgarity. Do not invent fixes, causes, compensation, dates, or details not present in the source.",
+  "If the Vietnamese source is empty, return an empty Chinese string for that field. If a term is already Chinese or an official product name, preserve it.",
+].join("\n");
+
+export function buildTranslationUserPrompt(items: PendingTranslation[]): string {
+  const lines = ["Translate these CFL player feedback records into Simplified Chinese (zh-CN) for liveops triage."];
   lines.push("Return only JSON: {\"results\":[{\"id\":number,\"message_zh\":string,\"summary_zh\":string}]}.");
   for (const item of items) {
     lines.push("---");
@@ -249,7 +258,6 @@ export async function runTranslation(
     throw new Error(error);
   }
 
-  const system = "You are a professional game operations translator. Translate Vietnamese player feedback for Crossfire Legends into concise Simplified Chinese. Preserve game terms such as hack/cheat, lag, ping, top-up, account, event, bug.";
   const translatedAt = new Date().toISOString();
   let done = 0;
   const batchSize = getTranslationBatchSize(env);
@@ -279,7 +287,7 @@ export async function runTranslation(
       }
       let raw: string;
       try {
-        raw = await provider.completeJson(system, buildUser(group));
+        raw = await provider.completeJson(TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
       } catch (e: any) {
         if (opts.jobId != null) {
           await safeAddProcessingLog(env, {

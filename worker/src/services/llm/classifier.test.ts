@@ -1,7 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { buildClassifierUserPrompt } from "./classifier";
+import { CLASSIFIER_SYSTEM_PROMPT, buildClassifierUserPrompt } from "./classifier";
 
 describe("classifier prompt", () => {
+  test("guides liveops reasoning instead of keyword-only classification", () => {
+    expect(CLASSIFIER_SYSTEM_PROMPT).toContain("liveops");
+    expect(CLASSIFIER_SYSTEM_PROMPT).toContain("Không phân loại chỉ vì thấy keyword");
+    expect(CLASSIFIER_SYSTEM_PROMPT).toContain("CFM/China/SEA");
+    expect(CLASSIFIER_SYSTEM_PROMPT).toContain("So Sánh Game");
+    expect(CLASSIFIER_SYSTEM_PROMPT).toContain("other_suggested");
+  });
+
   test("places parent post context before the player comment", () => {
     const prompt = buildClassifierUserPrompt([
       {
