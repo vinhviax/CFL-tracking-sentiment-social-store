@@ -40,6 +40,10 @@ function topicLabel(topic?: string | null, lang: ReportLanguage = "vi") {
   return labels[topic] || legacyLabels[topic] || topic;
 }
 
+function isActionableTopic(topic?: string | null) {
+  return Boolean(topic) && topic !== "other";
+}
+
 function sourceLabel(sourceType: string, lang: ReportLanguage = "vi") {
   if (sourceType === "store") return "Store";
   if (sourceType === "fb_page") return lang === "zh-CN" ? "粉丝页" : "Fanpage";
@@ -75,10 +79,11 @@ async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
     `SELECT a.topic_main,
             COUNT(*) as count,
             SUM(CASE WHEN a.sentiment = 'negative' THEN 1 ELSE 0 END) as negative_count,
+            SUM(CASE WHEN a.sentiment = 'positive' THEN 1 ELSE 0 END) as positive_count,
             SUM(CASE WHEN a.urgency IN ('medium','high') THEN 1 ELSE 0 END) as urgent_count
      FROM comments c
      JOIN analyses a ON a.comment_id = c.id
-     WHERE ${where.join(" AND ")} AND a.topic_main IS NOT NULL
+     WHERE ${where.join(" AND ")} AND a.topic_main IS NOT NULL AND a.topic_main != 'other'
      GROUP BY a.topic_main
      ORDER BY count DESC, negative_count DESC
      LIMIT 10`
@@ -100,6 +105,7 @@ async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
       label: topicLabel(row.topic_main, lang),
       count: Number(row.count || 0),
       negative_count: Number(row.negative_count || 0),
+      positive_count: Number(row.positive_count || 0),
       urgent_count: Number(row.urgent_count || 0),
       sample_comments: sampleRows.results.map((sample: any) => ({
         id: sample.id,
@@ -234,7 +240,7 @@ function buildHighlights(data: Pick<FeedbackReportData, "group" | "overview" | "
       : `${data.overview.negative_pct}% negative trên ${data.overview.analyzed} feedback đã phân tích.`,
     signal: negative > 0 ? "negative" : "neutral",
   });
-  for (const issue of data.overview.hot_issues.slice(0, 3)) {
+  for (const issue of data.overview.hot_issues.filter((issue) => isActionableTopic(issue.topic)).slice(0, 3)) {
     highlights.push({
       title: lang === "zh-CN" ? `需要关注 ${issue.label}` : `${issue.label} cần theo dõi`,
       detail: lang === "zh-CN"

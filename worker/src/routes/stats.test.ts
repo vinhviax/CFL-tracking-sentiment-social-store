@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildTrendSeries } from "./stats";
+import { buildTrendSeries, computeOverview } from "./stats";
 import { summarizeStoreBreakdown } from "../services/storeStats";
 
 describe("buildTrendSeries", () => {
@@ -18,6 +18,58 @@ describe("buildTrendSeries", () => {
       { date: "2026-07-06", negative: 4, neutral: 0, positive: 1 },
       { date: "2026-07-07", negative: 0, neutral: 0, positive: 0 },
     ]);
+  });
+});
+
+describe("computeOverview", () => {
+  test("excludes other from main top topics and hot issues", async () => {
+    const db = {
+      prepare(sql: string) {
+        const stmt = {
+          bind() {
+            return stmt;
+          },
+          async first() {
+            if (sql.includes("COUNT(*) as n FROM comments c JOIN analyses")) return { n: 5 };
+            return { n: 5 };
+          },
+          async all() {
+            if (sql.includes("SELECT a.sentiment")) {
+              return {
+                results: [
+                  { sentiment: "negative", n: 4 },
+                  { sentiment: "positive", n: 1 },
+                ],
+              };
+            }
+            if (sql.includes("SELECT a.topic_main, COUNT(*) as negative")) {
+              return {
+                results: [
+                  { topic_main: "other", negative: 3, urgent: 3 },
+                  { topic_main: "lag_fps", negative: 2, urgent: 1 },
+                ],
+              };
+            }
+            if (sql.includes("SELECT a.topic_main, COUNT(*) as n")) {
+              return {
+                results: [
+                  { topic_main: "other", n: 3 },
+                  { topic_main: "lag_fps", n: 2 },
+                  { topic_main: "positive_feedback", n: 1 },
+                ],
+              };
+            }
+            return { results: [] };
+          },
+        };
+        return stmt;
+      },
+    } as unknown as D1Database;
+
+    const got = await computeOverview(db, { lang: "vi" });
+
+    expect(got.top_topics.map((topic) => topic.topic)).toEqual(["lag_fps", "positive_feedback"]);
+    expect(got.hot_issues.map((issue) => issue.topic)).toEqual(["lag_fps"]);
   });
 });
 

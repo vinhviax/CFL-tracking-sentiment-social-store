@@ -72,6 +72,61 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).not.toContain("Post <b>context</b>");
   });
 
+  test("uses actionable negative and positive topics instead of other as report highlights", () => {
+    const html = renderFeedbackReportHtml(baseReport({
+      overview: {
+        total_comments: 7,
+        analyzed: 7,
+        sentiment: { positive: 2, neutral: 1, negative: 4 },
+        negative_pct: 57.1,
+        top_topics: [
+          { topic: "other", label: "Khác/Không đủ ngữ cảnh", count: 4 },
+          { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", count: 2 },
+          { topic: "positive_feedback", label: "Khen/Trải nghiệm tốt", count: 1 },
+        ],
+        top_subtopics: [],
+        hot_issues: [
+          { topic: "other", label: "Khác/Không đủ ngữ cảnh", negative: 4, urgent: 4 },
+          { topic: "lag_fps", label: "Lag/Giật/Tụt FPS", negative: 2, urgent: 1 },
+        ],
+      },
+      topic_ranking: [
+        {
+          topic: "other",
+          label: "Khác/Không đủ ngữ cảnh",
+          count: 4,
+          negative_count: 4,
+          urgent_count: 4,
+          sample_comments: [{ id: 9, message: "ơ kìa", sentiment: "negative", urgency: "high", summary: "Không rõ ngữ cảnh" }],
+        },
+        {
+          topic: "lag_fps",
+          label: "Lag/Giật/Tụt FPS",
+          count: 2,
+          negative_count: 2,
+          urgent_count: 1,
+          sample_comments: [{ id: 2, message: "lag quá", sentiment: "negative", urgency: "medium", summary: "Lag" }],
+        },
+        {
+          topic: "positive_feedback",
+          label: "Khen/Trải nghiệm tốt",
+          count: 1,
+          negative_count: 0,
+          positive_count: 1,
+          urgent_count: 0,
+          sample_comments: [{ id: 3, message: "game hay", sentiment: "positive", urgency: "none", summary: "Khen game" }],
+        } as any,
+      ],
+      highlights: [{ title: "Khác/Không đủ ngữ cảnh cần theo dõi", detail: "4 comment negative", signal: "negative" }],
+    }));
+
+    expect(html).toContain("Top vấn đề tiêu cực");
+    expect(html).toContain("Top điểm tích cực");
+    expect(html).toContain("Lag/Giật/Tụt FPS");
+    expect(html).toContain("Khen/Trải nghiệm tốt");
+    expect(html).not.toContain("Khác/Không đủ ngữ cảnh");
+  });
+
   test("renders Vietnamese report sections without mojibake", () => {
     const html = renderFeedbackReportHtml(baseReport());
 

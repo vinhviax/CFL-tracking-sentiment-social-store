@@ -21,6 +21,7 @@ export interface FeedbackReportData {
     label: string;
     count: number;
     negative_count: number;
+    positive_count?: number;
     urgent_count: number;
     sample_comments: Array<{ id: number; message: string; sentiment: string; urgency: string; summary: string }>;
   }>;
@@ -64,6 +65,58 @@ export interface ReportPost {
   negative_count: number;
 }
 
+const NON_ACTIONABLE_TOPICS = new Set(["other"]);
+
+function isActionableTopic(topic?: string | null) {
+  return Boolean(topic) && !NON_ACTIONABLE_TOPICS.has(String(topic));
+}
+
+function actionableTopTopics(data: FeedbackReportData) {
+  return data.overview.top_topics.filter((row) => isActionableTopic(row.topic));
+}
+
+function actionableHotIssues(data: FeedbackReportData) {
+  return data.overview.hot_issues.filter((row) => isActionableTopic(row.topic));
+}
+
+function actionableTopicRanking(data: FeedbackReportData) {
+  return data.topic_ranking.filter((row) => isActionableTopic(row.topic));
+}
+
+function topicPositiveCount(row: { count: number; negative_count?: number; positive_count?: number }) {
+  if (typeof row.positive_count === "number") return row.positive_count;
+  const negativeCount = typeof row.negative_count === "number" ? row.negative_count : 0;
+  return Math.max(0, row.count - negativeCount);
+}
+
+function topNegativeTopic(data: FeedbackReportData) {
+  const ranked = [...actionableTopicRanking(data)]
+    .sort((a, b) => b.negative_count - a.negative_count || b.urgent_count - a.urgent_count || b.count - a.count);
+  if (ranked[0]?.negative_count) return ranked[0];
+  const hot = [...actionableHotIssues(data)].sort((a, b) => b.negative - a.negative || b.urgent - a.urgent)[0];
+  if (hot) {
+    return { topic: hot.topic, label: hot.label, count: hot.negative, negative_count: hot.negative, urgent_count: hot.urgent, sample_comments: [] };
+  }
+  return actionableTopicRanking(data)[0] || null;
+}
+
+function topPositiveTopic(data: FeedbackReportData) {
+  const ranked = [...actionableTopicRanking(data)]
+    .filter((row) => topicPositiveCount(row) > 0)
+    .sort((a, b) => topicPositiveCount(b) - topicPositiveCount(a) || b.count - a.count);
+  const positive = ranked[0];
+  if (positive) return positive;
+  return actionableTopTopics(data).find((row) => row.topic === "positive_feedback") || null;
+}
+
+function isOtherText(text?: string) {
+  return /Khác\/Không đủ ngữ cảnh|其他\/上下文不足/.test(String(text || ""));
+}
+
+function actionableHighlights(data: FeedbackReportData) {
+  return data.highlights.filter((row) => !isOtherText(row.title) && !isOtherText(row.detail));
+}
+
 const COPY = {
   vi: {
     docTitle: "Crossfire Legends Feedback Intelligence",
@@ -76,6 +129,8 @@ const COPY = {
     analyzed: "đã phân tích",
     negativeRate: "Tỉ lệ tiêu cực",
     topTopic: "Chủ đề nổi bật",
+    topNegativeTopic: "Top vấn đề tiêu cực",
+    topPositiveTopic: "Top điểm tích cực",
     positive: "Tích cực",
     methodology: "Bộ lọc và nguyên tắc đọc report",
     methodologyDesc: "Phần này minh bạch cách report được tạo trước khi đọc số liệu.",
@@ -116,7 +171,7 @@ const COPY = {
     footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments đã ingest và phân tích bằng LLM.",
     noData: "Không có dữ liệu phù hợp.",
     lessonsBullets: (data: FeedbackReportData) => {
-      const top = data.overview.top_topics[0]?.label || "vấn đề chính";
+      const top = topNegativeTopic(data)?.label || topPositiveTopic(data)?.label || "vấn đề chính";
       return [
         `Người chơi đang tập trung nhiều nhất vào ${top}; đây là tín hiệu cần đọc theo volume và sắc thái, không chỉ nhìn một vài comment lẻ.`,
         `${data.overview.negative_pct}% feedback đã phân tích là tiêu cực, nên các vấn đề có urgent cao cần được ưu tiên hơn các chủ đề chỉ có tương tác lớn.`,
@@ -126,7 +181,7 @@ const COPY = {
       ];
     },
     nextStepBullets: (data: FeedbackReportData) => {
-      const hot = data.overview.hot_issues.slice(0, 3).map((x) => x.label).join(", ");
+      const hot = actionableHotIssues(data).slice(0, 3).map((x) => x.label).join(", ");
       return [
         hot ? `Rà soát ngay nhóm vấn đề: ${hot}.` : "Tiếp tục theo dõi thêm dữ liệu để xác định nhóm vấn đề đủ lớn.",
         "Đọc các comment evidence trong report trước khi chốt action để tránh xử lý lệch ngữ cảnh.",
@@ -145,6 +200,8 @@ const COPY = {
     analyzed: "已分析",
     negativeRate: "负面比例",
     topTopic: "主要主题",
+    topNegativeTopic: "Top 负面问题",
+    topPositiveTopic: "Top 正向亮点",
     positive: "正向",
     methodology: "筛选条件与报告规则",
     methodologyDesc: "先说明报告生成口径，再阅读数据。",
@@ -185,7 +242,7 @@ const COPY = {
     footer: "CFL Feedback Agent Report - Internal liveops use - Data source: Store/Facebook comments already ingested and analyzed by LLM.",
     noData: "没有符合条件的数据。",
     lessonsBullets: (data: FeedbackReportData) => {
-      const top = data.overview.top_topics[0]?.label || "核心问题";
+      const top = topNegativeTopic(data)?.label || topPositiveTopic(data)?.label || "核心问题";
       return [
         `玩家讨论最集中的是 ${top}；需要结合量级和情绪一起判断，而不是只看少量评论。`,
         `${data.overview.negative_pct}% 已分析反馈为负面，urgent 高的问题应优先于单纯互动量高的主题。`,
@@ -195,7 +252,7 @@ const COPY = {
       ];
     },
     nextStepBullets: (data: FeedbackReportData) => {
-      const hot = data.overview.hot_issues.slice(0, 3).map((x) => x.label).join(", ");
+      const hot = actionableHotIssues(data).slice(0, 3).map((x) => x.label).join(", ");
       return [
         hot ? `优先复盘这些问题：${hot}。` : "继续积累数据，等待问题规模足够清晰后再定优先级。",
         "先阅读 report 中的评论证据，再决定具体运营动作，避免脱离上下文。",
@@ -380,7 +437,7 @@ function renderChannels(data: FeedbackReportData, sectionNo: string) {
 function renderIssuePriority(data: FeedbackReportData, sectionNo: string) {
   const copy = t(data);
   const language = lang(data);
-  const rows = [...data.topic_ranking]
+  const rows = [...actionableTopicRanking(data)]
     .sort((a, b) => b.urgent_count - a.urgent_count || b.negative_count - a.negative_count || b.count - a.count)
     .slice(0, 10);
   return `<section>
@@ -424,10 +481,11 @@ function renderPosts(data: FeedbackReportData, sectionNo: string) {
 
 function renderHighlights(data: FeedbackReportData, sectionNo: string) {
   const copy = t(data);
+  const highlights = actionableHighlights(data);
   return `<section>
     <div class="sec-head"><span>${sectionNo}</span><h2>${esc(copy.recommendations)}</h2></div>
     <div class="highlight-list">
-      ${data.highlights.map((h, idx) => `<div class="highlight ${sentimentClass(h.signal)}">
+      ${highlights.map((h, idx) => `<div class="highlight ${sentimentClass(h.signal)}">
         <strong>${idx + 1}. ${esc(h.title)}</strong>
         <p>${esc(h.detail)}</p>
       </div>`).join("") || `<div class="empty">${esc(copy.noData)}</div>`}
@@ -494,6 +552,8 @@ function renderReportBody(data: FeedbackReportData) {
   const language = lang(data);
   const generated = new Date(data.generated_at);
   const generatedText = Number.isNaN(generated.getTime()) ? data.generated_at : generated.toISOString().slice(0, 19).replace("T", " ");
+  const topNegative = topNegativeTopic(data);
+  const topPositive = topPositiveTopic(data);
   let section = 1;
   const next = () => sectionNumber(section++);
   return `<article class="report-body lang-${language}">
@@ -504,8 +564,8 @@ function renderReportBody(data: FeedbackReportData) {
       <div class="hero-grid">
         <div class="metric"><small>${esc(copy.totalFeedback)}</small><strong>${fmt(data.overview.total_comments, language)}</strong><em>${fmt(data.overview.analyzed, language)} ${esc(copy.analyzed)}</em></div>
         <div class="metric neg"><small>${esc(copy.negativeRate)}</small><strong>${esc(data.overview.negative_pct)}%</strong><em>${fmt(data.overview.sentiment.negative, language)} ${esc(copy.negative)}</em></div>
-        <div class="metric neu"><small>${esc(copy.topTopic)}</small><strong>${esc(data.overview.top_topics[0]?.label || "N/A")}</strong><em>${fmt(data.overview.top_topics[0]?.count || 0, language)} mentions</em></div>
-        <div class="metric pos"><small>${esc(copy.positive)}</small><strong>${fmt(data.overview.sentiment.positive, language)}</strong><em>community signal</em></div>
+        <div class="metric neg"><small>${esc(copy.topNegativeTopic)}</small><strong>${esc(topNegative?.label || "N/A")}</strong><em>${fmt(topNegative?.negative_count || 0, language)} ${esc(copy.negative)}</em></div>
+        <div class="metric pos"><small>${esc(copy.topPositiveTopic)}</small><strong>${esc(topPositive?.label || "N/A")}</strong><em>${fmt(topPositive ? topicPositiveCount(topPositive) : data.overview.sentiment.positive, language)} ${esc(copy.positive)}</em></div>
       </div>
     </header>
     ${renderMethodology(data, next())}

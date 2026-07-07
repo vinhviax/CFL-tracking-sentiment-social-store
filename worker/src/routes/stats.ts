@@ -103,6 +103,10 @@ function topicLabel(topic: string, lang?: string) {
   return labels[topic] || legacyLabels[topic] || topic;
 }
 
+function isActionableTopic(topic?: string | null) {
+  return Boolean(topic) && topic !== "other";
+}
+
 function subtopicLabel(row: { label_vi: string; label_zh_cn?: string | null }, lang?: string) {
   return lang === "zh-CN" && row.label_zh_cn ? row.label_zh_cn : row.label_vi;
 }
@@ -209,9 +213,11 @@ export async function computeOverview(db: D1Database, q: Record<string, string>)
   const topicRows = await db
     .prepare(`SELECT a.topic_main, COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id=c.id ${whereSql} GROUP BY a.topic_main ORDER BY n DESC`)
     .bind(...params).all<{ topic_main: string; n: number }>();
-  const topTopics = topicRows.results.map((r) => ({ topic: r.topic_main, label: topicLabel(r.topic_main, q.lang), count: r.n }));
+  const topTopics = topicRows.results
+    .filter((r) => isActionableTopic(r.topic_main))
+    .map((r) => ({ topic: r.topic_main, label: topicLabel(r.topic_main, q.lang), count: r.n }));
 
-  const hotWhere = [...where, "a.sentiment = 'negative'"];
+  const hotWhere = [...where, "a.sentiment = 'negative'", "a.topic_main IS NOT NULL", "a.topic_main != 'other'"];
   const hotRows = await db
     .prepare(
       `SELECT a.topic_main, COUNT(*) as negative, SUM(CASE WHEN a.urgency IN ('medium','high') THEN 1 ELSE 0 END) as urgent
@@ -221,10 +227,12 @@ export async function computeOverview(db: D1Database, q: Record<string, string>)
        ORDER BY urgent DESC, negative DESC
        LIMIT 8`
     ).bind(...params).all<{ topic_main: string; negative: number; urgent: number }>();
-  const hotIssues = hotRows.results.map((r) => ({
-    topic: r.topic_main, label: topicLabel(r.topic_main, q.lang),
-    negative: r.negative, urgent: Number(r.urgent || 0),
-  }));
+  const hotIssues = hotRows.results
+    .filter((r) => isActionableTopic(r.topic_main))
+    .map((r) => ({
+      topic: r.topic_main, label: topicLabel(r.topic_main, q.lang),
+      negative: r.negative, urgent: Number(r.urgent || 0),
+    }));
 
   const analyzed = analyzedRow?.n || 0;
   const neg = sentiment.negative || 0;
