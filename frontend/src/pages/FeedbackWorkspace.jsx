@@ -15,6 +15,7 @@ import {
   getSubtopicRanking,
   getTopicRanking,
   getTrend,
+  exportReportHtmlUrl,
   listSavedInsights,
   listComments,
   listPosts,
@@ -259,6 +260,35 @@ function cleanParams(filters, group, subtab, page, metaLang) {
   return params;
 }
 
+function ReportExportDialog({ open, filters, onClose }) {
+  if (!open) return null;
+  const range = {};
+  if (filters.from) range.from = filters.from;
+  if (filters.to) range.to = filters.to;
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-label="Xuất report HTML">
+        <div className="modal-header">
+          <div>
+            <h3>Xuất report HTML</h3>
+            <p>Chọn nguồn report cần xuất theo khoảng thời gian hiện tại.</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
+        </div>
+        <div className="report-export-options">
+          <a className="btn" href={exportReportHtmlUrl({ ...range, group: "store" })} onClick={onClose}>
+            Store report
+          </a>
+          <a className="btn btn-secondary" href={exportReportHtmlUrl({ ...range, group: "facebook" })} onClick={onClose}>
+            Facebook report
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function renderInlineMarkdown(text) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
   return parts.map((part, index) => {
@@ -355,6 +385,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [manualReviewError, setManualReviewError] = useState(null);
   const [page, setPage] = useState(1);
   const [error, setError] = useState(null);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
 
   const tabs = group === "store"
     ? [{ value: "gp", label: t.google }, { value: "ios", label: t.appstore }]
@@ -675,6 +706,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
                 <button className="btn" onClick={createInsight} disabled={insightBusy}>
                   {insightBusy ? t.loading : t.createInsight}
                 </button>
+                <button className="btn btn-secondary" type="button" onClick={() => setReportDialogOpen(true)}>Xuất report HTML</button>
                 <button className="btn btn-secondary" onClick={() => setPromptOpen((v) => !v)}>{t.editPrompt}</button>
                 <button className="btn btn-secondary" onClick={persistInsight} disabled={!insight?.summary}>{t.save}</button>
               </div>
@@ -857,6 +889,12 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       )}
       </>
       )}
+
+      <ReportExportDialog
+        open={reportDialogOpen}
+        filters={filters}
+        onClose={() => setReportDialogOpen(false)}
+      />
 
       {selected && (
         <div className="drawer-backdrop" onClick={() => setSelected(null)}>

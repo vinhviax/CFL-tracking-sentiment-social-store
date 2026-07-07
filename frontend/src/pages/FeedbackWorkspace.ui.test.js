@@ -4,6 +4,17 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./FeedbackWorkspace.jsx", import.meta.url), "utf8");
 
+test("workspace exposes HTML report export for Store and Facebook", () => {
+  assert.match(source, /exportReportHtmlUrl/);
+  assert.match(source, /reportDialogOpen/);
+  assert.match(source, /aria-label="Xuất report HTML"/);
+  assert.match(source, /Xuất report HTML/);
+  assert.match(source, /Store report/);
+  assert.match(source, /Facebook report/);
+  assert.match(source, /group: "store"/);
+  assert.match(source, /group: "facebook"/);
+});
+
 test("Facebook comments show parent post context in the table and drawer", () => {
   assert.match(source, /function postContextLabel\(row\)/);
   assert.match(source, /row\.post\?\.message/);
