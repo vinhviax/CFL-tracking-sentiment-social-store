@@ -29,7 +29,29 @@ function withInsightWebFormat(systemPrompt: string): string {
   return `${systemPrompt.trim()}\n\n${INSIGHT_WEB_FORMAT_PROMPT}`;
 }
 
-function fallbackSummary(overview: any): string {
+function fallbackSummary(overview: any, locale: "vi" | "zh-CN" = "vi"): string {
+  if (locale === "zh-CN") {
+    const negPct = overview.negative_pct || 0;
+    const top = (overview.top_topics || []).slice(0, 3);
+    const hot = (overview.hot_issues || []).slice(0, 3);
+    const lines = [
+      "## 🔥 Executive insight",
+      `**共 ${overview.total_comments || 0} 条反馈**，其中 **${negPct}%** 为负面情绪。`,
+    ];
+    if (top.length) {
+      lines.push("", "## 📌 玩家关注点", ...top.map((t: any) => `- **${t.label}** 是当前阶段被频繁提到的主题。`));
+    }
+    if (hot.length) {
+      lines.push("", "## ⚠️ 优先问题", ...hot.map((h: any) => `- **${h.label}** 有较强负面/紧急信号，应优先检查。`));
+    }
+    lines.push(
+      "",
+      "## 💡 建议行动",
+      "- 检查 LLM provider/API key 配置，以便获得更深入的 AI insight。",
+      "- 结合下方评论证据阅读，再决定运营或产品动作。"
+    );
+    return lines.join("\n");
+  }
   const negPct = overview.negative_pct || 0;
   const top = (overview.top_topics || []).slice(0, 3);
   const hot = (overview.hot_issues || []).slice(0, 3);
@@ -58,7 +80,70 @@ export interface SentimentSamples {
   positive: string[];
 }
 
-export function buildInsightMessages(systemPrompt: string, overview: any, samples: SentimentSamples): [string, string] {
+export type InsightLanguage = "vi" | "zh-CN";
+
+export function normalizeInsightFilters(raw: Record<string, any>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw || {})) {
+    if (value == null || value === "") continue;
+    out[key] = String(value);
+  }
+  return out;
+}
+
+function parseSubtopicKeys(value?: string) {
+  return String(value || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+function languageInstruction(locale: InsightLanguage) {
+  if (locale === "zh-CN") {
+    return "Output language: write the complete Insight and Summarize in Simplified Chinese. Keep game names, product names, and topic labels readable.";
+  }
+  return "Output language: write the complete Insight and Summarize in Vietnamese with full diacritics.";
+}
+
+export async function sampleBySentiment(env: Env, q: Record<string, string>): Promise<SentimentSamples> {
+  const baseWhere: string[] = [];
+  const baseParams: any[] = [];
+  if (q.group === "store") baseWhere.push("c.source_type = 'store'");
+  if (q.group === "facebook") baseWhere.push("c.source_type IN ('fb_page','fb_group_csv')");
+  if (q.source) { baseWhere.push("c.source_type = ?"); baseParams.push(q.source); }
+  if (q.store) { baseWhere.push("c.store = ?"); baseParams.push(q.store); }
+  if (q.from) { baseWhere.push("substr(c.created_at, 1, 10) >= ?"); baseParams.push(q.from.slice(0, 10)); }
+  if (q.to) { baseWhere.push("substr(c.created_at, 1, 10) <= ?"); baseParams.push(q.to.slice(0, 10)); }
+  if (q.topic) { baseWhere.push("a.topic_main = ?"); baseParams.push(q.topic); }
+  if (q.subtopic) {
+    const subtopicKeys = parseSubtopicKeys(q.subtopic);
+    if (!subtopicKeys.length) return { negative: [], neutral: [], positive: [] };
+    const placeholders = subtopicKeys.map(() => "?").join(",");
+    baseWhere.push(`EXISTS (
+      SELECT 1 FROM comment_subtopics cs
+      JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
+      WHERE cs.comment_id = c.id AND st.key IN (${placeholders})
+    )`);
+    baseParams.push(...subtopicKeys);
+  }
+
+  const samples: SentimentSamples = { negative: [], neutral: [], positive: [] };
+  for (const sentiment of Object.keys(samples) as (keyof SentimentSamples)[]) {
+    const where = [...baseWhere, "a.sentiment = ?"];
+    const rows = await env.DB.prepare(
+      `SELECT c.message
+       FROM comments c JOIN analyses a ON a.comment_id = c.id
+       WHERE ${where.join(" AND ")}
+       ORDER BY c.created_at DESC
+       LIMIT 8`
+    ).bind(...baseParams, sentiment).all<{ message: string }>();
+    samples[sentiment] = rows.results.map((r) => r.message);
+  }
+  return samples;
+}
+
+export function buildInsightMessages(systemPrompt: string, overview: any, samples: SentimentSamples, locale: InsightLanguage = "vi"): [string, string] {
   const lines = [
     `Tổng phản hồi: ${overview.total_comments || 0}, đã phân tích: ${overview.analyzed || 0}.`,
     `Tỉ lệ tiêu cực: ${overview.negative_pct || 0}%.`,
@@ -81,7 +166,8 @@ export function buildInsightMessages(systemPrompt: string, overview: any, sample
     lines.push(...samples[key].slice(0, 8).map((s) => `- ${s.slice(0, 240)}`));
   }
   lines.push("\nHãy viết Insight and Summarize cho giai đoạn này.");
-  return [withInsightWebFormat(systemPrompt), lines.join("\n")];
+  lines.push(languageInstruction(locale));
+  return [`${withInsightWebFormat(systemPrompt)}\n\n${languageInstruction(locale)}`, lines.join("\n")];
 }
 
 export async function getInsightPrompt(env: Env): Promise<string> {
@@ -99,16 +185,16 @@ export async function saveInsightPrompt(env: Env, prompt: string): Promise<void>
   ).bind(INSIGHT_PROMPT_KEY, prompt, new Date().toISOString()).run();
 }
 
-export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string): Promise<{ summary: string; provider: string; model: string | null }> {
+export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string, locale: InsightLanguage = "vi"): Promise<{ summary: string; provider: string; model: string | null }> {
   const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
     anthropicKey: env.ANTHROPIC_API_KEY, openaiKey: env.OPENAI_API_KEY, baseUrl: env.LLM_BASE_URL,
     llmViaxKey: env.LLM_VIAX_API_KEY, llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
   });
-  if (!provider) return { summary: fallbackSummary(overview), provider: "fallback", model: null };
+  if (!provider) return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   try {
-    const [system, user] = buildInsightMessages(systemPrompt || await getInsightPrompt(env), overview, samples);
+    const [system, user] = buildInsightMessages(systemPrompt || await getInsightPrompt(env), overview, samples, locale);
     return { summary: (await provider.completeText(system, user)).trim(), provider: provider.name, model: provider.model };
   } catch {
-    return { summary: fallbackSummary(overview), provider: "fallback", model: null };
+    return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   }
 }

@@ -1,6 +1,7 @@
 import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import type { Env } from "../types";
 import { buildTrendSeries, computeOverview, computeSubtopicRanking } from "../routes/stats";
+import { generateSummary, sampleBySentiment } from "./insights";
 import { summarizeStoreBreakdown } from "./storeStats";
 import type { FeedbackReportData, ReportComment, ReportLanguage, ReportPost, ReportInsight } from "./reportHtml";
 
@@ -11,6 +12,7 @@ export interface BuildReportParams {
   from?: string;
   to?: string;
   lang?: ReportLanguage;
+  autoGenerateInsight?: boolean;
 }
 
 function dateKey(value?: string | null) {
@@ -311,6 +313,26 @@ async function loadLatestInsight(env: Env, params: BuildReportParams): Promise<R
     : null;
 }
 
+async function generateReportInsight(env: Env, params: BuildReportParams, overview: any): Promise<ReportInsight> {
+  const lang = normalizeLang(params.lang);
+  const filters = {
+    group: params.group,
+    from: params.from || "",
+    to: params.to || "",
+  };
+  const samples = await sampleBySentiment(env, filters);
+  const result = await generateSummary(env, overview, samples, undefined, lang);
+  return {
+    title: lang === "zh-CN"
+      ? `${params.group === "store" ? "Store" : "Facebook"} LLM Insight`
+      : `${params.group === "store" ? "Store" : "Facebook"} Insight tự động`,
+    summary: result.summary,
+    provider: result.provider,
+    model: result.model,
+    created_at: new Date().toISOString(),
+  };
+}
+
 export async function buildReportData(env: Env, params: BuildReportParams): Promise<FeedbackReportData> {
   const lang = normalizeLang(params.lang);
   const q = { group: params.group, from: params.from || "", to: params.to || "", lang };
@@ -333,7 +355,9 @@ export async function buildReportData(env: Env, params: BuildReportParams): Prom
     channels,
     store_breakdown: storeBreakdown,
     top_posts: await loadTopPosts(env.DB, params),
-    llm_insight: await loadLatestInsight(env, { ...params, lang }),
+    llm_insight: params.autoGenerateInsight
+      ? await generateReportInsight(env, { ...params, lang }, overview)
+      : await loadLatestInsight(env, { ...params, lang }),
   };
   return {
     ...base,

@@ -57,3 +57,12 @@ test("comment drawer shortens provider-prefixed model names", () => {
   assert.match(source, /formatModelName\(selected\.analysis\?\.model\)/);
   assert.doesNotMatch(source, /selected\.analysis\?\.model \|\| "â€”"/);
 });
+test("saved insights archive is collapsible and supports deleting individual items", () => {
+  assert.match(source, /deleteSavedInsight/);
+  assert.match(source, /expandedArchiveId/);
+  assert.match(source, /toggleArchiveItem/);
+  assert.match(source, /deleteSavedArchive/);
+  assert.match(source, /archive-item-summary/);
+  assert.match(source, /archive-delete-button/);
+  assert.ok(source.indexOf("archive-item-summary") < source.indexOf("<InsightMarkdown text={item.summary}"));
+});

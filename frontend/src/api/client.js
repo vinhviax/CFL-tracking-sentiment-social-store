@@ -27,6 +27,8 @@ export const saveInsight = (payload) =>
   api.post("/api/insights/save", payload).then((r) => r.data);
 export const listSavedInsights = (params) =>
   api.get("/api/insights/saved", { params }).then((r) => r.data);
+export const deleteSavedInsight = (id) =>
+  api.delete(`/api/insights/saved/${id}`).then((r) => r.data);
 export const getTopicRanking = (params) =>
   api.get("/api/stats/topic-ranking", { params }).then((r) => r.data);
 export const getSubtopicRanking = (params) =>

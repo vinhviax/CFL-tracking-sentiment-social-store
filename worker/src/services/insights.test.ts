@@ -38,4 +38,23 @@ describe("buildInsightMessages", () => {
     expect(user).toContain("Top chủ đề con");
     expect(user).toContain("Drop FPS khi combat");
   });
+
+  test("adds a Simplified Chinese instruction when the insight is generated for zh-CN reports", () => {
+    const [system, user] = buildInsightMessages(
+      "Custom insight prompt",
+      {
+        total_comments: 4,
+        analyzed: 4,
+        negative_pct: 25,
+        top_topics: [],
+        top_subtopics: [],
+        hot_issues: [],
+      },
+      { negative: ["lag"], neutral: [], positive: ["hay"] },
+      "zh-CN"
+    );
+
+    expect(system).toContain("Simplified Chinese");
+    expect(user).toContain("Simplified Chinese");
+  });
 });

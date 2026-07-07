@@ -42,6 +42,7 @@ describe("reportRoute", () => {
       from: "2026-07-01",
       to: "2026-07-07",
       lang: "vi",
+      autoGenerateInsight: true,
     });
     await expect(res.text()).resolves.toContain("Store report");
   });
@@ -63,8 +64,8 @@ describe("reportRoute", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toContain("CFL_All_Report_2026-07-01_2026-07-07_vi-zh.html");
     expect(mocks.buildReportData).toHaveBeenCalledTimes(4);
-    expect(mocks.buildReportData).toHaveBeenNthCalledWith(1, { DB: {} }, { group: "store", from: "2026-07-01", to: "2026-07-07", lang: "vi" });
-    expect(mocks.buildReportData).toHaveBeenNthCalledWith(4, { DB: {} }, { group: "facebook", from: "2026-07-01", to: "2026-07-07", lang: "zh-CN" });
+    expect(mocks.buildReportData).toHaveBeenNthCalledWith(1, { DB: {} }, { group: "store", from: "2026-07-01", to: "2026-07-07", lang: "vi", autoGenerateInsight: true });
+    expect(mocks.buildReportData).toHaveBeenNthCalledWith(4, { DB: {} }, { group: "facebook", from: "2026-07-01", to: "2026-07-07", lang: "zh-CN", autoGenerateInsight: true });
     await expect(res.text()).resolves.toContain("Combined report");
   });
 

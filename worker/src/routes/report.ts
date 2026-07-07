@@ -48,6 +48,7 @@ reportRoute.get("/html", async (c) => {
         from: q.from,
         to: q.to,
         lang,
+        autoGenerateInsight: true,
       }));
     }
   }

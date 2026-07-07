@@ -8,6 +8,7 @@ import useMeta from "../hooks/useMeta.js";
 import { applyWorkspaceFilter, buildStoreHighlights, buildTopicOptions } from "./FeedbackWorkspace.helpers.js";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 import {
+  deleteSavedInsight,
   generateInsight,
   getInsightPrompt,
   getOverview,
@@ -95,6 +96,9 @@ const UI = {
     savePrompt: "Lưu prompt",
     prompt: "Prompt Insight",
     savedArchive: "Tab lưu trữ",
+    deleteArchive: "Xóa lưu trữ",
+    archiveDeleteConfirm: "Xóa bản lưu này?",
+    archiveDeleteError: "Không xóa được bản lưu.",
     noInsight: "Chọn giai đoạn và bấm nút để tạo insight.",
     topNegative: "Top 10 vấn đề tiêu cực",
     topNeutral: "Top 10 vấn đề trung lập",
@@ -178,6 +182,9 @@ const UI = {
     savePrompt: "保存 Prompt",
     prompt: "Insight Prompt",
     savedArchive: "归档标签",
+    deleteArchive: "删除归档",
+    archiveDeleteConfirm: "删除这条归档？",
+    archiveDeleteError: "无法删除归档。",
     noInsight: "选择时间范围后点击按钮生成 insight。",
     topNegative: "负面问题 Top 10",
     topNeutral: "中立问题 Top 10",
@@ -416,6 +423,9 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [insightPrompt, setInsightPrompt] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
   const [savedInsights, setSavedInsights] = useState([]);
+  const [expandedArchiveId, setExpandedArchiveId] = useState(null);
+  const [deletingArchiveId, setDeletingArchiveId] = useState(null);
+  const [archiveDeleteError, setArchiveDeleteError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [manualReviewTopic, setManualReviewTopic] = useState("");
   const [manualReviewNote, setManualReviewNote] = useState("");
@@ -499,10 +509,21 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     loadData();
   }, [loadData]);
 
+  const refreshSavedInsights = useCallback(() => {
+    return listSavedInsights({ limit: 30 })
+      .then((items) => {
+        setSavedInsights(items);
+        setExpandedArchiveId((current) => (
+          current && items.some((item) => item.id === current) ? current : null
+        ));
+        return items;
+      });
+  }, []);
+
   useEffect(() => {
     getInsightPrompt().then((r) => setInsightPrompt(r.prompt || "")).catch(() => {});
-    listSavedInsights({ limit: 30 }).then(setSavedInsights).catch(() => {});
-  }, []);
+    refreshSavedInsights().catch(() => {});
+  }, [refreshSavedInsights]);
 
   useEffect(() => {
     setManualReviewTopic(selected?.analysis?.topic_main || "");
@@ -566,9 +587,24 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       provider: insight.provider,
       model: insight.model,
     })
-      .then(() => listSavedInsights({ limit: 30 }).then(setSavedInsights))
+      .then(refreshSavedInsights)
       .then(() => setSection("archive"))
       .catch((e) => setError(e?.response?.data?.detail || e.message));
+  };
+
+  const toggleArchiveItem = (id) => {
+    setExpandedArchiveId((current) => (current === id ? null : id));
+  };
+
+  const deleteSavedArchive = (item, event) => {
+    event.stopPropagation();
+    if (!window.confirm(t.archiveDeleteConfirm)) return;
+    setArchiveDeleteError(null);
+    setDeletingArchiveId(item.id);
+    deleteSavedInsight(item.id)
+      .then(refreshSavedInsights)
+      .catch((e) => setArchiveDeleteError(e?.response?.data?.detail || e.message || t.archiveDeleteError))
+      .finally(() => setDeletingArchiveId(null));
   };
 
   const persistPrompt = () => {
@@ -590,7 +626,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
           ? {
               ...current,
               analysis: {
-                ...(current.analysis || {}),
+                ...current.analysis,
                 topic_main: result.topic_main,
                 topics_sub: [],
                 subtopics_dynamic: [],
@@ -638,17 +674,39 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       {section === "archive" ? (
         <div className="panel archive-panel">
           <h3>{t.savedArchive}</h3>
+          {archiveDeleteError && <div className="error-banner">{archiveDeleteError}</div>}
           {savedInsights.length === 0 ? <div className="empty-state">{t.noData}</div> : (
             <div className="archive-list">
-              {savedInsights.map((item) => (
-                <article key={item.id} className="archive-item">
-                  <div>
-                    <h4>{item.title}</h4>
-                    <small>{formatDisplayDateTime(item.created_at)} · {item.provider || "unknown"}</small>
-                  </div>
-                  <InsightMarkdown text={item.summary} emptyText={t.noData} />
-                </article>
-              ))}
+              {savedInsights.map((item) => {
+                const expanded = expandedArchiveId === item.id;
+                return (
+                  <article key={item.id} className={`archive-item ${expanded ? "is-open" : ""}`}>
+                    <div className="archive-item-row">
+                      <button
+                        type="button"
+                        className="archive-item-summary"
+                        aria-expanded={expanded}
+                        onClick={() => toggleArchiveItem(item.id)}
+                      >
+                        <div>
+                          <h4>{item.title}</h4>
+                          <small>{formatDisplayDateTime(item.created_at)} · {item.provider || "unknown"}</small>
+                        </div>
+                        <span className="archive-chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger archive-delete-button"
+                        onClick={(event) => deleteSavedArchive(item, event)}
+                        disabled={deletingArchiveId === item.id}
+                      >
+                        {t.deleteArchive}
+                      </button>
+                    </div>
+                    {expanded && <InsightMarkdown text={item.summary} emptyText={t.noData} />}
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>
