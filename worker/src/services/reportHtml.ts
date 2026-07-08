@@ -85,6 +85,16 @@ function actionableTopicRanking(data: FeedbackReportData) {
   return data.topic_ranking.filter((row) => isActionableTopic(row.topic));
 }
 
+function actionableIssueDetails(data: FeedbackReportData) {
+  return (data.subtopic_ranking || [])
+    .filter((row) => isActionableTopic(row.parent_topic) && !isOtherText(row.label))
+    .sort((a, b) =>
+      Number(b.urgent_count || 0) - Number(a.urgent_count || 0)
+      || Number(b.negative_count || 0) - Number(a.negative_count || 0)
+      || Number(b.count || 0) - Number(a.count || 0)
+    );
+}
+
 function topicPositiveCount(row: { count: number; negative_count?: number; positive_count?: number }) {
   if (typeof row.positive_count === "number") return row.positive_count;
   const negativeCount = typeof row.negative_count === "number" ? row.negative_count : 0;
@@ -496,6 +506,33 @@ function renderIssuePriority(data: FeedbackReportData, sectionNo: string) {
   </section>`;
 }
 
+function renderIssueDetail(data: FeedbackReportData, sectionNo: string) {
+  const language = lang(data);
+  const rows = actionableIssueDetails(data).slice(0, 12);
+  if (!rows.length) return "";
+  const title = language === "zh-CN" ? "玩家提到的具体问题" : "Chi tiết vấn đề user nhắc tới";
+  const parentTopic = language === "zh-CN" ? "主题" : "Chủ đề";
+  const specificIssue = language === "zh-CN" ? "具体问题" : "Vấn đề cụ thể";
+  const total = language === "zh-CN" ? "总量" : "Tổng";
+  const negative = language === "zh-CN" ? "负面" : "Tiêu cực";
+  const urgent = language === "zh-CN" ? "紧急" : "Khẩn cấp";
+  return `<section>
+    <div class="sec-head"><span>${sectionNo}</span><h2>${esc(title)}</h2></div>
+    <table class="issue-detail-table">
+      <thead><tr><th>${esc(parentTopic)}</th><th>${esc(specificIssue)}</th><th>${esc(total)}</th><th>${esc(negative)}</th><th>${esc(urgent)}</th></tr></thead>
+      <tbody>
+        ${rows.map((row) => `<tr>
+          <td>${esc(row.parent_label || row.parent_topic || "")}</td>
+          <td><strong>${esc(row.label)}</strong></td>
+          <td>${fmt(Number(row.count || 0), language)}</td>
+          <td>${fmt(Number(row.negative_count || 0), language)}</td>
+          <td>${fmt(Number(row.urgent_count || 0), language)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  </section>`;
+}
+
 function renderPosts(data: FeedbackReportData, sectionNo: string) {
   if (data.group !== "facebook") return "";
   const copy = t(data);
@@ -612,6 +649,7 @@ function renderReportBody(data: FeedbackReportData) {
     ${renderSentiment(data, next())}
     ${renderChannels(data, next())}
     ${renderIssuePriority(data, next())}
+    ${actionableIssueDetails(data).length ? renderIssueDetail(data, next()) : ""}
     ${data.group === "facebook" ? renderPosts(data, next()) : ""}
     ${renderHighlights(data, next())}
     ${renderLlmInsight(data, next())}

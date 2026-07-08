@@ -39,6 +39,41 @@ describe("buildInsightMessages", () => {
     expect(user).toContain("Drop FPS khi combat");
   });
 
+  test("requires concrete issue breakdown with counts instead of generic topic wording", () => {
+    const [system, user] = buildInsightMessages(
+      "Custom insight prompt",
+      {
+        total_comments: 30,
+        analyzed: 30,
+        negative_pct: 50,
+        top_topics: [{ label: "Game errors", count: 12 }],
+        top_subtopics: [
+          {
+            parent_label: "Game errors",
+            label: "Login stuck after update",
+            count: 10,
+            negative_count: 8,
+            urgent_count: 5,
+          },
+          {
+            parent_label: "Lag/FPS",
+            label: "FPS drops during combat",
+            count: 6,
+            negative_count: 6,
+            urgent_count: 3,
+          },
+        ],
+        hot_issues: [],
+      },
+      { negative: [], neutral: [], positive: [] }
+    );
+
+    expect(system).toContain("không được chỉ viết chung chung");
+    expect(user).toContain("Chi tiết vấn đề trong từng chủ đề");
+    expect(user).toContain("Game errors > Login stuck after update: 10 tổng, 8 tiêu cực, 5 khẩn cấp");
+    expect(user).toContain("Lag/FPS > FPS drops during combat: 6 tổng, 6 tiêu cực, 3 khẩn cấp");
+  });
+
   test("adds a Simplified Chinese instruction when the insight is generated for zh-CN reports", () => {
     const [system, user] = buildInsightMessages(
       "Custom insight prompt",

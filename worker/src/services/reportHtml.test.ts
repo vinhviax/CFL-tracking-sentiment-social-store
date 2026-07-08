@@ -223,6 +223,36 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain('class="scope-line"');
     expect(html).toContain("Hack/Cheat/Gian láº­n, Lag/Giáº­t/Tá»¥t FPS");
   });
+  test("renders concrete issue detail breakdown from subtopics", () => {
+    const html = renderFeedbackReportHtml(baseReport({
+      subtopic_ranking: [
+        {
+          parent_topic: "game_error",
+          parent_label: "Game errors",
+          label: "Login stuck after update",
+          count: 10,
+          negative_count: 8,
+          urgent_count: 5,
+        },
+        {
+          parent_topic: "other",
+          parent_label: "Other",
+          label: "Too vague",
+          count: 20,
+          negative_count: 20,
+          urgent_count: 20,
+        },
+      ],
+    } as Partial<FeedbackReportData>));
+
+    expect(html).toContain('class="issue-detail-table"');
+    expect(html).toContain("Game errors");
+    expect(html).toContain("Login stuck after update");
+    expect(html).toContain("<td>10</td>");
+    expect(html).toContain("<td>8</td>");
+    expect(html).toContain("<td>5</td>");
+    expect(html).not.toContain("Too vague");
+  });
 });
 
 describe("renderFeedbackReportBundleHtml", () => {

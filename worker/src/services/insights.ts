@@ -9,6 +9,7 @@ const INSIGHT_WEB_FORMAT_MARKER = "[CFL_INSIGHT_WEB_MARKDOWN_V1]";
 
 export const INSIGHT_WEB_FORMAT_PROMPT =
   `${INSIGHT_WEB_FORMAT_MARKER}\n` +
+  "không được chỉ viết chung chung. Phải gọi tên vấn đề cụ thể trong từng chủ đề, kèm số comment/tín hiệu tiêu cực/khẩn cấp khi dữ liệu có cung cấp. " +
   "Yêu cầu định dạng bắt buộc cho Web UI: trả lời bằng Markdown, không trả HTML. " +
   "Viết có cấu trúc, nhiều đoạn ngắn, dễ scan trong dashboard. " +
   "Dùng heading cấp 2 bắt đầu bằng ##, bullet list bằng -, in đậm bằng **...**, in nghiêng bằng *...*. " +
@@ -107,6 +108,20 @@ function languageInstruction(locale: InsightLanguage) {
   return "Output language: write the complete Insight and Summarize in Vietnamese with full diacritics.";
 }
 
+function issueParentLabel(row: any) {
+  return row.parent_label || row.parent_topic || row.topic_label || row.topic || "Chủ đề";
+}
+
+function actionableIssueDetails(overview: any) {
+  return (overview.top_subtopics || [])
+    .filter((row: any) => row && row.parent_topic !== "other" && row.label)
+    .sort((a: any, b: any) =>
+      Number(b.urgent_count || 0) - Number(a.urgent_count || 0)
+      || Number(b.negative_count || 0) - Number(a.negative_count || 0)
+      || Number(b.count || 0) - Number(a.count || 0)
+    );
+}
+
 export async function sampleBySentiment(env: Env, q: Record<string, string>): Promise<SentimentSamples> {
   const baseWhere: string[] = [];
   const baseParams: any[] = [];
@@ -145,6 +160,7 @@ export async function sampleBySentiment(env: Env, q: Record<string, string>): Pr
 }
 
 export function buildInsightMessages(systemPrompt: string, overview: any, samples: SentimentSamples, locale: InsightLanguage = "vi"): [string, string] {
+  const issueDetails = actionableIssueDetails(overview).slice(0, 12);
   const lines = [
     `Tổng phản hồi: ${overview.total_comments || 0}, đã phân tích: ${overview.analyzed || 0}.`,
     `Tỉ lệ tiêu cực: ${overview.negative_pct || 0}%.`,
@@ -155,6 +171,13 @@ export function buildInsightMessages(systemPrompt: string, overview: any, sample
     "Vấn đề nổi cộm (tiêu cực + khẩn cấp): " +
       (overview.hot_issues || []).slice(0, 5).map((h: any) => `${h.label} (${h.negative} tiêu cực, ${h.urgent} khẩn cấp)`).join(", "),
   ];
+
+  if (issueDetails.length) {
+    lines.push("Chi tiết vấn đề trong từng chủ đề (bắt buộc dùng để viết cụ thể, không gom chung theo chủ đề cha):");
+    lines.push(...issueDetails.map((row: any) =>
+      `- ${issueParentLabel(row)} > ${row.label}: ${Number(row.count || 0)} tổng, ${Number(row.negative_count || 0)} tiêu cực, ${Number(row.urgent_count || 0)} khẩn cấp`
+    ));
+  }
 
   const sections: [keyof SentimentSamples, string][] = [
     ["negative", "Bình luận tiêu cực tiêu biểu"],
