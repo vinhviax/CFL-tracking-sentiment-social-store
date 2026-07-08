@@ -12,6 +12,7 @@ export interface BuildReportParams {
   from?: string;
   to?: string;
   lang?: ReportLanguage;
+  topic?: string;
   autoGenerateInsight?: boolean;
 }
 
@@ -53,16 +54,20 @@ function sourceLabel(sourceType: string, lang: ReportLanguage = "vi") {
   return sourceType || (lang === "zh-CN" ? "未知来源" : "Không rõ nguồn");
 }
 
-function buildBaseWhere(params: BuildReportParams) {
+function buildBaseWhere(params: BuildReportParams, opts: { includeTopic?: boolean } = {}) {
   const where = [groupWhere(params.group)];
   const bind: any[] = [];
   addDateFilter(where, bind, "c.created_at", ">=", params.from);
   addDateFilter(where, bind, "c.created_at", "<=", params.to);
+  if (opts.includeTopic && params.topic) {
+    where.push("a.topic_main = ?");
+    bind.push(params.topic);
+  }
   return { where, bind };
 }
 
 async function loadTrend(db: D1Database, params: BuildReportParams) {
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: true });
   const rows = await db.prepare(
     `SELECT substr(c.created_at, 1, 10) as d, a.sentiment, COUNT(*) as n
      FROM comments c
@@ -76,7 +81,7 @@ async function loadTrend(db: D1Database, params: BuildReportParams) {
 
 async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
   const lang = normalizeLang(params.lang);
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: true });
   const rows = await db.prepare(
     `SELECT a.topic_main,
             COUNT(*) as count,
@@ -123,7 +128,7 @@ async function loadTopicRanking(db: D1Database, params: BuildReportParams) {
 
 async function loadComments(db: D1Database, params: BuildReportParams): Promise<ReportComment[]> {
   const lang = normalizeLang(params.lang);
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: true });
   const rows = await db.prepare(
     `SELECT c.id, c.source_type, c.created_at, c.message, c.rating, c.store,
             t.message_translated, t.summary_translated,
@@ -157,7 +162,7 @@ async function loadComments(db: D1Database, params: BuildReportParams): Promise<
 
 async function loadChannels(db: D1Database, params: BuildReportParams) {
   const lang = normalizeLang(params.lang);
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: true });
   const rows = await db.prepare(
     `SELECT c.source_type,
             COUNT(*) as total,
@@ -182,9 +187,10 @@ async function loadChannels(db: D1Database, params: BuildReportParams) {
 
 async function loadStoreBreakdown(db: D1Database, params: BuildReportParams) {
   if (params.group !== "store") return null;
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: Boolean(params.topic) });
+  const analysisJoin = params.topic ? "JOIN analyses a ON a.comment_id = c.id" : "";
   const ratingRows = await db.prepare(
-    `SELECT c.rating, COUNT(*) as n FROM comments c WHERE ${where.join(" AND ")} GROUP BY c.rating`
+    `SELECT c.rating, COUNT(*) as n FROM comments c ${analysisJoin} WHERE ${where.join(" AND ")} GROUP BY c.rating`
   ).bind(...bind).all<any>();
   const ratingDist: Record<string, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
   for (const row of ratingRows.results) if (row.rating) ratingDist[String(row.rating)] = Number(row.n || 0);
@@ -192,6 +198,7 @@ async function loadStoreBreakdown(db: D1Database, params: BuildReportParams) {
   const platformRows = await db.prepare(
     `SELECT c.store, COUNT(*) as n, AVG(c.rating) as avg_rating
      FROM comments c
+     ${analysisJoin}
      WHERE ${where.join(" AND ")}
      GROUP BY c.store`
   ).bind(...bind).all<any>();
@@ -206,7 +213,7 @@ async function loadStoreBreakdown(db: D1Database, params: BuildReportParams) {
 
 async function loadTopPosts(db: D1Database, params: BuildReportParams): Promise<ReportPost[]> {
   if (params.group !== "facebook") return [];
-  const { where, bind } = buildBaseWhere(params);
+  const { where, bind } = buildBaseWhere(params, { includeTopic: true });
   const rows = await db.prepare(
     `SELECT p.id, p.source_type, p.published_at, p.message, p.permalink,
             COUNT(c.id) as comment_count,
@@ -320,6 +327,7 @@ async function generateReportInsight(env: Env, params: BuildReportParams, overvi
     group: params.group,
     from: params.from || "",
     to: params.to || "",
+    topic: params.topic || "",
   };
   const samples = await sampleBySentiment(env, filters);
   const result = await generateSummary(env, overview, samples, undefined, lang);
@@ -336,18 +344,20 @@ async function generateReportInsight(env: Env, params: BuildReportParams, overvi
 
 export async function buildReportData(env: Env, params: BuildReportParams): Promise<FeedbackReportData> {
   const lang = normalizeLang(params.lang);
-  const q = { group: params.group, from: params.from || "", to: params.to || "", lang };
+  const q = { group: params.group, from: params.from || "", to: params.to || "", lang, topic: params.topic || "" };
   const overview = await computeOverview(env.DB, q);
   const channels = await loadChannels(env.DB, params);
   const storeBreakdown = await loadStoreBreakdown(env.DB, params);
+  const topicFocus = params.topic ? { key: params.topic, label: topicLabel(params.topic, lang) } : null;
   const base = {
     group: params.group,
     language: lang,
     title: lang === "zh-CN"
-      ? (params.group === "store" ? "CFL 商店反馈报告" : "CFL Facebook 反馈报告")
-      : (params.group === "store" ? "CFL Store Feedback Report" : "CFL Facebook Feedback Report"),
+      ? `${params.group === "store" ? "CFL 商店反馈报告" : "CFL Facebook 反馈报告"}${topicFocus ? ` - ${topicFocus.label}` : ""}`
+      : `${params.group === "store" ? "CFL Store Feedback Report" : "CFL Facebook Feedback Report"}${topicFocus ? ` - ${topicFocus.label}` : ""}`,
     generated_at: new Date().toISOString(),
     range: { from: dateKey(params.from), to: dateKey(params.to) },
+    topic_focus: topicFocus,
     overview,
     trend: await loadTrend(env.DB, params),
     topic_ranking: await loadTopicRanking(env.DB, params),

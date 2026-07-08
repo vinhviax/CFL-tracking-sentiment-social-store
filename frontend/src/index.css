@@ -881,6 +881,22 @@ select:disabled {
   font-weight: 500;
 }
 
+.insight-scope-note {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-top: 8px !important;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-solid));
+  font-weight: 750;
+}
+
+.insight-scope-note strong {
+  color: var(--accent-strong);
+}
+
 .insight-actions {
   display: flex;
   gap: 8px;

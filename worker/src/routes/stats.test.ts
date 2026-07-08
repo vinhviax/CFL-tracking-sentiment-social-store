@@ -22,6 +22,48 @@ describe("buildTrendSeries", () => {
 });
 
 describe("computeOverview", () => {
+  test("scopes overview totals and sentiment to the selected main topic", async () => {
+    const prepared: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        const record = { sql, params: [] as unknown[] };
+        prepared.push(record);
+        const stmt = {
+          bind(...params: unknown[]) {
+            record.params = params;
+            return stmt;
+          },
+          async first() {
+            return { n: 2 };
+          },
+          async all() {
+            if (sql.includes("SELECT a.sentiment")) {
+              return { results: [{ sentiment: "negative", n: 2 }] };
+            }
+            if (sql.includes("SELECT a.topic_main, COUNT(*) as negative")) {
+              return { results: [{ topic_main: "hack_cheat", negative: 2, urgent: 1 }] };
+            }
+            if (sql.includes("SELECT a.topic_main, COUNT(*) as n")) {
+              return { results: [{ topic_main: "hack_cheat", n: 2 }] };
+            }
+            return { results: [] };
+          },
+        };
+        return stmt;
+      },
+    } as unknown as D1Database;
+
+    const got = await computeOverview(db, { group: "facebook", topic: "hack_cheat", lang: "vi" });
+
+    expect(got.total_comments).toBe(2);
+    expect(got.sentiment.negative).toBe(2);
+    expect(prepared[0].sql).toContain("JOIN analyses a ON a.comment_id = c.id");
+    expect(prepared[0].sql).toContain("a.topic_main = ?");
+    expect(prepared[0].params).toContain("hack_cheat");
+    expect(prepared[1].sql).toContain("a.topic_main = ?");
+    expect(prepared[1].params).toContain("hack_cheat");
+  });
+
   test("excludes other from main top topics and hot issues", async () => {
     const db = {
       prepare(sql: string) {

@@ -90,6 +90,7 @@ const UI = {
     hotIssues: "Vấn đề nổi cộm",
     trend: "Xu hướng sentiment",
     insight: "Insight and Summarize",
+    insightScopeTopic: "Đang xem theo chủ đề",
     createInsight: "Tạo Insight and Summarize",
     save: "Lưu",
     editPrompt: "Sửa prompt",
@@ -131,6 +132,10 @@ const UI = {
     reportSourceAll: "Store + Facebook",
     reportSourceStore: "Store",
     reportSourceFacebook: "Facebook",
+    reportTopicMode: "Kiểu report",
+    reportTopicModeAll: "Tổng quan",
+    reportTopicModeTopic: "Theo chủ đề",
+    reportTopic: "Chủ đề report",
     reportLanguage: "Ngôn ngữ report",
     reportLanguageVi: "Tiếng Việt",
     reportLanguageZh: "中文",
@@ -180,6 +185,7 @@ const UI = {
     hotIssues: "重点问题",
     trend: "情绪趋势",
     insight: "Insight and Summarize",
+    insightScopeTopic: "当前主题",
     createInsight: "生成 Insight",
     save: "保存",
     editPrompt: "编辑 Prompt",
@@ -221,6 +227,10 @@ const UI = {
     reportSourceAll: "Store + Facebook",
     reportSourceStore: "Store",
     reportSourceFacebook: "Facebook",
+    reportTopicMode: "报告类型",
+    reportTopicModeAll: "总览",
+    reportTopicModeTopic: "按主题",
+    reportTopic: "报告主题",
     reportLanguage: "报告语言",
     reportLanguageVi: "Tiếng Việt",
     reportLanguageZh: "中文",
@@ -283,11 +293,13 @@ function cleanParams(filters, group, subtab, page, metaLang) {
   return params;
 }
 
-function ReportExportDialog({ open, filters, lang, labels, onClose }) {
+function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose }) {
   const [reportGroup, setReportGroup] = useState("all");
   const [reportFrom, setReportFrom] = useState(filters.from || "");
   const [reportTo, setReportTo] = useState(filters.to || "");
   const [reportLang, setReportLang] = useState(lang === "zh-CN" ? "zh-CN" : "vi");
+  const [reportTopicMode, setReportTopicMode] = useState("all");
+  const [reportTopic, setReportTopic] = useState(filters.topic || "");
 
   useEffect(() => {
     if (!open) return;
@@ -295,7 +307,9 @@ function ReportExportDialog({ open, filters, lang, labels, onClose }) {
     setReportFrom(filters.from || "");
     setReportTo(filters.to || "");
     setReportLang(lang === "zh-CN" ? "zh-CN" : "vi");
-  }, [open, filters.from, filters.to, lang]);
+    setReportTopicMode(filters.topic ? "topic" : "all");
+    setReportTopic(filters.topic || "");
+  }, [open, filters.from, filters.to, filters.topic, lang]);
 
   if (!open) return null;
 
@@ -304,6 +318,7 @@ function ReportExportDialog({ open, filters, lang, labels, onClose }) {
     from: reportFrom,
     to: reportTo,
     lang: reportLang,
+    topic: reportTopicMode === "topic" ? reportTopic : "",
   });
 
   return (
@@ -330,6 +345,22 @@ function ReportExportDialog({ open, filters, lang, labels, onClose }) {
               <option value="facebook">{labels.reportSourceFacebook}</option>
             </select>
           </label>
+          <label>{labels.reportTopicMode}
+            <select value={reportTopicMode} onChange={(event) => setReportTopicMode(event.target.value)}>
+              <option value="all">{labels.reportTopicModeAll}</option>
+              <option value="topic">{labels.reportTopicModeTopic}</option>
+            </select>
+          </label>
+          {reportTopicMode === "topic" && (
+            <label>{labels.reportTopic}
+              <select value={reportTopic} onChange={(event) => setReportTopic(event.target.value)}>
+                <option value="">{labels.chooseTopicFirst}</option>
+                {topicOptions.map((option) => (
+                  <option key={option.key} value={option.key}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>{labels.from}<DateTextInput value={reportFrom} onChange={setReportFrom} /></label>
           <label>{labels.to}<DateTextInput value={reportTo} onChange={setReportTo} /></label>
           <label>{labels.reportLanguage}
@@ -480,6 +511,11 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     () => buildTopicOptions(topicLabels, topicOptionRanking, { includeEmpty: !filters.sentiment }),
     [topicLabels, topicOptionRanking, filters.sentiment]
   );
+  const allTopicOptions = useMemo(
+    () => buildTopicOptions(topicLabels, topicOptionRanking, { includeEmpty: true }),
+    [topicLabels, topicOptionRanking]
+  );
+  const selectedTopicLabel = filters.topic ? (topicLabels?.[filters.topic] || filters.topic) : "";
   const manualTopicOptions = useMemo(
     () => Object.entries(topicLabels || {}).map(([key, label]) => ({ key, label })),
     [topicLabels]
@@ -585,7 +621,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const createInsight = () => {
     setInsightBusy(true);
     setError(null);
-    generateInsight({ filters: aggregateParams, prompt: insightPrompt })
+    generateInsight({ filters: aggregateParams, prompt: insightPrompt, lang })
       .then((result) => setInsight(result))
       .catch((e) => setError(e?.response?.data?.detail || e.message))
       .finally(() => setInsightBusy(false));
@@ -814,6 +850,9 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
               <div>
                 <h3>{t.insight}</h3>
                 <p>{t.noInsight}</p>
+                {selectedTopicLabel && (
+                  <p className="insight-scope-note">{t.insightScopeTopic}: <strong>{selectedTopicLabel}</strong></p>
+                )}
               </div>
               <div className="insight-actions">
                 <button className="btn" onClick={createInsight} disabled={insightBusy}>
@@ -1007,6 +1046,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         filters={filters}
         lang={lang}
         labels={t}
+        topicOptions={allTopicOptions}
         onClose={() => setReportDialogOpen(false)}
       />
 

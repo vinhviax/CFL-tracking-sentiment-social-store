@@ -6,6 +6,7 @@ export interface FeedbackReportData {
   title: string;
   generated_at: string;
   range: { from: string | null; to: string | null };
+  topic_focus?: { key: string; label: string } | null;
   overview: {
     total_comments: number;
     analyzed: number;
@@ -138,6 +139,7 @@ const COPY = {
     source: "Nguồn",
     dateRange: "Khoảng ngày",
     language: "Ngôn ngữ",
+    topicFocus: "Chủ đề report",
     promptRule: "Cách tạo insight",
     promptRuleText: "Khi export HTML, hệ thống tự tổng hợp Insight and Summarize theo đúng nguồn, khoảng ngày và ngôn ngữ của từng tab report.",
     hardRules: "Rule cứng",
@@ -209,6 +211,7 @@ const COPY = {
     source: "来源",
     dateRange: "日期范围",
     language: "语言",
+    topicFocus: "报告主题",
     promptRule: "Insight 生成方式",
     promptRuleText: "导出 HTML 时会按每个报告 tab 的来源、日期和语言自动生成 Insight and Summarize。",
     hardRules: "硬规则",
@@ -588,6 +591,9 @@ function renderReportBody(data: FeedbackReportData) {
   const generatedText = Number.isNaN(generated.getTime()) ? data.generated_at : generated.toISOString().slice(0, 19).replace("T", " ");
   const topNegative = topNegativeTopic(data);
   const topPositive = topPositiveTopic(data);
+  const topicScope = data.topic_focus?.label
+    ? `<p class="scope-line"><strong>${esc(copy.topicFocus)}:</strong> ${esc(data.topic_focus.label)}</p>`
+    : "";
   let section = 1;
   const next = () => sectionNumber(section++);
   return `<article class="report-body lang-${language}">
@@ -595,6 +601,7 @@ function renderReportBody(data: FeedbackReportData) {
       <div class="eyebrow">${esc(copy.docTitle)}</div>
       <h1>${esc(data.title)}</h1>
       <p class="sub">${esc(copy.dateRange)}: <b>${esc(rangeText(data))}</b>. ${esc(copy.generated)} ${esc(generatedText)}. ${esc(copy.subtitle)}</p>
+      ${topicScope}
       <div class="hero-grid">
         <div class="metric"><small>${esc(copy.totalFeedback)}</small><strong>${fmt(data.overview.total_comments, language)}</strong><em>${fmt(data.overview.analyzed, language)} ${esc(copy.analyzed)}</em></div>
         <div class="metric neg"><small>${esc(copy.negativeRate)}</small><strong>${esc(data.overview.negative_pct)}%</strong><em>${fmt(data.overview.sentiment.negative, language)} ${esc(copy.negative)}</em></div>
@@ -710,7 +717,7 @@ function renderStyles() {
     header{padding:34px 0 22px;border-bottom:3px solid var(--accent);margin-bottom:22px;}
     .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:800;}
     h1{font-size:38px;line-height:1.05;margin:8px 0 10px;} h2{font-size:20px;margin:0;} h3{margin:0 0 10px;font-size:15px;}
-    .sub,.sec-desc{color:var(--muted);max-width:860px}.hero-grid,.grid{display:grid;gap:14px}.hero-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:20px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .sub,.sec-desc{color:var(--muted);max-width:860px}.scope-line{display:inline-flex;gap:6px;align-items:center;margin:4px 0 0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff8f1;color:var(--ink)}.scope-line strong{color:var(--accent)}.hero-grid,.grid{display:grid;gap:14px}.hero-grid{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:20px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
     .metric,.panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}.metric small{display:block;color:var(--muted);font-weight:700}.metric strong,.big{display:block;font-size:30px;line-height:1.15;margin:5px 0;font-weight:850}.metric em{font-style:normal;color:var(--muted)}.metric.neg strong{color:var(--neg)}.metric.pos strong{color:var(--pos)}
     section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px;margin:18px 0}.sec-head{display:flex;align-items:center;gap:12px;margin-bottom:15px}.sec-head span{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#fff3e8;color:var(--accent);font-weight:850}
     .rule-list{display:grid;gap:10px;margin-top:16px}.rule-list>div{border-left:4px solid var(--accent);background:#fff8f1;padding:12px 14px;border-radius:6px}.rule-list p{margin:4px 0 0;color:var(--muted)}

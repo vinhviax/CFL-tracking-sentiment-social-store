@@ -3,6 +3,7 @@ import type { Env } from "../types";
 import { buildReportData, type ReportGroup } from "../services/reportData";
 import { renderFeedbackReportBundleHtml } from "../services/reportHtml";
 import type { ReportLanguage } from "../services/reportHtml";
+import { isTopic } from "../taxonomy";
 
 export const reportRoute = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +29,14 @@ function datePart(value?: string | null) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "all";
 }
 
+function filenamePart(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
 reportRoute.get("/html", async (c) => {
   const q = c.req.query();
   const groupParam = String(q.group || "");
@@ -39,6 +48,10 @@ reportRoute.get("/html", async (c) => {
   if (!languages) {
     return c.json({ detail: "Invalid report language" }, 400);
   }
+  const topic = String(q.topic || "").trim();
+  if (topic && !isTopic(topic)) {
+    return c.json({ detail: "Invalid report topic" }, 400);
+  }
 
   const reports = [];
   for (const lang of languages) {
@@ -48,6 +61,7 @@ reportRoute.get("/html", async (c) => {
         from: q.from,
         to: q.to,
         lang,
+        topic: topic || undefined,
         autoGenerateInsight: true,
       }));
     }
@@ -55,7 +69,8 @@ reportRoute.get("/html", async (c) => {
   const html = renderFeedbackReportBundleHtml(reports);
   const groupName = groups.length > 1 ? "All" : groups[0] === "store" ? "Store" : "Facebook";
   const langName = languages.length > 1 ? "vi-zh" : languages[0] === "zh-CN" ? "zh" : "vi";
-  const filename = `CFL_${groupName}_Report_${datePart(q.from)}_${datePart(q.to)}_${langName}.html`;
+  const topicName = topic ? `_${filenamePart(topic)}` : "";
+  const filename = `CFL_${groupName}${topicName}_Report_${datePart(q.from)}_${datePart(q.to)}_${langName}.html`;
 
   return new Response(html, {
     headers: {

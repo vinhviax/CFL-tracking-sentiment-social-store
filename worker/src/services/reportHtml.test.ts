@@ -202,6 +202,17 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain("Group Fanpage");
     expect(html).not.toContain("Group CSV");
   });
+
+  test("shows the selected report topic scope when present", () => {
+    const html = renderFeedbackReportHtml(baseReport({
+      title: "Facebook Report - Hack/Cheat/Gian lận",
+      topic_focus: { key: "hack_cheat", label: "Hack/Cheat/Gian lận" },
+    } as Partial<FeedbackReportData>));
+
+    expect(html).toContain("Facebook Report - Hack/Cheat/Gian lận");
+    expect(html).toContain("Chủ đề report");
+    expect(html).toContain("Hack/Cheat/Gian lận");
+  });
 });
 
 describe("renderFeedbackReportBundleHtml", () => {

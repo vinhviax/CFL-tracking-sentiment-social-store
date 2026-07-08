@@ -26,6 +26,19 @@ test("workspace exposes header HTML report export with source, date, and languag
   assert.ok(source.indexOf("report-export-header-button") < source.indexOf("insight-workbench"));
 });
 
+test("workspace supports topic-scoped insight and topic report export", () => {
+  assert.match(source, /reportTopicMode/);
+  assert.match(source, /reportTopic/);
+  assert.match(source, /reportTopicModeAll/);
+  assert.match(source, /reportTopicModeTopic/);
+  assert.match(source, /topic: reportTopicMode === "topic" \? reportTopic : ""/);
+  assert.match(source, /setReportTopicMode\(filters\.topic \? "topic" : "all"\)/);
+  assert.match(source, /setReportTopic\(filters\.topic \|\| ""\)/);
+  assert.match(source, /selectedTopicLabel/);
+  assert.match(source, /insightScopeTopic/);
+  assert.match(source, /generateInsight\(\{ filters: aggregateParams, prompt: insightPrompt, lang \}\)/);
+});
+
 test("Facebook comments show parent post context in the table and drawer", () => {
   assert.match(source, /function postContextLabel\(row\)/);
   assert.match(source, /row\.post\?\.message/);

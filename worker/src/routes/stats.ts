@@ -97,6 +97,15 @@ function baseFilters(q: Record<string, string>) {
   return { where, params };
 }
 
+function overviewFilters(q: Record<string, string>) {
+  const { where, params } = baseFilters(q);
+  if (q.topic) {
+    where.push("a.topic_main = ?");
+    params.push(q.topic);
+  }
+  return { where, params };
+}
+
 function topicLabel(topic: string, lang?: string) {
   const labels = lang === "zh-CN" ? TOPIC_LABELS_ZH_CN : TOPIC_LABELS_VI;
   const legacyLabels = lang === "zh-CN" ? LEGACY_TOPIC_LABELS_ZH_CN : LEGACY_TOPIC_LABELS_VI;
@@ -196,13 +205,20 @@ export async function computeSubtopicRanking(db: D1Database, q: Record<string, s
 }
 
 export async function computeOverview(db: D1Database, q: Record<string, string>) {
-  const { where, params } = baseFilters(q);
+  const { where, params } = overviewFilters(q);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const totalRow = await db.prepare(`SELECT COUNT(*) as n FROM comments c ${whereSql}`).bind(...params).first<{ n: number }>();
-  const analyzedRow = await db
-    .prepare(`SELECT COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id = c.id ${whereSql}`)
-    .bind(...params).first<{ n: number }>();
+  const scopedByTopic = Boolean(q.topic);
+  const totalRow = scopedByTopic
+    ? await db
+      .prepare(`SELECT COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id = c.id ${whereSql}`)
+      .bind(...params).first<{ n: number }>()
+    : await db.prepare(`SELECT COUNT(*) as n FROM comments c ${whereSql}`).bind(...params).first<{ n: number }>();
+  const analyzedRow = scopedByTopic
+    ? totalRow
+    : await db
+      .prepare(`SELECT COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id = c.id ${whereSql}`)
+      .bind(...params).first<{ n: number }>();
 
   const sentimentRows = await db
     .prepare(`SELECT a.sentiment, COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id=c.id ${whereSql} GROUP BY a.sentiment`)
