@@ -6,7 +6,7 @@ export interface FeedbackReportData {
   title: string;
   generated_at: string;
   range: { from: string | null; to: string | null };
-  topic_focus?: { key: string; label: string } | null;
+  topic_focus?: { key?: string; keys?: string[]; label: string } | null;
   overview: {
     total_comments: number;
     analyzed: number;

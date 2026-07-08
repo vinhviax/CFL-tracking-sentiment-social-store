@@ -213,6 +213,16 @@ describe("renderFeedbackReportHtml", () => {
     expect(html).toContain("Chủ đề report");
     expect(html).toContain("Hack/Cheat/Gian lận");
   });
+  test("shows selected multi-topic report scope when present", () => {
+    const html = renderFeedbackReportHtml(baseReport({
+      title: "Facebook Report - Hack/Cheat/Gian láº­n, Lag/Giáº­t/Tá»¥t FPS",
+      topic_focus: { keys: ["hack_cheat", "lag_fps"], label: "Hack/Cheat/Gian láº­n, Lag/Giáº­t/Tá»¥t FPS" },
+    } as Partial<FeedbackReportData>));
+
+    expect(html).toContain("Facebook Report - Hack/Cheat/Gian láº­n, Lag/Giáº­t/Tá»¥t FPS");
+    expect(html).toContain('class="scope-line"');
+    expect(html).toContain("Hack/Cheat/Gian láº­n, Lag/Giáº­t/Tá»¥t FPS");
+  });
 });
 
 describe("renderFeedbackReportBundleHtml", () => {

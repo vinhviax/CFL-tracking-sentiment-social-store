@@ -1,6 +1,7 @@
 // Ported from backend/app/services/insights.py.
 import type { Env } from "../types";
 import { buildProvider } from "./llm/providers";
+import { addTopicFilter } from "./topicScope";
 
 export const INSIGHT_PROMPT_KEY = "insight_summary_prompt";
 
@@ -115,7 +116,7 @@ export async function sampleBySentiment(env: Env, q: Record<string, string>): Pr
   if (q.store) { baseWhere.push("c.store = ?"); baseParams.push(q.store); }
   if (q.from) { baseWhere.push("substr(c.created_at, 1, 10) >= ?"); baseParams.push(q.from.slice(0, 10)); }
   if (q.to) { baseWhere.push("substr(c.created_at, 1, 10) <= ?"); baseParams.push(q.to.slice(0, 10)); }
-  if (q.topic) { baseWhere.push("a.topic_main = ?"); baseParams.push(q.topic); }
+  addTopicFilter(baseWhere, baseParams, q.topic);
   if (q.subtopic) {
     const subtopicKeys = parseSubtopicKeys(q.subtopic);
     if (!subtopicKeys.length) return { negative: [], neutral: [], positive: [] };

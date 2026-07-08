@@ -26,11 +26,22 @@ test("workspace exposes header HTML report export with source, date, and languag
   assert.ok(source.indexOf("report-export-header-button") < source.indexOf("insight-workbench"));
 });
 
-test("workspace supports topic-scoped insight and topic report export", () => {
+test("workspace supports multi-topic scoped insight and topic report export", () => {
   assert.match(source, /reportTopicMode/);
   assert.match(source, /reportTopic/);
   assert.match(source, /reportTopicModeAll/);
   assert.match(source, /reportTopicModeTopic/);
+  assert.match(source, /parseTopicSelection/);
+  assert.match(source, /joinTopicSelection/);
+  assert.match(source, /topicLabelForKeys/);
+  assert.match(source, /selectedTopicKeys/);
+  assert.match(source, /reportTopicKeys/);
+  assert.match(source, /addTopicFilter/);
+  assert.match(source, /removeTopicFilter/);
+  assert.match(source, /addReportTopic/);
+  assert.match(source, /removeReportTopic/);
+  assert.match(source, /className="topic-chip-list"/);
+  assert.match(source, /className="topic-chip"/);
   assert.match(source, /topic: reportTopicMode === "topic" \? reportTopic : ""/);
   assert.match(source, /setReportTopicMode\(filters\.topic \? "topic" : "all"\)/);
   assert.match(source, /setReportTopic\(filters\.topic \|\| ""\)/);

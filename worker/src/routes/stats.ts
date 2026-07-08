@@ -3,6 +3,7 @@ import type { Env } from "../types";
 import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import { summarizeStoreBreakdown } from "../services/storeStats";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
+import { addTopicFilter } from "../services/topicScope";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
@@ -99,11 +100,8 @@ function baseFilters(q: Record<string, string>) {
 
 function overviewFilters(q: Record<string, string>) {
   const { where, params } = baseFilters(q);
-  if (q.topic) {
-    where.push("a.topic_main = ?");
-    params.push(q.topic);
-  }
-  return { where, params };
+  const topicKeys = addTopicFilter(where, params, q.topic);
+  return { where, params, topicKeys };
 }
 
 function topicLabel(topic: string, lang?: string) {
@@ -123,7 +121,7 @@ function subtopicLabel(row: { label_vi: string; label_zh_cn?: string | null }, l
 export async function computeSubtopicRanking(db: D1Database, q: Record<string, string>, limitInput = 12) {
   const { where, params } = baseFilters(q);
   const w = [...where];
-  if (q.topic) { w.push("a.topic_main = ?"); params.push(q.topic); }
+  addTopicFilter(w, params, q.topic);
   if (q.sentiment) { w.push("a.sentiment = ?"); params.push(q.sentiment); }
   if (q.urgency) { w.push("a.urgency = ?"); params.push(q.urgency); }
   const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
@@ -205,10 +203,10 @@ export async function computeSubtopicRanking(db: D1Database, q: Record<string, s
 }
 
 export async function computeOverview(db: D1Database, q: Record<string, string>) {
-  const { where, params } = overviewFilters(q);
+  const { where, params, topicKeys } = overviewFilters(q);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const scopedByTopic = Boolean(q.topic);
+  const scopedByTopic = topicKeys.length > 0;
   const totalRow = scopedByTopic
     ? await db
       .prepare(`SELECT COUNT(*) as n FROM comments c JOIN analyses a ON a.comment_id = c.id ${whereSql}`)
@@ -273,9 +271,8 @@ statsRoute.get("/trend", async (c) => {
   const q = c.req.query();
   const { where, params } = baseFilters(q);
   const w = [...where];
-  if (q.topic) w.push("a.topic_main = ?");
   const p = [...params];
-  if (q.topic) p.push(q.topic);
+  addTopicFilter(w, p, q.topic);
   const whereSql = w.length ? `WHERE ${w.join(" AND ")}` : "";
 
   const rows = await c.env.DB
@@ -293,7 +290,7 @@ statsRoute.get("/topic-ranking", async (c) => {
   const q = c.req.query();
   const { where, params } = baseFilters(q);
   const w = [...where, "a.topic_main IS NOT NULL"];
-  if (q.topic) { w.push("a.topic_main = ?"); params.push(q.topic); }
+  addTopicFilter(w, params, q.topic);
   if (q.sentiment) { w.push("a.sentiment = ?"); params.push(q.sentiment); }
   if (q.urgency) { w.push("a.urgency = ?"); params.push(q.urgency); }
   const whereSql = `WHERE ${w.join(" AND ")}`;
@@ -357,7 +354,7 @@ statsRoute.get("/subtopic-ranking", async (c) => {
     const itemKeys = Array.isArray((item as any).keys) && (item as any).keys.length ? (item as any).keys : parseSubtopicKeys(item.key);
     const w = [...where, `st.key IN (${itemKeys.map(() => "?").join(",")})`];
     const p = [...params, ...itemKeys];
-    if (q.topic) { w.push("a.topic_main = ?"); p.push(q.topic); }
+    addTopicFilter(w, p, q.topic);
     if (q.sentiment) { w.push("a.sentiment = ?"); p.push(q.sentiment); }
     if (q.urgency) { w.push("a.urgency = ?"); p.push(q.urgency); }
     const rows = await c.env.DB.prepare(

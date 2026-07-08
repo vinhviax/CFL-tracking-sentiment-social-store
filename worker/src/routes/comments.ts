@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
+import { addTopicFilter } from "../services/topicScope";
 import { isTopic } from "../taxonomy";
 import type { Env } from "../types";
 
@@ -219,7 +220,7 @@ commentsRoute.get("/", async (c) => {
   if (q.q) { where.push("(c.message LIKE ? OR t.message_translated LIKE ?)"); filterParams.push(`%${q.q}%`, `%${q.q}%`); }
   addDateFilter(where, filterParams, "c.created_at", ">=", q.from);
   addDateFilter(where, filterParams, "c.created_at", "<=", q.to);
-  if (q.topic) { where.push("a.topic_main = ?"); filterParams.push(q.topic); }
+  addTopicFilter(where, filterParams, q.topic);
   if (q.subtopic) {
     const subtopicKeys = parseSubtopicKeys(q.subtopic);
     if (!subtopicKeys.length) return c.json({ detail: "Invalid subtopic filter" }, 400);

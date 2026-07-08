@@ -94,6 +94,42 @@ describe("reportRoute", () => {
     });
   });
 
+  test("passes selected multi-topic scope into generated report data and filename", async () => {
+    mocks.buildReportData.mockResolvedValueOnce({
+      group: "facebook",
+      range: { from: "2026-07-01", to: "2026-07-07" },
+    });
+    mocks.renderFeedbackReportHtml.mockReturnValueOnce("<!doctype html><html><body>Multi topic report</body></html>");
+
+    const res = await reportRoute.request(
+      "/html?group=facebook&from=2026-07-01&to=2026-07-07&topic=hack_cheat,lag_fps",
+      {},
+      { DB: {} } as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain("CFL_Facebook_topics-2_Report_2026-07-01_2026-07-07_vi.html");
+    expect(mocks.buildReportData).toHaveBeenCalledWith({ DB: {} }, {
+      group: "facebook",
+      from: "2026-07-01",
+      to: "2026-07-07",
+      lang: "vi",
+      topic: "hack_cheat,lag_fps",
+      autoGenerateInsight: true,
+    });
+  });
+
+  test("rejects invalid topics inside multi-topic report scope", async () => {
+    const res = await reportRoute.request(
+      "/html?group=facebook&from=2026-07-01&to=2026-07-07&topic=hack_cheat,not_a_topic",
+      {},
+      { DB: {} } as any
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ detail: "Invalid report topic" });
+  });
+
   test("rejects unknown report groups", async () => {
     const res = await reportRoute.request("/html?group=bad", {}, { DB: {} } as any);
 

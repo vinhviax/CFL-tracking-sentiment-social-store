@@ -4,6 +4,7 @@ import { buildReportData, type ReportGroup } from "../services/reportData";
 import { renderFeedbackReportBundleHtml } from "../services/reportHtml";
 import type { ReportLanguage } from "../services/reportHtml";
 import { isTopic } from "../taxonomy";
+import { normalizeTopicParam, parseTopicKeys, topicFilenamePart } from "../services/topicScope";
 
 export const reportRoute = new Hono<{ Bindings: Env }>();
 
@@ -48,10 +49,11 @@ reportRoute.get("/html", async (c) => {
   if (!languages) {
     return c.json({ detail: "Invalid report language" }, 400);
   }
-  const topic = String(q.topic || "").trim();
-  if (topic && !isTopic(topic)) {
+  const topicKeys = parseTopicKeys(q.topic);
+  if (topicKeys.some((key) => !isTopic(key))) {
     return c.json({ detail: "Invalid report topic" }, 400);
   }
+  const topic = normalizeTopicParam(q.topic);
 
   const reports = [];
   for (const lang of languages) {
@@ -69,7 +71,7 @@ reportRoute.get("/html", async (c) => {
   const html = renderFeedbackReportBundleHtml(reports);
   const groupName = groups.length > 1 ? "All" : groups[0] === "store" ? "Store" : "Facebook";
   const langName = languages.length > 1 ? "vi-zh" : languages[0] === "zh-CN" ? "zh" : "vi";
-  const topicName = topic ? `_${filenamePart(topic)}` : "";
+  const topicName = topic ? `_${filenamePart(topicFilenamePart(topic))}` : "";
   const filename = `CFL_${groupName}${topicName}_Report_${datePart(q.from)}_${datePart(q.to)}_${langName}.html`;
 
   return new Response(html, {

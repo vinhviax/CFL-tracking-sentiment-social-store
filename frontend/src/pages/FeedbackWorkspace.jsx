@@ -278,6 +278,30 @@ function formatTopicOption(option) {
   return option.count ? `${option.label} (${formatCount(option.count)})` : option.label;
 }
 
+function parseTopicSelection(value) {
+  const seen = new Set();
+  const keys = [];
+  String(value || "").split(",").forEach((raw) => {
+    const key = raw.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    keys.push(key);
+  });
+  return keys.slice(0, 30);
+}
+
+function joinTopicSelection(keys) {
+  return parseTopicSelection(keys.join(",")).join(",");
+}
+
+function topicLabelForKeys(keys, topicLabels) {
+  return keys.map((key) => topicLabels?.[key] || key).join(", ");
+}
+
+function topicOptionLabel(topicOptions, key) {
+  return topicOptions.find((option) => option.key === key)?.label || key;
+}
+
 function cleanParams(filters, group, subtab, page, metaLang) {
   const params = { group, lang: metaLang, page, page_size: PAGE_SIZE };
   if (filters.from) params.from = filters.from;
@@ -300,6 +324,12 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
   const [reportLang, setReportLang] = useState(lang === "zh-CN" ? "zh-CN" : "vi");
   const [reportTopicMode, setReportTopicMode] = useState("all");
   const [reportTopic, setReportTopic] = useState(filters.topic || "");
+  const reportTopicKeys = useMemo(() => parseTopicSelection(reportTopic), [reportTopic]);
+  const reportTopicKeySet = useMemo(() => new Set(reportTopicKeys), [reportTopicKeys]);
+  const reportTopicOptions = useMemo(
+    () => topicOptions.filter((option) => !reportTopicKeySet.has(option.key)),
+    [topicOptions, reportTopicKeySet]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -312,6 +342,17 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
   }, [open, filters.from, filters.to, filters.topic, lang]);
 
   if (!open) return null;
+
+  const addReportTopic = (event) => {
+    const key = event.target.value;
+    if (!key) return;
+    setReportTopic((current) => joinTopicSelection([...parseTopicSelection(current), key]));
+    event.target.value = "";
+  };
+
+  const removeReportTopic = (key) => {
+    setReportTopic((current) => joinTopicSelection(parseTopicSelection(current).filter((item) => item !== key)));
+  };
 
   const href = exportReportHtmlUrl({
     group: reportGroup,
@@ -352,14 +393,24 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
             </select>
           </label>
           {reportTopicMode === "topic" && (
-            <label>{labels.reportTopic}
-              <select value={reportTopic} onChange={(event) => setReportTopic(event.target.value)}>
-                <option value="">{labels.chooseTopicFirst}</option>
-                {topicOptions.map((option) => (
-                  <option key={option.key} value={option.key}>{option.label}</option>
+            <div className="topic-picker report-topic-picker">
+              <label>{labels.reportTopic}
+                <select value="" onChange={addReportTopic}>
+                  <option value="">{labels.chooseTopicFirst}</option>
+                  {reportTopicOptions.map((option) => (
+                    <option key={option.key} value={option.key}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="topic-chip-list">
+                {reportTopicKeys.map((key) => (
+                  <span className="topic-chip" key={key}>
+                    {topicOptionLabel(topicOptions, key)}
+                    <button type="button" onClick={() => removeReportTopic(key)} aria-label={`Remove ${key}`}>x</button>
+                  </span>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
           )}
           <label>{labels.from}<DateTextInput value={reportFrom} onChange={setReportFrom} /></label>
           <label>{labels.to}<DateTextInput value={reportTo} onChange={setReportTo} /></label>
@@ -515,7 +566,13 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     () => buildTopicOptions(topicLabels, topicOptionRanking, { includeEmpty: true }),
     [topicLabels, topicOptionRanking]
   );
-  const selectedTopicLabel = filters.topic ? (topicLabels?.[filters.topic] || filters.topic) : "";
+  const selectedTopicKeys = useMemo(() => parseTopicSelection(filters.topic), [filters.topic]);
+  const selectedTopicKeySet = useMemo(() => new Set(selectedTopicKeys), [selectedTopicKeys]);
+  const topicPickerOptions = useMemo(
+    () => topicOptions.filter((option) => !selectedTopicKeySet.has(option.key)),
+    [topicOptions, selectedTopicKeySet]
+  );
+  const selectedTopicLabel = selectedTopicKeys.length ? topicLabelForKeys(selectedTopicKeys, topicLabels) : "";
   const manualTopicOptions = useMemo(
     () => Object.entries(topicLabels || {}).map(([key, label]) => ({ key, label })),
     [topicLabels]
@@ -588,6 +645,27 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
 
   const setDateFilter = (key) => (value) => {
     setFilters((current) => applyWorkspaceFilter(current, key, value));
+    setPage(1);
+  };
+
+  const addTopicFilter = (event) => {
+    const key = event.target.value;
+    if (!key) return;
+    setFilters((current) => applyWorkspaceFilter(
+      current,
+      "topic",
+      joinTopicSelection([...parseTopicSelection(current.topic), key])
+    ));
+    setPage(1);
+    event.target.value = "";
+  };
+
+  const removeTopicFilter = (key) => {
+    setFilters((current) => applyWorkspaceFilter(
+      current,
+      "topic",
+      joinTopicSelection(parseTopicSelection(current.topic).filter((item) => item !== key))
+    ));
     setPage(1);
   };
 
@@ -773,14 +851,24 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
             {sentimentLabels && Object.entries(sentimentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
-        <label>{t.topic}
-          <select value={filters.topic} onChange={setFilter("topic")}>
-            <option value="">{t.all}</option>
-            {topicOptions.map((option) => (
-              <option key={option.key} value={option.key}>{formatTopicOption(option)}</option>
+        <div className="topic-picker topic-filter-control">
+          <label>{t.topic}
+            <select value="" onChange={addTopicFilter}>
+              <option value="">{selectedTopicKeys.length ? t.chooseTopicFirst : t.all}</option>
+              {topicPickerOptions.map((option) => (
+                <option key={option.key} value={option.key}>{formatTopicOption(option)}</option>
+              ))}
+            </select>
+          </label>
+          <div className="topic-chip-list">
+            {selectedTopicKeys.map((key) => (
+              <span className="topic-chip" key={key}>
+                {topicLabels?.[key] || key}
+                <button type="button" onClick={() => removeTopicFilter(key)} aria-label={`Remove ${key}`}>x</button>
+              </span>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
         <label>{t.subtopic}
           <select value={filters.subtopic} onChange={setFilter("subtopic")} disabled={!filters.topic}>
             <option value="">{filters.topic ? t.all : t.chooseTopicFirst}</option>

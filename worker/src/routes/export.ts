@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import * as XLSX from "xlsx";
 import type { Env } from "../types";
 import { LEGACY_TOPIC_LABELS_VI, SENTIMENT_LABELS_VI, TOPIC_LABELS_VI } from "../taxonomy";
+import { addTopicFilter } from "../services/topicScope";
 
 export const exportRoute = new Hono<{ Bindings: Env }>();
 
@@ -10,7 +11,7 @@ exportRoute.get("/", async (c) => {
   const where: string[] = [];
   const params: any[] = [];
   if (q.source) { where.push("c.source_type = ?"); params.push(q.source); }
-  if (q.topic) { where.push("a.topic_main = ?"); params.push(q.topic); }
+  addTopicFilter(where, params, q.topic);
   if (q.sentiment) { where.push("a.sentiment = ?"); params.push(q.sentiment); }
   if (q.urgency) { where.push("a.urgency = ?"); params.push(q.urgency); }
   if (q.from) { where.push("c.created_at >= ?"); params.push(q.from); }

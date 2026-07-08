@@ -3,6 +3,7 @@ import type { Env } from "../types";
 import { buildTrendSeries, computeOverview, computeSubtopicRanking } from "../routes/stats";
 import { generateSummary, sampleBySentiment } from "./insights";
 import { summarizeStoreBreakdown } from "./storeStats";
+import { addTopicFilter, parseTopicKeys } from "./topicScope";
 import type { FeedbackReportData, ReportComment, ReportLanguage, ReportPost, ReportInsight } from "./reportHtml";
 
 export type ReportGroup = "store" | "facebook";
@@ -60,8 +61,7 @@ function buildBaseWhere(params: BuildReportParams, opts: { includeTopic?: boolea
   addDateFilter(where, bind, "c.created_at", ">=", params.from);
   addDateFilter(where, bind, "c.created_at", "<=", params.to);
   if (opts.includeTopic && params.topic) {
-    where.push("a.topic_main = ?");
-    bind.push(params.topic);
+    addTopicFilter(where, bind, params.topic);
   }
   return { where, bind };
 }
@@ -348,7 +348,10 @@ export async function buildReportData(env: Env, params: BuildReportParams): Prom
   const overview = await computeOverview(env.DB, q);
   const channels = await loadChannels(env.DB, params);
   const storeBreakdown = await loadStoreBreakdown(env.DB, params);
-  const topicFocus = params.topic ? { key: params.topic, label: topicLabel(params.topic, lang) } : null;
+  const topicKeys = parseTopicKeys(params.topic);
+  const topicFocus = topicKeys.length
+    ? { key: topicKeys.join(","), keys: topicKeys, label: topicKeys.map((key) => topicLabel(key, lang)).join(", ") }
+    : null;
   const base = {
     group: params.group,
     language: lang,

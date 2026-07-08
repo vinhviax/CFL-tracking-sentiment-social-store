@@ -22,7 +22,7 @@ describe("buildTrendSeries", () => {
 });
 
 describe("computeOverview", () => {
-  test("scopes overview totals and sentiment to the selected main topic", async () => {
+  test("scopes overview totals and sentiment to selected main topics", async () => {
     const prepared: Array<{ sql: string; params: unknown[] }> = [];
     const db = {
       prepare(sql: string) {
@@ -53,15 +53,17 @@ describe("computeOverview", () => {
       },
     } as unknown as D1Database;
 
-    const got = await computeOverview(db, { group: "facebook", topic: "hack_cheat", lang: "vi" });
+    const got = await computeOverview(db, { group: "facebook", topic: "hack_cheat,lag_fps", lang: "vi" });
 
     expect(got.total_comments).toBe(2);
     expect(got.sentiment.negative).toBe(2);
     expect(prepared[0].sql).toContain("JOIN analyses a ON a.comment_id = c.id");
-    expect(prepared[0].sql).toContain("a.topic_main = ?");
+    expect(prepared[0].sql).toContain("a.topic_main IN (?,?)");
     expect(prepared[0].params).toContain("hack_cheat");
-    expect(prepared[1].sql).toContain("a.topic_main = ?");
+    expect(prepared[0].params).toContain("lag_fps");
+    expect(prepared[1].sql).toContain("a.topic_main IN (?,?)");
     expect(prepared[1].params).toContain("hack_cheat");
+    expect(prepared[1].params).toContain("lag_fps");
   });
 
   test("excludes other from main top topics and hot issues", async () => {
