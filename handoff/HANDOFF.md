@@ -1,4 +1,4 @@
-# HANDOFF 2026-07-07
+# HANDOFF 2026-07-08
 
 Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 
@@ -7,49 +7,51 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 - Workspace: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
 - Branch: `main`
-- Feature code commit da push: `7bd21d0 feat: warn before exporting reports`
+- Commit moi nhat da push: `4340b9a feat: add detailed issue breakdown to reports`
 - Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev`
 - Pages production: `https://cfl-feedback.pages.dev`
-- Worker deploy version moi nhat: `ddc29072-5d01-4730-934c-acb2b62a40a0`
-- Pages deploy moi nhat: `https://08156283.cfl-feedback.pages.dev`
+- Worker deploy version moi nhat: `ae733667-7b3e-4c50-840e-2d4653f171c7`
+- Pages deploy moi nhat: `https://0074bf06.cfl-feedback.pages.dev`
 
 ## Thay doi moi nhat
 
-Da bo sung warning popup trong flow export report.
+Da bo sung co che lam ro insight/report theo tung van de cu the trong moi chu de.
 
-- Khi user bam `Xuat report HTML`, dialog export hien them khoi canh bao.
-- Noi dung canh bao noi ro viec export report co the mat kha kha thoi gian tuy khoang ngay va pham vi report.
-- Noi dung cung noi ro qua trinh khong chi gom comment va mention trong khoang do, ma con goi LLM phan tich va viet HTML report.
-- Dialog van co nut `Dong` de human tat popup/modal neu chua muon export.
-- Da them ca ban text VI va ZH cho `FeedbackWorkspace`; dashboard cu cung co warning VI.
+- Prompt Insight and Summarize bay gio bat buoc khong viet chung chung theo chu de cha.
+- Khi overview co `top_subtopics`, prompt se dua vao LLM danh sach "Chi tiet van de trong tung chu de" gom:
+  - Chu de cha
+  - Van de cu the/subtopic
+  - Tong comment
+  - So comment tieu cuc
+  - So comment khan cap
+- HTML report co them section `Chi tiet van de user nhac toi`.
+- Section moi lay tu `subtopic_ranking`, bo `Khac/Khong du ngu canh`, va sort theo uu tien:
+  1. Khan cap
+  2. Tieu cuc
+  3. Volume
+- Muc tieu: report khong chi ghi kieu "Loi Game" hoac "Lag/FPS", ma phai boc tach ro user dang noi loi gi, vi du login stuck, crash/vang game, khong vao tran, drop FPS trong combat, tai nguyen/cap nhat loi, kem count tung nhom.
 
 Files chinh da sua:
 
-- `frontend/src/pages/FeedbackWorkspace.jsx`
-- `frontend/src/pages/Dashboard.jsx`
-- `frontend/src/index.css`
-- `frontend/src/pages/FeedbackWorkspace.ui.test.js`
-- `frontend/src/pages/Dashboard.ui.test.js`
+- `worker/src/services/insights.ts`
+- `worker/src/services/insights.test.ts`
+- `worker/src/services/reportHtml.ts`
+- `worker/src/services/reportHtml.test.ts`
 
 ## Verify da chay
 
-Do `node_modules` trong workspace chinh thieu `vite`, frontend build/test production duoc verify trong temp checkout:
+Do `node_modules` trong workspace chinh tren Google Drive co loi khi goi TypeScript binary, worker duoc verify trong temp checkout:
 
 `C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-verify-20260707214814`
 
 Ket qua:
 
-- Targeted frontend UI tests: pass `7/7`.
-- Full frontend tests: pass `34/34`.
-- Frontend source lint: `npx oxlint src` pass.
-- Frontend build: `npm run build` pass, chi con Vite warning cu ve chunk lon hon 500 kB.
-- Worker tests: pass `29 files / 117 tests`.
+- Focused worker tests cho `insights` va `reportHtml`: pass.
+- Full worker tests: pass `29/29 test files`, `125/125 tests`.
 - Worker typecheck: pass.
+- Frontend build: pass, chi con Vite warning cu ve chunk lon hon 500 kB.
 - Worker health production: `/api/health` tra `status: ok`, `llm_provider: llm_viax`, `llm_ready: true`, `prompt_version: v4`.
-- Production Pages `https://cfl-feedback.pages.dev/?v=7bd21d0` tra HTTP 200 va dung asset moi `index-8M_EdrDv.js`, `index-BTCjktsT.css`.
-- Da mo in-app browser tren production, bam `Xuat report HTML`, verify co `.report-export-warning`, co nut `Dong`, va text warning dung noi dung yeu cau.
-
-Luu y: `npm run lint` trong temp frontend hien fail neu chay toan repo vi `oxlint` quet ca `node_modules` va `dist`. Scoped source lint `npx oxlint src` pass.
+- Production Pages `https://cfl-feedback.pages.dev/?v=4340b9a` tra HTTP 200.
 
 ## Deploy da chay
 
@@ -60,21 +62,38 @@ cd C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-verify-20260707214814\worke
 npx wrangler deploy
 ```
 
+Ket qua:
+
+- URL: `https://cfl-feedback-worker.vinhviax.workers.dev`
+- Version ID: `ae733667-7b3e-4c50-840e-2d4653f171c7`
+
 Pages:
 
 ```powershell
 cd C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-verify-20260707214814\frontend
+npm run build
 npx wrangler pages deploy ./dist --project-name=cfl-feedback
 ```
 
+Ket qua:
+
+- Preview deployment: `https://0074bf06.cfl-feedback.pages.dev`
+- Production domain smoke: `https://cfl-feedback.pages.dev/?v=4340b9a` HTTP 200
+
 ## Git status can chu y
 
-Truoc va sau task nay co 2 file Demo Report dang staged san, khong phai thay doi cua task warning popup va khong duoc dua vao commit neu user khong yeu cau:
+Truoc va sau task nay van co 2 file Demo Report dang staged san, khong phai thay doi cua task issue-detail va khong duoc dua vao commit neu user khong yeu cau:
 
 - `Demo Report/CFL_Monthly_Social_Sentiment_Store_Review_Thang_2026_06 ver 3.html`
 - `Demo Report/CFL_Social Sentiment Update 4.0 - 7D.html`
 
-Khi commit tiep, dung command kieu `git commit --only -- <paths>` de tranh gom nham 2 file nay.
+Khi commit tiep, dung command kieu:
+
+```powershell
+git commit --only -m "message" -- <paths>
+```
+
+de tranh gom nham 2 file nay.
 
 ## Lenh nhanh
 
@@ -82,17 +101,7 @@ Production smoke:
 
 ```powershell
 Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/health"
-Invoke-WebRequest "https://cfl-feedback.pages.dev/?v=7bd21d0" -UseBasicParsing
-```
-
-Neu can deploy lai frontend tu temp verify:
-
-```powershell
-$verifyRoot = 'C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-verify-20260707214814'
-Push-Location "$verifyRoot\frontend"
-npm run build
-npx wrangler pages deploy ./dist --project-name=cfl-feedback
-Pop-Location
+Invoke-WebRequest "https://cfl-feedback.pages.dev/?v=4340b9a" -UseBasicParsing
 ```
 
 Neu can deploy lai worker tu temp verify:
@@ -103,5 +112,15 @@ Push-Location "$verifyRoot\worker"
 npm test
 npm run typecheck
 npx wrangler deploy
+Pop-Location
+```
+
+Neu can deploy lai frontend tu temp verify:
+
+```powershell
+$verifyRoot = 'C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-verify-20260707214814'
+Push-Location "$verifyRoot\frontend"
+npm run build
+npx wrangler pages deploy ./dist --project-name=cfl-feedback
 Pop-Location
 ```
