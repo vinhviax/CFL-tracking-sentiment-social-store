@@ -30,3 +30,6 @@ Thumbs.db
 .idea/
 .vscode/
 .codex-local/
+
+# Local Git worktrees
+.worktrees/
