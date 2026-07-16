@@ -25,8 +25,8 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 
 - GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
 - Branch lam viec hien tai: `main`
-- Workspace dang lam trong session 2026-07-07: `J:\My Drive\CFL\Agent\Tracking Store Social`
-- Checkout verify/deploy co dependency on dinh: `C:\Users\CPU13114\AppData\Local\Temp\cfl-feedback-worker-verify`
+- Workspace dang lam: `J:\My Drive\CFL\Agent\Tracking Store Social`
+- Checkout verify/deploy can nam ngoai Google Drive; session 2026-07-16 da verify o `C:\Temp\cfl-feedback-worker-20e9c35-20260716\worker`.
 - Workspace chinh hien tai: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Workspace cu: `G:\CFM\Research\Crossfire Legends Sea`
 
@@ -40,8 +40,20 @@ Worker config nam o `worker/wrangler.jsonc`.
 - Cron: `45 6 * * *` UTC = 13:45 GMT+7 moi ngay.
 - LLM provider: `llm_viax`
 - Classify model: `ag/gemini-3-flash-agent`
-- Insight model: `codex-lb/gpt-5.4`
+- Translate model mac dinh: `ag/gemini-3-flash-agent`
+- Insight/Report model: `codex-lb/gpt-5.6-terra`
 - LLM base URL: `https://rpi7jss.abc-tunnel.us/v1`
+
+## Trang thai LLM va deploy moi nhat (2026-07-16)
+
+- Commit da push len `main`: `20e9c35 fix: typecheck worker config regression test` (bao gom `2a59626 feat: upgrade default insight model to GPT-5.6 Terra`).
+- Worker production version: `eaa2cd6d-d449-4181-8f8c-524dd95737dd`.
+- Override D1 slot `reasoning`: provider `custom`, endpoint `https://agent-shop.clawd.io.vn/v1`, model `codex-lb/gpt-5.6-terra`, `enabled=true`.
+- Override D1 slot `simple`: provider `custom`, cung endpoint, model `codex-lb/gpt-5.6-luna`, `enabled=false`. Vi slot tat, dich thuc te van dung model mac dinh Gemini Flash Agent.
+- Insight/Report khong dung hai slot override; `generateSummary` dung truc tiep `LLM_INSIGHT_MODEL`.
+- Da smoke test `POST /api/insights/generate` khong luu archive: response tra `provider=llm_viax`, `model=codex-lb/gpt-5.6-terra`.
+- Worker tests: `30/30` files, `126/126` tests pass; typecheck pass. Frontend/Pages khong deploy trong session nay.
+- `/api/llm-config` chi expose default `reasoning` va `simple`, khong co field Insight. Muon kiem tra Insight runtime, dung `POST /api/insights/generate` va doc field `model` trong response.
 
 ## Secrets
 
@@ -89,7 +101,7 @@ Chude lon v3:
 
 `lag_fps`, `crash_freeze`, `network_ping`, `login_account`, `account_ban_security`, `payment_topup`, `purchase_delivery`, `update_download`, `ui_control`, `gameplay_mode_map`, `shooting_mechanics`, `matchmaking`, `rank_competition`, `balance`, `hack_cheat`, `event_mission`, `reward_giftcode`, `gacha_rate`, `item_skin_weapon`, `social_chat_voice`, `community_behavior`, `customer_support`, `feature_request`, `content_esports`, `spam_ads_scam`, `game_comparison`, `positive_feedback`, `technical_other`, `other`
 
-Prompt version trong code hien tai va production: `v4`. Da deploy Worker/Pages tu commit `0669ef4` trong session 2026-07-07.
+Prompt version trong code hien tai va production: `v4`.
 
 Topic moi `game_comparison` hien label UI la `So Sánh Game`; dung cho comment nhac toi CFM, CrossFire Mobile, ban Trung/China, ban SEA, ban Viet/VN, global/quoc te hoac game khac lien quan, ke ca khi khong so sanh truc tiep.
 
@@ -140,3 +152,5 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua. Neu file khong co dong Group moi hoac toan duplicate, upload bi tu choi truoc khi tao ingest run.
 - Store Sensor Tower ngay hien thi co fix de uu tien requested range va parse ngay nguon khong bi lech timezone. Run cu da import truoc fix co the van mang data date cu trong D1 neu khong xoa/keo lai.
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.
+- `node_modules` trong Google Drive co the loi/hang khi chay Vitest/TypeScript. Copy Worker dung commit can verify ra thu muc local (vi du `C:\Temp\...\worker`), chay `npm ci`, roi chay test/typecheck/deploy tu do.
+- Co 2 Demo Report cua user dang staged va khong duoc dua vao commit neu chua co yeu cau ro. Xem handoff moi nhat de lay dung ten file.
