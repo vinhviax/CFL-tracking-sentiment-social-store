@@ -66,6 +66,8 @@ git commit --only -m "message" -- <paths>
 
 Worktree tam `codex/llm-model-upgrade` da unregistered va branch da xoa sau khi merge. Neu con thu muc ignored `.worktrees/llm-model-upgrade` thi do file lock/permission tren Google Drive; khong lien quan Git state.
 
+Canh bao local Git: `git fsck --no-dangling` o checkout Google Drive session nay in nhieu dong `bad sha1 file` du exit code 0. Khong tu sua/xoa object trong `.git`; neu can kiem tra hoac repair Git nghiem ngat, clone repo ra thu muc local truoc. `git status`, `git log` va push `main` van hoat dong trong session nay.
+
 ## Lenh nhanh
 
 Production smoke:

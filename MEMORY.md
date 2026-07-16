@@ -153,4 +153,5 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - Store Sensor Tower ngay hien thi co fix de uu tien requested range va parse ngay nguon khong bi lech timezone. Run cu da import truoc fix co the van mang data date cu trong D1 neu khong xoa/keo lai.
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.
 - `node_modules` trong Google Drive co the loi/hang khi chay Vitest/TypeScript. Copy Worker dung commit can verify ra thu muc local (vi du `C:\Temp\...\worker`), chay `npm ci`, roi chay test/typecheck/deploy tu do.
+- `git fsck --no-dangling` tren checkout Google Drive session 2026-07-16 in nhieu dong `bad sha1 file` du exit code 0. Git status/log/push van hoat dong, nhung khong tu sua/xoa object trong `.git`; neu can kiem tra/repair Git nghiem ngat, clone repo ra o local drive truoc.
 - Co 2 Demo Report cua user dang staged va khong duoc dua vao commit neu chua co yeu cau ro. Xem handoff moi nhat de lay dung ten file.
