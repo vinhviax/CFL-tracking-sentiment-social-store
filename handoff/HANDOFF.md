@@ -1,4 +1,4 @@
-# HANDOFF 2026-07-16
+# HANDOFF 2026-07-20
 
 Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 
@@ -7,66 +7,64 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 - Workspace: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
 - Branch: `main`
-- Commit moi nhat da push: `20e9c35 fix: typecheck worker config regression test`
+- Commit moi nhat da push: `d6158bb Add demo social sentiment report exports`
 - Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev`
-- Pages production: `https://cfl-feedback.pages.dev` (khong deploy trong session nay)
-- Worker deploy version moi nhat: `eaa2cd6d-d449-4181-8f8c-524dd95737dd`
+- Pages production: `https://cfl-feedback.pages.dev`
+- Worker deploy version moi nhat: `f48b3d7c-a161-4d86-9c9c-ddc9f8e7e41b`
+- Pages deployment moi nhat: `979191bd` (Environment=Production, Branch=main)
 
-## Thay doi moi nhat
+Working tree sach, local va `origin/main` da dong bo.
 
-Da nang cap model LLM theo dung scope, khong doi provider, endpoint, secret, batch/concurrency hay fallback.
+## Thay doi trong session nay: tinh nang Xuat Excel comment
 
-| Tac vu | Cau hinh/hieu luc hien tai |
-| --- | --- |
-| Insight va HTML Report | `codex-lb/gpt-5.6-terra` qua `LLM_INSIGHT_MODEL` |
-| `reasoning`: phan tich comment, taxonomy/subtopic | Override D1 dang bat: `custom` -> `codex-lb/gpt-5.6-terra` |
-| `simple`: dich zh-CN | Override D1 dang luu `custom` -> `codex-lb/gpt-5.6-luna`, nhung `enabled=false` |
-| Dich thuc te khi simple tat | Default `ag/gemini-3-flash-agent` qua `llm_viax` |
+Them chuc nang xuat comment ra Excel theo nguon + khoang thoi gian + chu de. Da build, test, deploy va verify tren production. 3 commit da push (`bf5f2f7..d6158bb`):
 
-Source da thay doi:
+- `0b3b099` — nut Xuat Excel ban dau (link truc tiep theo tab dang mo).
+- `3f45ddd` — nang cap thanh popup dialog day du.
+- `d6158bb` — 2 file Demo Report HTML (truoc day dang staged, user yeu cau commit not).
 
-- `worker/wrangler.jsonc`: `LLM_INSIGHT_MODEL=codex-lb/gpt-5.6-terra`.
-- `worker/src/workerConfig.test.ts`: regression test giu dung 3 model default Worker.
-- `worker/package.json`, `worker/package-lock.json`, `worker/tsconfig.json`: them Node typings de test config typecheck duoc.
+### Backend (`worker/`)
 
-Luu y luong goi LLM:
+- Moi: `worker/src/services/commentFilters.ts` — helper `buildCommentFilters(q)` build chung menh de WHERE cho ca route `/api/comments` va `/api/export`, dam bao file Excel khop dung voi list comment tren UI. Ho tro: `source`, `sources` (list, csv), `group` (store/facebook), `store` (gp/ios), `q` (search), `from`/`to` (loc theo ngay bang `substr`), `topic`, `subtopic`, `sentiment`, `urgency`, `post_id`. Export `EXPORTABLE_SOURCE_TYPES = [store, fb_page, fb_group_csv]` va `parseSourceTypes`.
+- `worker/src/routes/comments.ts`: refactor GET / dung `buildCommentFilters` (da bo cac ham local `dateKey`/`addDateFilter`/`parseSubtopicKeys`).
+- `worker/src/routes/export.ts`: nhan `sources` (list) → moi nguon 1 sheet rieng trong cung 1 workbook (sheet names: Store / Fanpage / Group). Fallback legacy `group`/`source` van chay. Them cot **Quoc gia**, **Cho ung dung** (gp→Google Play, ios→App Store), **Link post Facebook**. Ten file theo nguon chon: `CFL_Comments_<All|Store|Fanpage|Group|Store-Fanpage|...>_<from>-<to>.xlsx`. Cap `MAX_EXPORT_ROWS=50000` (dem tong tren tat ca nguon truoc khi build, tra 413 neu vuot). Worker build file trong RAM nen day la guard chong OOM.
+- Test moi: `commentFilters.test.ts`, `export.test.ts`.
 
-- Analysis va taxonomy memory resolve slot `reasoning`, nen dang chay Terra qua custom endpoint.
-- Translation resolve slot `simple`; do override tat nen dang chay Gemini Flash Agent mac dinh.
-- Insight/Report goi truc tiep `LLM_INSIGHT_MODEL`, khong dung slot override.
+### Frontend (`frontend/`)
+
+- `frontend/src/pages/FeedbackWorkspace.jsx`: nut header "Xuat Excel" gio mo `ExcelExportDialog` (thay vi link truc tiep). Dialog co: checkbox multi-select 3 nguon (mac dinh tick het, chan tai neu bo het), ghi chu "Comment moi nhat dang co toi ngay:" lay tu `getIngestStatus()` (`/api/ingest/status`, field `source_status[].latest_data_date`), chon chu de (Tong quan / Theo chu de + chip, tai dung pattern cua ReportExportDialog), va khoang ngay from/to. Nut Tai Excel build `exportUrl({ sources, from, to, topic })`.
+- `frontend/src/index.css`: style `.excel-source-picker`, `.excel-source-option`, `.excel-no-source`.
+- Labels song ngu vi + zh-CN. Ngon ngu noi dung Excel: chi tieng Viet (user chon), khong co selector ngon ngu.
+- UI test: `FeedbackWorkspace.ui.test.js` da cap nhat cho dialog.
 
 ## Verify va deploy da chay
 
-Vi `node_modules` trong Google Drive khong on dinh, Worker da duoc verify o copy local dung commit `20e9c35`:
+Vi `node_modules` tren Google Drive KHONG on dinh (vitest treo vo han khi chay truc tiep tu `J:\...`), da copy source ra local de test + deploy:
 
-`C:\Temp\cfl-feedback-worker-20e9c35-20260716\worker`
+`C:\Temp\cfl-export-20260720-1442\{worker,frontend}` (da `npm ci`).
 
 Ket qua:
 
-- Focused Worker tests: `9/9` pass.
-- Full Worker tests: `30/30 test files`, `126/126 tests` pass.
-- Worker typecheck: pass.
-- Worker deploy: version `eaa2cd6d-d449-4181-8f8c-524dd95737dd`.
-- `/api/health`: `status=ok`, `llm_provider=llm_viax`, `llm_ready=true`, `prompt_version=v4`.
-- `/api/llm-config`: reasoning custom/Terra bat; simple custom/Luna tat; API key van ton tai va chi hien masked.
-- Smoke test `POST /api/insights/generate` (khong luu insight): response `provider=llm_viax`, `model=codex-lb/gpt-5.6-terra`, xac nhan Insight runtime dang dung Terra.
+- Worker full tests: `32 test files`, `141/141 tests` pass. Typecheck pass.
+- Frontend UI tests (`node --test` tren source, chay duoc truc tiep tren Drive): `8/8` pass.
+- Worker deploy: version `f48b3d7c-...`. Bindings nguyen ven (LLM_INSIGHT_MODEL=codex-lb/gpt-5.6-terra, provider llm_viax, ...).
+- Pages: build `vite build` (dung `.env.production` → `VITE_API_BASE=https://cfl-feedback-worker.vinhviax.workers.dev`), deploy `npx wrangler pages deploy ./dist --project-name=cfl-feedback`.
+- Smoke test production: `/api/export?sources=store,fb_page,fb_group_csv&from=...&to=...` → file 3 sheet (Store 438 / Fanpage 8827 / Group 12147 dong voi khoang 2026-07-01..07). Ten file dung cho moi to hop nguon. `subtopic=%20` → 400. Row cap → 413.
+- Verify UI tren browser: mo dialog tren `cfl-feedback.pages.dev`, ghi chu ngay hien dung (Store 16/07, Fanpage 20/07, Group 06/07), href nut Tai Excel dung.
 
-## Git status can chu y
+## Gotcha quan trong (con hieu luc)
 
-Hai file Demo Report duoi day da staged truoc session, khong phai thay doi cua model upgrade/documentation va khong duoc dua vao commit neu user khong yeu cau:
+- **`node_modules` tren Google Drive treo vitest**: LUON copy `worker/` + `frontend/` ra thu muc local (vd `C:\Temp\...`), `npm ci`, roi test/deploy tu do. Frontend UI test kieu `node --test` (regex tren source) van chay duoc truc tiep tren Drive.
+- **Pages deploy tu thu muc khong-git van vao Production/main**: chay `wrangler pages deploy ./dist --project-name=cfl-feedback` tu `C:\Temp\...` (khong phai git repo) van tao deployment Environment=Production, Branch=main. Sau deploy alias `cfl-feedback.pages.dev` co the con phuc vu bundle cu vai giay do CDN cache — them cache-buster (`?_cb=...`) hoac doi chut la cap nhat.
+- **Edge cache tren `/api/export`**: response GET co the bi cache o edge; khi smoke test nhieu URL gan nhau, dung cache-buster rieng cho tung request (`_cb=$(date +%s%N)`) neu khong ten file/ket qua co the tra ve ban cu.
+- **Git**: dung `git commit --only -- <paths>` khi can loai tru file dang staged khong lien quan. `git fsck` tren checkout Drive in nhieu dong `bad sha1 file` du exit 0 — KHONG tu sua/xoa object; clone ra local neu can repair. `git status`/`log`/`push main` van chay binh thuong.
+- **D1**: gioi han bound parameter thap (chunk IN-clause o ~90). `xlsx` phai cai tu `cdn.sheetjs.com` (CVE tren npm registry) — xem `worker/package.json`.
 
-- `Demo Report/CFL_Monthly_Social_Sentiment_Store_Review_Thang_2026_06 ver 3.html`
-- `Demo Report/CFL_Social Sentiment Update 4.0 - 7D.html`
+## Cau hinh LLM (khong doi trong session nay)
 
-Khi commit tiep, dung:
-
-```powershell
-git commit --only -m "message" -- <paths>
-```
-
-Worktree tam `codex/llm-model-upgrade` da unregistered va branch da xoa sau khi merge. Neu con thu muc ignored `.worktrees/llm-model-upgrade` thi do file lock/permission tren Google Drive; khong lien quan Git state.
-
-Canh bao local Git: `git fsck --no-dangling` o checkout Google Drive session nay in nhieu dong `bad sha1 file` du exit code 0. Khong tu sua/xoa object trong `.git`; neu can kiem tra hoac repair Git nghiem ngat, clone repo ra thu muc local truoc. `git status`, `git log` va push `main` van hoat dong trong session nay.
+- Insight va HTML Report: `codex-lb/gpt-5.6-terra` qua `LLM_INSIGHT_MODEL`.
+- `reasoning` (phan tich comment, taxonomy/subtopic): override D1 bat, `custom` → `codex-lb/gpt-5.6-terra`.
+- `simple` (dich zh-CN): override D1 luu `custom` → `codex-lb/gpt-5.6-luna` nhung `enabled=false`; dich thuc te chay default `ag/gemini-3-flash-agent` qua `llm_viax`.
 
 ## Lenh nhanh
 
@@ -74,14 +72,21 @@ Production smoke:
 
 ```powershell
 Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/health"
-Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/llm-config"
+Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/ingest/status"
 ```
 
-Kiem tra model Insight runtime (tao summary nhung khong luu archive):
+Xuat Excel (browser tai file):
+
+```
+https://cfl-feedback-worker.vinhviax.workers.dev/api/export?sources=store,fb_page,fb_group_csv&from=2026-07-01&to=2026-07-15
+```
+
+Quy trinh verify/deploy chuan (vi Drive khong on dinh):
 
 ```powershell
-$body = @{ filters = @{ group = 'store'; from = '2026-07-01'; to = '2026-07-01' }; lang = 'vi' } | ConvertTo-Json -Depth 4
-Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/insights/generate" -Method Post -ContentType "application/json" -Body $body
+# copy source ra local
+$DEST = "C:\Temp\cfl-<ten>-<yyyymmdd-hhmm>"
+# copy worker/ va frontend/ (kem index.html, public/, .env.production cho frontend)
+cd $DEST\worker; npm ci; npx vitest run; npx tsc --noEmit; npx wrangler deploy
+cd $DEST\frontend; npm ci; npm run build; npx wrangler pages deploy ./dist --project-name=cfl-feedback
 ```
-
-Khi can verify/deploy lai Worker, copy source commit can dung ra thu muc local ngoai Google Drive, chay `npm ci`, `npm test`, `npm run typecheck`, sau do `npx wrangler deploy` tu thu muc `worker` cua copy local.
