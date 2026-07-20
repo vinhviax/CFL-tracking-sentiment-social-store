@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CFL Monthly Social Sentiment & Store Review — Tháng 6/2026</title>
+<style>
+  :root{
+    --bg:#F5F7FB;
+    --card:#FFFFFF;
+    --text:#111827;
+    --text-sub:#5B6472;
+    --border:#E3E7EE;
+    --positive:#16A34A;
+    --negative:#DC2626;
+    --neutral:#6B7280;
+    --navy:#0B1F3F;
+    --navy2:#12345E;
+    --blue:#2563EB;
+    --blue-light:#EAF1FF;
+    --orange:#F97316;
+    --orange-light:#FFF1E6;
+    --radius:14px;
+    --mono:"Consolas","SFMono-Regular",Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Be Vietnam Pro","Segoe UI",Arial,Helvetica,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.55;
+  }
+  ::selection{background:var(--orange-light);color:var(--navy);}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important; transition:none !important;} }
+
+  /* ================= HEADER / HUD HERO ================= */
+  .header{
+    position:relative; overflow:hidden;
+    background:
+      linear-gradient(125deg, var(--navy) 0%, var(--navy2) 55%, #1A4FA0 88%);
+    color:#fff; padding:38px 20px 100px;
+  }
+  .scanlines{
+    position:absolute; inset:0; pointer-events:none; opacity:.12;
+    background:repeating-linear-gradient(0deg, transparent 0px, transparent 3px, #fff 3px, #fff 4px);
+    animation:scanmove 6s linear infinite;
+  }
+  @keyframes scanmove{ from{transform:translateY(0);} to{transform:translateY(40px);} }
+  .radar{position:absolute; top:-120px; right:-120px; width:420px; height:420px; opacity:.16; pointer-events:none;}
+  .radar svg{width:100%;height:100%;animation:spin 14s linear infinite;}
+  @keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+  .header-inner{max-width:1280px;margin:0 auto;position:relative;z-index:1;}
+  .hud-corner{position:absolute; width:22px; height:22px; border:2px solid rgba(249,115,22,.65);}
+  .hud-corner.tl{top:18px;left:18px;border-right:none;border-bottom:none;}
+  .hud-corner.tr{top:18px;right:18px;border-left:none;border-bottom:none;}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:9px; font-family:var(--mono);
+    font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    background:rgba(255,255,255,.10); border:1px solid rgba(249,115,22,.5);
+    padding:6px 14px;border-radius:3px; color:#FFD9B3;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--orange);animation:blink 1.6s infinite;box-shadow:0 0 8px var(--orange);}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+  h1.title{font-size:clamp(24px,3.6vw,40px);font-weight:800;margin:18px 0 6px;letter-spacing:-.01em;}
+  .subtitle{color:rgba(255,255,255,.78);font-size:14.5px;max-width:720px;}
+
+  .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:30px;}
+  .kpi-card{
+    position:relative; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18);
+    border-radius:10px; padding:16px 16px 14px; backdrop-filter:blur(6px);
+    border-top:3px solid var(--orange);
+  }
+  .kpi-label{font-size:11px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
+  .kpi-value{font-family:var(--mono); font-size:26px;font-weight:700;margin-top:6px;letter-spacing:-.02em;}
+  .kpi-change{font-size:12px;margin-top:5px;font-weight:600;}
+  .kpi-change.down{color:#FCA5A5;} .kpi-change.up{color:#86EFAC;} .kpi-change.flat{color:#FFD9B3;}
+
+  main{margin-top:-64px;position:relative;z-index:2;}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 20px 60px;}
+
+  /* ================= SECTION NUMBERING ================= */
+  .sec-head{display:flex;align-items:center;gap:12px;margin-bottom:4px;}
+  .sec-num{
+    flex:0 0 auto; width:34px;height:34px;border-radius:7px;
+    background:var(--navy); color:#fff; font-family:var(--mono); font-weight:700; font-size:14px;
+    display:flex;align-items:center;justify-content:center; position:relative;
+    border:1px solid var(--navy);
+  }
+  .sec-num::after{content:"";position:absolute;inset:-4px;border:1px solid var(--orange);border-radius:9px;opacity:.55;}
+  .section-title{font-size:18px;font-weight:800;margin:0;}
+  .section-sub{font-size:13px;color:var(--text-sub);margin:6px 0 16px 46px;}
+
+  /* ================= CARDS ================= */
+  .card{
+    position:relative; background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:22px 24px; margin-bottom:20px; box-shadow:0 1px 2px rgba(16,24,40,.04);
+    animation:fadeUp .5s ease both;
+  }
+  .card::before, .card::after{
+    content:""; position:absolute; width:14px; height:14px; opacity:0; transition:opacity .2s;
+    border-color:var(--orange); pointer-events:none;
+  }
+  .card::before{top:8px;left:8px;border-top:2px solid;border-left:2px solid;}
+  .card::after{bottom:8px;right:8px;border-bottom:2px solid;border-right:2px solid;}
+  .card:hover{box-shadow:0 8px 22px rgba(16,24,40,.08);}
+  .card:hover::before, .card:hover::after{opacity:.85;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+  .grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;}
+  .grid-2b{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media(max-width:900px){.grid-2,.grid-2b{grid-template-columns:1fr;} .kpi-row{grid-template-columns:repeat(2,1fr);}}
+
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:4px;background:var(--blue-light);color:var(--blue);}
+  .badge.orange{background:var(--orange-light);color:#B45309;}
+
+  /* ================= METHOD NOTE ================= */
+  .method-box{background:var(--orange-light);border:1px solid #FCD9B0;border-radius:10px;padding:14px 16px;font-size:13px;margin-bottom:10px;}
+  .method-box b{color:#9A3412;}
+  .method-formula{font-family:var(--mono);font-size:12.5px;background:#fff;border:1px dashed #FCD9B0;border-radius:6px;padding:8px 10px;margin-top:6px;display:block;overflow-x:auto;white-space:nowrap;}
+
+  /* ================= TABLES ================= */
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-sub);border-bottom:2px solid var(--border);padding:8px 10px;font-weight:700;}
+  td{padding:10px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+  tr:hover td{background:#FAFBFF;}
+  .num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);}
+
+  .pill{display:inline-block;padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;}
+  .pill.Positive{background:#DCFCE7;color:var(--positive);}
+  .pill.Negative{background:#FEE2E2;color:var(--negative);}
+  .pill.Neutral{background:#F1F2F4;color:var(--neutral);}
+  .pill.Mixed{background:#FEF3C7;color:#B45309;}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-sub);margin-top:10px;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .sw{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+  .search-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .search-box{flex:1;min-width:220px;padding:9px 14px;border:1px solid var(--border);border-radius:8px;font-size:13.5px;font-family:inherit;outline:none;transition:border-color .15s;}
+  .search-box:focus{border-color:var(--blue);}
+  .filter-btn{padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:13px;font-weight:700;cursor:pointer;color:var(--text-sub);transition:.15s;font-family:inherit;position:relative;}
+  .filter-btn.active{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .filter-btn:hover{border-color:var(--orange);color:#B45309;}
+  .filter-btn.active:hover{color:#fff;}
+
+  /* ================= HIGHLIGHT / TOPIC CARDS ================= */
+  .highlight-card{border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:12px;border-left:4px solid var(--blue);transition:transform .15s, box-shadow .15s;}
+  .highlight-card:hover{transform:translateX(3px);box-shadow:0 4px 14px rgba(16,24,40,.06);}
+  .highlight-card.neg{border-left-color:var(--negative);}
+  .highlight-card.mix{border-left-color:var(--orange);}
+  .hl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
+  .hl-title{font-weight:700;font-size:14.5px;}
+  .hl-row{font-size:13px;margin-top:5px;}
+  .hl-row b{color:var(--text-sub);font-weight:700;}
+  .hl-evidence{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--text-sub);}
+  .hl-evidence li{margin-bottom:4px;}
+
+  .topic-card{border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:#FCFDFF;position:relative;}
+  .topic-card .tname{font-weight:700;font-size:14px;margin-bottom:4px;padding-right:70px;}
+  .topic-card .tdesc{font-size:13px;color:var(--text-sub);margin-bottom:6px;}
+  .topic-card .tval{font-size:12.5px;color:var(--navy);font-weight:600;}
+  .topic-card.neg{background:#FFFAF9;}
+  .topic-count{position:absolute; top:14px; right:16px; font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:4px;}
+  .topic-count.neg{background:#FEE2E2;color:var(--negative);}
+  .topic-count.pos{background:#DCFCE7;color:var(--positive);}
+
+  footer{text-align:center;font-size:12px;color:var(--text-sub);padding:20px 0 40px;}
+
+  #tooltip{position:fixed;pointer-events:none;background:var(--navy);color:#fff;font-size:12px;padding:6px 10px;border-radius:6px;opacity:0;transition:opacity .1s;z-index:99;white-space:nowrap;font-family:var(--mono);}
+
+  .conclusion-list{font-size:14px;padding-left:20px;}
+  .conclusion-list li{margin-bottom:6px;}
+
+  @media(max-width:700px){ .card{padding:18px 16px;} .section-sub{margin-left:0;} }
+</style>
+</head>
+<body>
+
+<div id="tooltip"></div>
+
+<header class="header">
+  <div class="scanlines"></div>
+  <div class="radar">
+    <svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="90" stroke="#F97316" stroke-width="1" fill="none" opacity=".5"/><circle cx="100" cy="100" r="60" stroke="#F97316" stroke-width="1" fill="none" opacity=".4"/><circle cx="100" cy="100" r="30" stroke="#F97316" stroke-width="1" fill="none" opacity=".3"/><line x1="100" y1="100" x2="190" y2="100" stroke="#F97316" stroke-width="1" opacity=".5"/><path d="M100,100 L100,10 A90,90 0 0,1 163,37 Z" fill="#F97316" opacity=".25"/></svg>
+  </div>
+  <span class="hud-corner tl"></span><span class="hud-corner tr"></span>
+  <div class="header-inner">
+    <span class="eyebrow"><span class="dot"></span> CFL · SOCIAL LISTENING REPORT</span>
+    <h1 class="title">CFL Monthly Social Sentiment &amp; Store Review</h1>
+    <div class="subtitle">Tháng 6/2026 · Fanpage · Group · Google Play · App Store — Tổng hợp &amp; phân tích cộng dồn 4 nguồn dữ liệu, so sánh MoM với Tháng 5/2026</div>
+    <div class="kpi-row" id="kpiRow"></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 1. METHODOLOGY -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">01</div><div class="section-title">Phương pháp luận &amp; Định nghĩa</div></div>
+    <div class="section-sub">Cách tính volume tổng và cách phân loại sentiment — minh bạch trước khi đọc số liệu</div>
+    <div class="method-box">
+      <b>Tổng volume Tháng 6 = </b>Fanpage Post + Fanpage Comment + Group Post + Group Comment + Google Play Review + App Store Review
+      <span class="method-formula" id="formulaText"></span>
+    </div>
+    <div class="method-box">
+      <b>Sentiment Fanpage/Group:</b> phân loại bằng bộ từ khóa tiếng Việt. Nếu 1 bình luận có cả từ khóa tích cực &amp; tiêu cực, nhãn được gán theo nhóm có <b>số lượng từ khóa khớp nhiều hơn</b> — không dùng nhãn Mixed.
+    </div>
+    <div class="method-box">
+      <b>Sentiment Google Play/App Store:</b> dùng nhãn gốc do nền tảng phân loại văn bản (Happy/Unhappy/Neutral/Mixed). Review có nhãn gốc <b>Mixed</b> được quy về 1 trong 3 nhóm theo số sao: 1-2★=Negative, 3★=Neutral, 4-5★=Positive.
+    </div>
+    <div class="method-box" style="background:#F1F5FF;border-color:#C7D9FF;">
+      <b>Giới hạn cần lưu ý:</b> phương pháp từ khóa không hiểu ngữ cảnh/mỉa mai. Tỷ trọng Neutral cao (85,7%) phản ánh đúng bản chất dữ liệu — phần lớn nội dung Group là trò chuyện thông thường giữa người chơi, không mang tính đánh giá sản phẩm, <b>không phải lỗi đếm</b>.
+    </div>
+  </div>
+
+  <!-- 2. OVERVIEW + MoM -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">02</div><div class="section-title">Tổng quan Volume &amp; So sánh MoM (Tháng 5 → Tháng 6)</div></div>
+    <div class="section-sub">Volume tổng giảm đồng đều ở mọi kênh — không phải hiện tượng cục bộ</div>
+    <table>
+      <thead><tr><th>Metric</th><th class="num">Tháng 5</th><th class="num">Tháng 6</th><th class="num">Thay đổi</th></tr></thead>
+      <tbody id="momBody"></tbody>
+    </table>
+  </div>
+
+  <!-- 3. DAILY LINE CHART Android/iOS split -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">03</div><div class="section-title">Diễn biến Volume theo ngày — tách Android &amp; iOS</div></div>
+    <div class="section-sub">Đỉnh điểm 30/06 trùng ngày launch V4.0 — iOS review tăng vọt trong khi Android không biến động nhiều</div>
+    <div id="lineChart"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:#2563EB"></i> Bình luận (Fanpage+Group)</span>
+      <span><i class="sw" style="background:#0B1F3F"></i> Bài viết (Fanpage+Group) ×8 để dễ nhìn</span>
+      <span><i class="sw" style="background:#16A34A"></i> Review Android (GG Play) ×8</span>
+      <span><i class="sw" style="background:#F97316"></i> Review iOS (App Store) ×8</span>
+    </div>
+  </div>
+
+  <!-- 4. PIE 3 groups -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="sec-head"><div class="sec-num">04</div><div class="section-title">Cơ cấu cảm xúc tổng</div></div>
+      <div class="section-sub">Gộp 4 kênh — chỉ 3 nhóm Positive / Negative / Neutral</div>
+      <div id="pieChart" style="display:flex;justify-content:center;"></div>
+      <div class="legend" id="pieLegend"></div>
+    </div>
+    <div class="card">
+      <div class="sec-head"><div class="sec-num">05</div><div class="section-title">Heatmap giờ cao điểm</div></div>
+      <div class="section-sub" id="heatmapSub"></div>
+      <div id="heatmap" style="overflow-x:auto;"></div>
+      <div id="heatmapStats" style="margin-top:12px;font-size:12.5px;color:var(--text-sub);"></div>
+    </div>
+  </div>
+
+  <!-- 6. CHANNEL BREAKDOWN -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">06</div><div class="section-title">So sánh Sentiment theo từng kênh</div></div>
+    <div class="section-sub">Đã đối chiếu lại với file gốc — số liệu theo nhãn sentiment/rating thực tế của từng nền tảng</div>
+    <div id="channelBars"></div>
+  </div>
+
+  <!-- 7. TOP POSTS -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">07</div><div class="section-title">Top 10 bài viết nổi bật nhất tháng</div></div>
+    <div class="section-sub">Xếp theo Engagement (Comment + Like). "Tất cả" = top kết hợp; chọn Fanpage/Group để xem top riêng của từng kênh (đã có nội dung đầy đủ)</div>
+    <div class="search-row">
+      <input class="search-box" id="postSearch" placeholder="Tìm theo nội dung bài viết...">
+      <button class="filter-btn active" data-src="all">Tất cả (kết hợp)</button>
+      <button class="filter-btn" data-src="Fanpage">Fanpage</button>
+      <button class="filter-btn" data-src="Group">Group</button>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Ngày</th><th>Kênh</th><th>Nội dung bài viết</th><th class="num">Comment</th><th class="num">Like</th><th class="num">Engagement</th></tr></thead>
+      <tbody id="topPostsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- 8. TOP 5 POS / NEG TOPICS -->
+  <div class="grid-2b">
+    <div class="card">
+      <div class="sec-head"><div class="sec-num">08a</div><div class="section-title">Top 5 chủ đề tích cực</div></div>
+      <div class="section-sub">Kèm số lượng đề cập &amp; tên cụ thể (skin, vũ khí, gói nạp...)</div>
+      <div id="posTopics"></div>
+    </div>
+    <div class="card">
+      <div class="sec-head"><div class="sec-num">08b</div><div class="section-title">Top 5 chủ đề tiêu cực</div></div>
+      <div class="section-sub">Kèm tỷ lệ negative trên tổng đề cập &amp; dẫn chứng trích từ dữ liệu</div>
+      <div id="negTopics"></div>
+    </div>
+  </div>
+
+  <!-- 9. FULL TOPIC TABLE (10 topics) -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">09</div><div class="section-title">Toàn bộ chủ đề được phân loại — gộp còn 10 nhóm</div></div>
+    <div class="section-sub">Fanpage + Group. Đã gộp từ 15 nhóm ban đầu để mạch lạc hơn; "Giao diện" sau khi siết từ khóa chỉ còn 3 lượt thực (xem ghi chú bên dưới)</div>
+    <div class="search-row"><input class="search-box" id="topicSearch" placeholder="Tìm chủ đề..."></div>
+    <table>
+      <thead><tr><th>Chủ đề</th><th class="num">Positive</th><th class="num">Negative</th><th class="num">Neutral</th><th class="num">Tổng</th></tr></thead>
+      <tbody id="topicTableBody"></tbody>
+    </table>
+    <div class="method-box" style="margin-top:14px;">
+      <b>Về "Giao diện/Trải nghiệm hiển thị":</b> bản phân tích trước dùng từ khóa quá rộng (menu, icon, layout...) khiến đếm nhầm lên tới 2.913 lượt. Sau khi siết lại chỉ còn từ khóa đặc thù (giao diện xấu/lỗi, rối mắt, bố cục rối...), số lượt thực chỉ còn <b>3 lượt trong cả tháng</b> → <b>UI không phải pain point đáng kể trong Tháng 6</b>.
+    </div>
+  </div>
+
+  <!-- 10. HIGHLIGHTS -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">10</div><div class="section-title">Key Highlights &amp; Khuyến nghị</div></div>
+    <div class="section-sub">Mỗi highlight có What happened / Based on / Why it matters / Sentiment signal</div>
+    <div id="highlightsList"></div>
+  </div>
+
+  <!-- 11. CONCLUSION -->
+  <div class="card">
+    <div class="sec-head"><div class="sec-num">11</div><div class="section-title">Kết luận tổng quan</div></div>
+    <p style="font-size:14px;">Cộng đồng CFL tháng 6/2026 ở trạng thái <b>phân hóa theo kênh</b>, không đồng nhất theo một chiều duy nhất. Tỷ lệ Negative tổng thể (9,9%) vẫn trong tầm kiểm soát, nhưng volume tổng giảm <b style="color:var(--negative)">-22,4% MoM</b> đồng đều ở mọi kênh — dấu hiệu cộng đồng đang thu hẹp quy mô tương tác, phù hợp xu hướng MAU Real giảm.</p>
+    <ul class="conclusion-list">
+      <li><b>Fanpage</b>: kênh khiếu nại chính thức — ít volume hơn Group nhưng Negative cao hơn (13,4% vs 8,5%).</li>
+      <li><b>Group</b>: đời sống cộng đồng tự nhiên — volume lớn nhất, sentiment trung lập chiếm ưu thế, nội dung do chính user tạo ra.</li>
+      <li><b>Google Play</b>: nhóm user Android tương đối hài lòng (rating 3,8/5, 47,2% Positive) — không phải điểm nóng ưu tiên.</li>
+      <li><b>App Store</b>: bất mãn rõ rệt nhất (rating 2,25/5, 69,2% Negative) — <b style="color:var(--negative)">ưu tiên hành động cao nhất</b>.</li>
+    </ul>
+    <p style="font-size:14px;">User vẫn <b>quan tâm và kỳ vọng vào game</b> (chủ động bình luận, report, tham gia UGC, nhắc tên cụ thể vũ khí/skin muốn có) nhưng kỳ vọng này <b>chưa được đáp ứng đầy đủ</b> ở các vấn đề kỹ thuật nền tảng (hack, lag) tồn tại dai dẳng suốt tháng và ở khâu vận hành (trả thưởng sự kiện trễ).</p>
+  </div>
+
+  <footer>CFL Monthly Social Sentiment &amp; Store Review · Tháng 6/2026 · Tạo ngày 02/07/2026 · Nội bộ VNG Games / Tencent Dev Team</footer>
+</main>
+
+<script>
+const DATA = {"meta": {"month": "Tháng 6/2026", "generated": "02/07/2026"}, "methodology": {"total_formula": "Fanpage Post (174) + Fanpage Comment (8.424) + Group Post (3.197) + Group Comment (43.940) + Google Play Review (875) + App Store Review (211) = 56.821", "sentiment_fp_gr": "Fanpage/Group: phân loại bằng bộ từ khóa tiếng Việt (positive/negative). Nếu bình luận chứa cả từ khóa tích cực & tiêu cực, ưu tiên nhãn có số lượng từ khóa khớp nhiều hơn; không dùng nhãn Mixed.", "sentiment_store": "Google Play/App Store: dùng nhãn Sentiment gốc do nền tảng phân loại (Happy/Unhappy/Neutral/Mixed). Các review gắn nhãn Mixed được quy về Positive/Negative/Neutral dựa trên số sao: 1-2 sao=Negative, 3 sao=Neutral, 4-5 sao=Positive.", "note": "Phương pháp keyword-based có giới hạn: không hiểu ngữ cảnh/mỉa mai, có thể bỏ sót sắc thái. Tỷ trọng Neutral cao do phần lớn bình luận trong Group là trò chuyện thông thường giữa người chơi, không mang tính đánh giá sản phẩm."}, "daily": {"dates": ["01/06", "02/06", "03/06", "04/06", "05/06", "06/06", "07/06", "08/06", "09/06", "10/06", "11/06", "12/06", "13/06", "14/06", "15/06", "16/06", "17/06", "18/06", "19/06", "20/06", "21/06", "22/06", "23/06", "24/06", "25/06", "26/06", "27/06", "28/06", "29/06", "30/06"], "comments": [1455, 1957, 1503, 1613, 2405, 1543, 1582, 1487, 1400, 1524, 1281, 1772, 1498, 1222, 1323, 1777, 1269, 1550, 2313, 1704, 1551, 1783, 1475, 1673, 1551, 1776, 2361, 2071, 2360, 3585], "posts": [123, 136, 115, 100, 134, 100, 104, 102, 108, 95, 93, 107, 87, 93, 87, 118, 90, 92, 169, 114, 95, 120, 104, 95, 91, 142, 102, 101, 139, 215], "android": [38, 33, 28, 36, 24, 34, 30, 29, 35, 32, 30, 14, 28, 30, 23, 21, 23, 21, 23, 32, 30, 34, 38, 19, 32, 36, 35, 38, 36, 13], "ios": [6, 7, 6, 5, 8, 11, 6, 5, 10, 6, 7, 5, 0, 5, 5, 6, 1, 8, 7, 7, 7, 4, 3, 3, 2, 4, 5, 6, 9, 47]}, "heatmap": {"matrix": [[118, 68, 52, 50, 28, 77, 134, 249, 392, 385, 619, 558, 475, 367, 514, 561, 533, 437, 573, 614, 472, 432, 426, 274], [183, 104, 58, 42, 52, 87, 193, 323, 305, 538, 750, 706, 460, 409, 426, 582, 577, 612, 503, 677, 827, 750, 554, 476], [231, 70, 35, 28, 25, 76, 195, 324, 323, 305, 451, 307, 233, 222, 286, 334, 317, 313, 384, 308, 372, 263, 335, 232], [87, 93, 69, 62, 26, 70, 144, 201, 297, 427, 300, 326, 267, 215, 341, 350, 304, 360, 414, 292, 339, 341, 313, 357], [269, 142, 94, 59, 58, 74, 167, 357, 417, 338, 437, 627, 416, 543, 430, 450, 546, 483, 449, 561, 364, 369, 358, 258], [152, 96, 47, 32, 33, 74, 146, 255, 330, 371, 492, 425, 322, 286, 328, 541, 356, 506, 345, 398, 544, 391, 338, 298], [188, 64, 70, 40, 44, 56, 92, 171, 304, 366, 368, 263, 251, 324, 268, 286, 414, 433, 460, 477, 454, 457, 349, 227]], "weekdays": ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"], "peak": {"weekday": "Thứ 3", "hour": 20, "count": 827}, "by_weekday": [8408, 10194, 5969, 5995, 8266, 7106, 6426], "by_hour": [1228, 637, 425, 313, 266, 514, 1071, 1880, 2368, 2730, 3417, 3212, 2424, 2366, 2593, 3104, 3047, 3144, 3128, 3327, 3372, 3003, 2673, 2122]}, "overall_sentiment": {"Positive": 2371, "Negative": 5282, "Neutral": 45797}, "channel_sentiment": {"Fanpage": {"Neutral": 6991, "Negative": 1132, "Positive": 301}, "Group": {"Neutral": 38578, "Negative": 3743, "Positive": 1619}, "Google Play": {"Positive": 413, "Negative": 261, "Neutral": 201}, "App Store": {"Negative": 146, "Positive": 38, "Neutral": 27}}, "channel_totals": {"Fanpage": {"posts": 174, "comments": 8424}, "Group": {"posts": 3197, "comments": 43940}, "Google Play": {"reviews": 875, "avg_rating": 3.8}, "App Store": {"reviews": 211, "avg_rating": 2.25}}, "mom": {"labels": ["Fanpage Post", "Fanpage Comment", "Group Post", "Group Comment", "Google Play Review", "App Store Review", "TỔNG"], "may": [164, 12578, 4211, 54812, 1100, 380, 73245], "june": [174, 8424, 3197, 43940, 875, 211, 56821], "pct": [6.1, -33.0, -24.1, -19.8, -20.5, -44.5, -22.4]}, "top_posts_all": [{"rank": 1, "date": "27/06", "source": "Fanpage", "message": "Comment “TÔI YÊU GEM” ngay post này để admin điểm danh và lên thêm event tích GEM trên fanpage cho anh em! 🫵🏻💎", "comments": 677, "likes": 71, "engagement": 748}, {"rank": 2, "date": "16/06", "source": "Fanpage", "message": "❄️ LỘ DIỆN VŨ KHÍ SẮP LÒ VI SÓNG LẦN NÀY!! 🔥 BỘ VŨ KHÍ ĐÃ VÀ VẤN ĐANG KHUẤY ĐẢO CROSSFIRE: LEGENDS  🤔 Liệu anh em có nhớ đây là bộ vũ khí nào đã ra mắt trước đây không? 👇 Bình luận ngay tên vũ khí để được buff luck sắp tới nào!!! ------  🔥 CROSSFIRE: LEGENDS -", "comments": 373, "likes": 70, "engagement": 443}, {"rank": 3, "date": "29/06", "source": "Fanpage", "message": "AVATAR LẠC HỒNG ĐẾN VỚI ANH EM RỒI ĐÂY! 💯  Code chung chúc mừng anh em đã cùng nhau đưa cộng đồng Crossfire: Legends Việt Nam Official Group vượt mốc 110.000 thành viên! 🎉 Đừng quên nhập code ngay tại đây nha anh em ơi: https://giftcode.vnggames.com/vn/redeem/", "comments": 218, "likes": 114, "engagement": 332}, {"rank": 4, "date": "15/06", "source": "Fanpage", "message": "🔎 Truy tìm fan cứng của bộ 3 vũ khí vẫn đang khuấy đảo Crossfire: Legends!! 😎 Nếu được lò vi sóng cùng một bộ vũ khí, anh em sẽ chọn bộ vũ khí nào đây???  👇 Vote ngay để mong muốn trở thành hiện thực đi anh em ------  🔥 CROSSFIRE: LEGENDS - HUYỀN THOẠI FPS VƯỢ", "comments": 253, "likes": 44, "engagement": 297}, {"rank": 5, "date": "28/06", "source": "Fanpage", "message": "🤜 [MINIGAME] XẾP HẠNG LIỀN ĐI, NHẬN CODE PHỜ-RIII CHÀO ĐÓN PHIÊN BẢN 4.0 CÙNG CROSSFIRE: LEGENDS! 🤛  Hê lô hơn 500K anh em của fanpage Crossfire: Legends! 🔥  👀 Update 4.0 sắp đổ bộ với loạt mode mới cực cuốn cùng hàng tá phần quà xịn đang chờ anh em làm bá sàn", "comments": 233, "likes": 32, "engagement": 265}, {"rank": 6, "date": "05/06", "source": "Fanpage", "message": "📢 NÂNG CẤP CHƯƠNG TRÌNH CHĂM SÓC KHÁCH HÀNG THÂN THIẾT  💖 Nhằm ghi nhận và tri ân sự đóng góp của anh em một cách chính xác và tối ưu hơn, từ tháng 06/2026, hệ thống sẽ nâng cấp các bậc VIP KHTT cũ (Vàng, Bạc, Đồng) lên hệ thống danh hiệu Membership mới 🔻 Anh", "comments": 228, "likes": 34, "engagement": 262}, {"rank": 7, "date": "29/06", "source": "Fanpage", "message": "🫢 NHÂN VẬT NỮ MỚI SẮP CẬP BẾN TẠI BATTLE PASS S4  Với tạo hình sắc nét, nhân vậy nữ này đang chờ anh em đón về vào ngày mai🔥 Anh em có đoán được đây là nhân vật nào khôngggg?  😎 Đặt lịch ngay 30.06 để hóng Battle Pass S4 ngay anh em ơi  ------ 🔥 CROSSFIRE: LEG", "comments": 219, "likes": 33, "engagement": 252}, {"rank": 8, "date": "04/06", "source": "Fanpage", "message": "📢 CÔNG BỐ THÔNG TIN XỬ LÝ VI PHẠM 📢 🔥CROSSFIRE: LEGENDS CHUNG TAY CÙNG ANH EM VÌ MỘT MÔI TRƯỜNG CHƠI GAME CÔNG BẰNG & LÀNH MẠNH 🤝  Chào anh em! ✨ Nhờ có sự đồng hành của anh em trong việc báo cáo các vi phạm quy định trong thi đấu. Tính từ ngày 11.05 đến hết n", "comments": 205, "likes": 4, "engagement": 209}, {"rank": 9, "date": "18/06", "source": "Fanpage", "message": "Chưa bao giờ thấy 23h lâu tới như vậy Điểm danh anh em đang đợi Ranger tại post này 👇   Thả 🍀🔫❄️ ngay tại comment để lấy vía tối nay gacha phát đầu ra luôn nào! ------ 🔥 CROSSFIRE: LEGENDS - HUYỀN THOẠI FPS VƯỢT THỜI GIAN  🔗 Tải ngay tại đây: https://crossfire", "comments": 194, "likes": 9, "engagement": 203}, {"rank": 10, "date": "23/06", "source": "Fanpage", "message": "🏖️ ĐẢO THIÊN ĐƯỜNG | KHAI MỞ GIAI ĐOẠN 2  ⏰ Thời gian mở sự kiện từ 23.06 đến hết ngày 06.07.2026  👣 Sau khoảng thời gian theo chân hành trình của Fox thì cuối cùng cũng đến giai đoạn tiếp theo. Anh em phải giải mã những mật thư để tiến gần hơn đến kho báu cuố", "comments": 187, "likes": 11, "engagement": 198}], "top_posts_fanpage": [{"rank": 1, "date": "27/06", "source": "Fanpage", "message": "Comment “TÔI YÊU GEM” ngay post này để admin điểm danh và lên thêm event tích GEM trên fanpage cho anh em! 🫵🏻💎", "comments": 677, "likes": 71, "engagement": 748}, {"rank": 2, "date": "16/06", "source": "Fanpage", "message": "❄️ LỘ DIỆN VŨ KHÍ SẮP LÒ VI SÓNG LẦN NÀY!! 🔥 BỘ VŨ KHÍ ĐÃ VÀ VẤN ĐANG KHUẤY ĐẢO CROSSFIRE: LEGENDS  🤔 Liệu anh em có nhớ đây là bộ vũ khí nào đã ra mắt trước đây không? 👇 Bình luận ngay tên vũ khí để được buff luck sắp tới nào!!! ------  🔥 CROSSFIRE: LEGENDS -", "comments": 373, "likes": 70, "engagement": 443}, {"rank": 3, "date": "29/06", "source": "Fanpage", "message": "AVATAR LẠC HỒNG ĐẾN VỚI ANH EM RỒI ĐÂY! 💯  Code chung chúc mừng anh em đã cùng nhau đưa cộng đồng Crossfire: Legends Việt Nam Official Group vượt mốc 110.000 thành viên! 🎉 Đừng quên nhập code ngay tại đây nha anh em ơi: https://giftcode.vnggames.com/vn/redeem/", "comments": 218, "likes": 114, "engagement": 332}, {"rank": 4, "date": "15/06", "source": "Fanpage", "message": "🔎 Truy tìm fan cứng của bộ 3 vũ khí vẫn đang khuấy đảo Crossfire: Legends!! 😎 Nếu được lò vi sóng cùng một bộ vũ khí, anh em sẽ chọn bộ vũ khí nào đây???  👇 Vote ngay để mong muốn trở thành hiện thực đi anh em ------  🔥 CROSSFIRE: LEGENDS - HUYỀN THOẠI FPS VƯỢ", "comments": 253, "likes": 44, "engagement": 297}, {"rank": 5, "date": "28/06", "source": "Fanpage", "message": "🤜 [MINIGAME] XẾP HẠNG LIỀN ĐI, NHẬN CODE PHỜ-RIII CHÀO ĐÓN PHIÊN BẢN 4.0 CÙNG CROSSFIRE: LEGENDS! 🤛  Hê lô hơn 500K anh em của fanpage Crossfire: Legends! 🔥  👀 Update 4.0 sắp đổ bộ với loạt mode mới cực cuốn cùng hàng tá phần quà xịn đang chờ anh em làm bá sàn", "comments": 233, "likes": 32, "engagement": 265}, {"rank": 6, "date": "05/06", "source": "Fanpage", "message": "📢 NÂNG CẤP CHƯƠNG TRÌNH CHĂM SÓC KHÁCH HÀNG THÂN THIẾT  💖 Nhằm ghi nhận và tri ân sự đóng góp của anh em một cách chính xác và tối ưu hơn, từ tháng 06/2026, hệ thống sẽ nâng cấp các bậc VIP KHTT cũ (Vàng, Bạc, Đồng) lên hệ thống danh hiệu Membership mới 🔻 Anh", "comments": 228, "likes": 34, "engagement": 262}, {"rank": 7, "date": "29/06", "source": "Fanpage", "message": "🫢 NHÂN VẬT NỮ MỚI SẮP CẬP BẾN TẠI BATTLE PASS S4  Với tạo hình sắc nét, nhân vậy nữ này đang chờ anh em đón về vào ngày mai🔥 Anh em có đoán được đây là nhân vật nào khôngggg?  😎 Đặt lịch ngay 30.06 để hóng Battle Pass S4 ngay anh em ơi  ------ 🔥 CROSSFIRE: LEG", "comments": 219, "likes": 33, "engagement": 252}, {"rank": 8, "date": "04/06", "source": "Fanpage", "message": "📢 CÔNG BỐ THÔNG TIN XỬ LÝ VI PHẠM 📢 🔥CROSSFIRE: LEGENDS CHUNG TAY CÙNG ANH EM VÌ MỘT MÔI TRƯỜNG CHƠI GAME CÔNG BẰNG & LÀNH MẠNH 🤝  Chào anh em! ✨ Nhờ có sự đồng hành của anh em trong việc báo cáo các vi phạm quy định trong thi đấu. Tính từ ngày 11.05 đến hết n", "comments": 205, "likes": 4, "engagement": 209}, {"rank": 9, "date": "18/06", "source": "Fanpage", "message": "Chưa bao giờ thấy 23h lâu tới như vậy Điểm danh anh em đang đợi Ranger tại post này 👇   Thả 🍀🔫❄️ ngay tại comment để lấy vía tối nay gacha phát đầu ra luôn nào! ------ 🔥 CROSSFIRE: LEGENDS - HUYỀN THOẠI FPS VƯỢT THỜI GIAN  🔗 Tải ngay tại đây: https://crossfire", "comments": 194, "likes": 9, "engagement": 203}, {"rank": 10, "date": "23/06", "source": "Fanpage", "message": "🏖️ ĐẢO THIÊN ĐƯỜNG | KHAI MỞ GIAI ĐOẠN 2  ⏰ Thời gian mở sự kiện từ 23.06 đến hết ngày 06.07.2026  👣 Sau khoảng thời gian theo chân hành trình của Fox thì cuối cùng cũng đến giai đoạn tiếp theo. Anh em phải giải mã những mật thư để tiến gần hơn đến kho báu cuố", "comments": 187, "likes": 11, "engagement": 198}], "top_posts_group": [{"rank": 1, "date": "07/06", "source": "Group", "message": "Có 1 sự thật có lẽ bạn nên biết về VIE-JackDawson🤫 Top 1 Sniper CFL ❤️ Mình cố tình thả cho thanh niên này thắng để cho oai tí mà tưởng mình hay thật🥴giao lưu vui vẻ k có nghĩa là mình dc top 1 snip đâu tài baber ảo ít th e?!", "comments": 38, "likes": 123, "engagement": 161}, {"rank": 2, "date": "30/06", "source": "Group", "message": "12 xu rank đúng k phí tí nào quá đẹp :))", "comments": 65, "likes": 51, "engagement": 116}, {"rank": 3, "date": "27/06", "source": "Group", "message": "🌟Mỗi tuần một dịp khoe:  Mức rank hiện tại của anh em là bao nhiêu?", "comments": 77, "likes": 18, "engagement": 95}, {"rank": 4, "date": "10/06", "source": "Group", "message": "Top 500 giờ bắn thua cả ts ht thế này à ae :))", "comments": 49, "likes": 41, "engagement": 90}, {"rank": 5, "date": "14/06", "source": "Group", "message": "Con hàng ngày xưa quây 90 vé báo vật nhận được 30 ngày quý như vàng", "comments": 57, "likes": 32, "engagement": 89}, {"rank": 6, "date": "16/06", "source": "Group", "message": "Súng + lục + xẻng kèm skin và không kèm skin tầm bao nhiêu ae ?", "comments": 62, "likes": 27, "engagement": 89}, {"rank": 7, "date": "08/06", "source": "Group", "message": "quắm đẹp quá delay snip nhanh ác 😘", "comments": 56, "likes": 33, "engagement": 89}, {"rank": 8, "date": "16/06", "source": "Group", "message": "Có vị huynh đài nào biết tắt tiếng của nv này không , bị bắn trúng nó rên quá :(", "comments": 30, "likes": 58, "engagement": 88}, {"rank": 9, "date": "27/06", "source": "Group", "message": "Đi cúp gặp loại này nên né nhé thằng đàn bà", "comments": 56, "likes": 30, "engagement": 86}, {"rank": 10, "date": "05/06", "source": "Group", "message": "Tui chơi game nửa năm mới nạp gói 25k lấy MK23 đen cover snip thui. Còn anh em?", "comments": 70, "likes": 13, "engagement": 83}], "topics": [{"topic": "2. Hack / Cheat / Gian lận", "positive": 1, "negative": 772, "neutral": 1, "total": 774}, {"topic": "4. Cập nhật / Phiên bản", "positive": 15, "negative": 139, "neutral": 431, "total": 585}, {"topic": "5. Sự kiện / Quà tặng", "positive": 15, "negative": 83, "neutral": 416, "total": 514}, {"topic": "1. Lag / Hiệu năng - Lỗi kỹ thuật", "positive": 0, "negative": 240, "neutral": 3, "total": 243}, {"topic": "7. Tài khoản / Đăng nhập / Cài đặt", "positive": 3, "negative": 42, "neutral": 143, "total": 188}, {"topic": "6. Nạp thẻ / Thanh toán", "positive": 6, "negative": 19, "neutral": 132, "total": 157}, {"topic": "9. Gameplay - Vũ khí & Chế độ chơi", "positive": 6, "negative": 26, "neutral": 106, "total": 138}, {"topic": "3. Matchmaking / Xếp hạng", "positive": 4, "negative": 25, "neutral": 80, "total": 109}, {"topic": "8. CSKH / Hỗ trợ", "positive": 2, "negative": 24, "neutral": 50, "total": 76}, {"topic": "10. Giao diện / Trải nghiệm hiển thị", "positive": 0, "negative": 2, "neutral": 1, "total": 3}], "top_positive_topics": [{"topic": "Skin & vũ khí được săn đón", "total_mentions": 126, "desc": "Cụ thể: AK Noble Gold, M4 Noble Gold/Ranger/M4A1, AK Hoa Hồng, AWM (bản 16.000 Gem), skin \"Gungirl\", skin \"Tam Quốc\" (đang được mong chờ), vũ khí \"Dực Long\", \"MK23 đen\"", "value": "Người chơi chủ động bàn luận, so sánh sức mạnh/giá trị — cơ hội đẩy content creator quanh các vũ khí này"}, {"topic": "Chương trình mốc cộng đồng \"Avatar Lạc Hồng\"", "total_mentions": 332, "desc": "Bài đăng 29/06: quà mốc gồm Avatar Lạc Hồng, Khung ảnh Lạc Hồng, Avatar Hào Khí Việt Nam, Khung ảnh Hào Khí Việt Nam — gắn với mốc 110.000 thành viên Group và mục tiêu 540K Fanpage / 55K TikTok / 8K YouTube", "value": "Cơ chế mốc cộng đồng tạo hiệu ứng lan tỏa tốt (Top 3 bài nổi bật nhất tháng)"}, {"topic": "Gói nạp & Battle Pass cụ thể", "total_mentions": 19, "desc": "Nhắc đến cụ thể: \"gói 129k\" (đồ ngon hơn), \"gói 25k\" (đổi được vũ khí MK23 đen), mua Battle Pass 2 mùa liền để tích lũy Xu. Ngoài ra chương trình Membership mới (từ 05/06) tặng skin \"Invisible Assassin Sword – Ultimate Gold\" cho user nạp bất kỳ gói nào", "value": "Tín hiệu ban đầu — volume còn thấp (19 lượt), cần theo dõi thêm khi V4.0 tung gói nạp mới"}, {"topic": "Minigame / Hashtag UGC (#cflugc)", "total_mentions": 15, "desc": "Người chơi chủ động đăng bài kèm hashtag #cflugc, #donchaov4 theo phát động của Fanpage/Group", "value": "Nền tảng để mở rộng ambassador/creator loop, chi phí thấp"}, {"topic": "Cân bằng vũ khí mùa hiện tại", "total_mentions": 6, "desc": "Một số bình luận nhận xét combo vũ khí mùa này \"ngon\", \"cân bằng tốt hơn mùa trước\" (tín hiệu ban đầu, volume rất thấp)", "value": "Cần theo dõi thêm — chưa đủ dữ liệu để kết luận cân bằng gameplay đã cải thiện rõ rệt"}], "top_negative_topics": [{"topic": "Hack / Cheat / Gian lận", "count": 772, "pct": 99.7, "total_topic": 774, "desc": "772/774 lượt đề cập là Negative. Trải đều mọi tuần trong tháng (Tuần 1: 318, Tuần 2: 129, Tuần 3: 119, Tuần 4: 173, Tuần cuối: 35) — không phải sự cố nhất thời mà là vấn đề mãn tính.", "evidence": ["\"Cứ mạnh tay mà xử lí hack, chứ dạo này nhiều hack lắm. Đừng như CF ngày xưa, người chơi không nạp đâu nếu hack không dẹp hết\" — liên hệ trực tiếp hack với rủi ro doanh thu", "\"Hack band có 7 day\" — người chơi cho rằng mức phạt hiện tại quá nhẹ", "Nhiều bình luận phản ánh bị AI hệ thống ban oan (\"oan sai\") khi không dùng hack, tạo thêm bức xúc song song với vấn đề hack thật"], "risk": "Rủi ro lớn nhất đến trust & retention — ảnh hưởng cả người chơi gặp hack thật lẫn người bị xử oan"}, {"topic": "Lag / Hiệu năng - Lỗi kỹ thuật", "count": 240, "pct": 98.8, "total_topic": 243, "desc": "240/243 lượt Negative — gần như tuyệt đối. Tập trung vào giật hình, văng game, tụt FPS, lỗi hiển thị map sau update.", "evidence": ["\"Update map mới làm chi... map thì rối mắt còn hiện tượng giật lag khủng khiếp\""], "risk": "Vấn đề kỹ thuật nền tảng, ảnh hưởng trải nghiệm cốt lõi, đã tồn tại nhiều tháng theo pain point tracker"}, {"topic": "Cập nhật / Phiên bản (Boss World dời lịch)", "count": 139, "pct": 23.8, "total_topic": 585, "desc": "Admin xác nhận trực tiếp trong comment: Chế độ Boss Thế Giới dời sang 08.07.2026, không đi cùng V4.0 (30.06) như kỳ vọng.", "evidence": ["\"Chế độ BOSS Thế Giới sẽ được cập nhật vào ngày 08.07.2026, anh em đón chờ nhé!\" — admin trả lời lặp lại nhiều lần cho thấy nhiều user cùng hỏi/thắc mắc"], "risk": "Rủi ro kỳ vọng chưa được đáp ứng ngay tại thời điểm launch — cần chủ động truyền thông trước 08/07"}, {"topic": "Sự kiện / Quà tặng (trả thưởng trễ)", "count": 83, "pct": 16.1, "total_topic": 514, "desc": "Khiếu nại lặp lại nhiều lần (copy nguyên văn) về việc chưa nhận thưởng sự kiện \"Đấu trường sáng tạo\" tháng 4 dù đã quá 45 ngày.", "evidence": ["\"Có anh em nào được trả quà chưa nhỉ? Quá 45 ngày rồi. Đấu trường sáng tạo tháng 4 mà tới tháng 7 rồi không trả quà?\" — xuất hiện lặp lại ≥3 lần trong dữ liệu, cho thấy nhiều user cùng gặp vấn đề"], "risk": "Rủi ro uy tín vận hành (Operation) — sự kiện đã kết thúc lâu nhưng quy trình trả thưởng chưa khép kín"}, {"topic": "Tài khoản / Đăng nhập / Cài đặt", "count": 42, "pct": 22.3, "total_topic": 188, "desc": "Lỗi nhập code, lỗi đăng nhập, lo ngại mất tài khoản.", "evidence": ["\"Trang nhập code bị lỗi à ad sao ko đăng nhập được\""], "risk": "Ảnh hưởng trực tiếp khả năng tham gia sự kiện/nhận thưởng nếu không xử lý kịp thời"}], "highlights": [{"title": "App Store là điểm nghẽn nghiêm trọng hơn Google Play", "what": "App Store: 146/211 review Negative (69,2%), rating TB 2,25/5. Google Play: 261/875 Negative (29,8%), rating TB 3,8/5.", "based_on": "Phân loại theo rating gốc của từng nền tảng, tháng 6/2026 (đã xử lý lại nhãn Mixed theo số sao).", "why": "Rating thấp trên App Store ảnh hưởng trực tiếp funnel iOS — cần fix funnel trước khi scale branding.", "signal": "Negative"}, {"title": "Ngày launch V4.0 (30/06) là đỉnh volume kèm review iOS tăng vọt", "what": "Volume tổng ngày 30/06 đạt 3.860 (gấp ~2,2 lần TB ngày thường); riêng App Store tăng từ trung bình 5-6 review/ngày lên 47 review trong 1 ngày.", "based_on": "So sánh volume theo ngày trên Google Play (Android) và App Store (iOS), 27-30/06.", "why": "Phù hợp pattern \"update đi kèm bug mới\" — cần theo dõi sát tuần đầu tháng 7 để xác nhận xu hướng.", "signal": "Negative (cần theo dõi thêm)"}, {"title": "Boss World Mode dời lịch sang 08/07 — rủi ro kỳ vọng", "what": "Admin xác nhận Boss World Mode ra mắt 08/07/2026, không đi cùng V4.0.", "based_on": "Trích xuất trực tiếp từ nhiều comment admin lặp lại trong dữ liệu Fanpage/Group tháng 6.", "why": "Bằng chứng cụ thể cho rủi ro \"missing feature at launch\" — cần thông điệp chủ động trước 08/07.", "signal": "Mixed"}, {"title": "Hack/Cheat là chủ đề tiêu cực lớn nhất, dai dẳng suốt cả tháng", "what": "772 lượt đề cập tiêu cực (99,7% trong nhóm chủ đề), trải đều mọi tuần, không tập trung 1 thời điểm.", "based_on": "Tần suất từ khóa hack/cheat/gian lận theo tuần: T1=318, T2=129, T3=119, T4=173.", "why": "Pain point mãn tính, người chơi liên hệ trực tiếp đến rủi ro ngừng nạp nếu không xử lý.", "signal": "Negative"}, {"title": "Sự kiện \"Đấu trường sáng tạo\" tháng 4 vẫn chưa trả thưởng sau 45 ngày", "what": "Nhiều user lặp lại cùng nội dung khiếu nại chưa nhận thưởng sự kiện đã kết thúc từ tháng 4.", "based_on": "Cùng một nội dung khiếu nại xuất hiện lặp lại ≥3 lần trong dữ liệu comment tháng 6.", "why": "Rủi ro uy tín vận hành — ảnh hưởng niềm tin vào việc tổ chức sự kiện có thưởng trong tương lai.", "signal": "Negative"}]};
+const COLORS = {Positive:"#16A34A", Negative:"#DC2626", Neutral:"#6B7280"};
+function fmt(n){ return n.toLocaleString('vi-VN'); }
+function pct(n){ return (n>0?'+':'') + n.toFixed(1).replace('.',',') + '%'; }
+const tooltip = document.getElementById('tooltip');
+function showTip(html, x, y){ tooltip.innerHTML = html; tooltip.style.left=(x+14)+'px'; tooltip.style.top=(y+10)+'px'; tooltip.style.opacity=1; }
+function hideTip(){ tooltip.style.opacity = 0; }
+
+/* ---- count-up animation ---- */
+function countUp(el, target, isText){
+  if(isText){ el.textContent = target; return; }
+  let cur = 0; const dur = 900; const start = performance.now();
+  function step(t){
+    const p = Math.min(1, (t-start)/dur);
+    cur = Math.floor(target * (1-Math.pow(1-p,3)));
+    el.textContent = fmt(cur);
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------------- KPI ROW ---------------- */
+(function(){
+  const totalJune = DATA.mom.june[6];
+  const s = DATA.overall_sentiment;
+  const tot = s.Positive+s.Negative+s.Neutral;
+  const negPct = (s.Negative/tot*100).toFixed(1);
+  const posPct = (s.Positive/tot*100).toFixed(1);
+  const kpis = [
+    {label:"Tổng volume T6", value: totalJune, change: pct(DATA.mom.pct[6])+" MoM", cls:"down"},
+    {label:"Negative / Positive", value: negPct+"% / "+posPct+"%", change:"Trên "+fmt(tot)+" lượt phân loại", cls:"flat", isText:true},
+    {label:"App Store Rating", value: DATA.channel_totals["App Store"].avg_rating+"/5", change:"69,2% review Negative", cls:"down", isText:true},
+    {label:"Ngày đỉnh volume", value:"30/06", change: fmt(DATA.daily.comments[DATA.daily.comments.length-1]+DATA.daily.posts[DATA.daily.posts.length-1]+DATA.daily.android[DATA.daily.android.length-1]+DATA.daily.ios[DATA.daily.ios.length-1])+" lượt (launch V4.0)", cls:"down", isText:true},
+  ];
+  const row = document.getElementById('kpiRow');
+  row.innerHTML = kpis.map((k,i)=>`
+    <div class="kpi-card">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value" id="kpiVal${i}">${k.isText? k.value : 0}</div>
+      <div class="kpi-change ${k.cls}">${k.change}</div>
+    </div>`).join('');
+  kpis.forEach((k,i)=>{ if(!k.isText) countUp(document.getElementById('kpiVal'+i), k.value); });
+
+  document.getElementById('formulaText').textContent = DATA.methodology.total_formula;
+})();
+
+/* ---------------- MoM TABLE ---------------- */
+(function(){
+  const m = DATA.mom;
+  const body = document.getElementById('momBody');
+  body.innerHTML = m.labels.map((lab,i)=>{
+    const isTotal = lab === "TỔNG";
+    const color = m.pct[i] >= 0 ? 'var(--positive)' : 'var(--negative)';
+    return `<tr style="${isTotal?'font-weight:800;background:#FAFBFF;':''}">
+      <td>${lab}</td><td class="num">${fmt(m.may[i])}</td><td class="num">${fmt(m.june[i])}</td>
+      <td class="num" style="color:${color};font-weight:700;">${pct(m.pct[i])}</td>
+    </tr>`;
+  }).join('');
+})();
+
+/* ---------------- LINE CHART ---------------- */
+(function(){
+  const d = DATA.daily;
+  const W = 900, H = 260, padL = 40, padR = 10, padT = 10, padB = 30;
+  const n = d.dates.length;
+  const scale = 8;
+  const maxV = Math.max(...d.comments, ...d.posts.map(x=>x*scale), ...d.android.map(x=>x*scale), ...d.ios.map(x=>x*scale)) * 1.12;
+  const x = i => padL + (i/(n-1)) * (W-padL-padR);
+  const y = v => H-padB - (v/maxV) * (H-padT-padB);
+  function pathFor(arr, s){ return arr.map((v,i)=> (i===0?'M':'L') + x(i).toFixed(1) + ',' + y(v*s).toFixed(1)).join(' '); }
+  function areaFor(arr, s){ return pathFor(arr,s) + ` L${x(n-1).toFixed(1)},${(H-padB)} L${x(0).toFixed(1)},${(H-padB)} Z`; }
+  let grid = '';
+  for(let g=0; g<=4; g++){ const gy = padT + g*(H-padT-padB)/4; grid += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padR}" y2="${gy.toFixed(1)}" stroke="#EEF1F5" stroke-width="1"/>`; }
+  let xlabels = '';
+  for(let i=0;i<n;i+=3){ xlabels += `<text x="${x(i).toFixed(1)}" y="${H-8}" font-size="10" fill="#9CA3AF" text-anchor="middle">${d.dates[i]}</text>`; }
+  const svg = `
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;font-family:inherit;">
+    ${grid}
+    <path d="${areaFor(d.comments,1)}" fill="#2563EB" opacity="0.07" stroke="none"/>
+    <path d="${pathFor(d.comments,1)}" fill="none" stroke="#2563EB" stroke-width="2.4"/>
+    <path d="${pathFor(d.posts,scale)}" fill="none" stroke="#0B1F3F" stroke-width="1.8" stroke-dasharray="4 3"/>
+    <path d="${pathFor(d.android,scale)}" fill="none" stroke="#16A34A" stroke-width="2"/>
+    <path d="${pathFor(d.ios,scale)}" fill="none" stroke="#F97316" stroke-width="2.2"/>
+    ${d.comments.map((v,i)=>`<circle class="pt" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="9" fill="transparent"/>`).join('')}
+    ${xlabels}
+  </svg>`;
+  const holder = document.getElementById('lineChart');
+  holder.innerHTML = svg;
+  holder.querySelectorAll('.pt').forEach(el=>{
+    el.addEventListener('mousemove', e=>{
+      const i = +el.getAttribute('data-i');
+      showTip(`<b>${d.dates[i]}</b><br>Bình luận: ${fmt(d.comments[i])}<br>Bài viết: ${fmt(d.posts[i])}<br>Android review: ${fmt(d.android[i])}<br>iOS review: ${fmt(d.ios[i])}`, e.clientX, e.clientY);
+    });
+    el.addEventListener('mouseleave', hideTip);
+  });
+})();
+
+/* ---------------- PIE (3 groups) ---------------- */
+(function(){
+  const s = DATA.overall_sentiment;
+  const total = s.Positive+s.Negative+s.Neutral;
+  const order = ["Neutral","Negative","Positive"];
+  let angle = -90;
+  const R = 85, CX=110, CY=110, r0=52;
+  let paths = '';
+  order.forEach(key=>{
+    const val = s[key]; const frac = val/total; const a0 = angle; const a1 = angle + frac*360; angle = a1;
+    const large = (a1-a0) > 180 ? 1 : 0;
+    const toRad = a => (a*Math.PI/180);
+    const x0 = CX + R*Math.cos(toRad(a0)), y0 = CY + R*Math.sin(toRad(a0));
+    const x1 = CX + R*Math.cos(toRad(a1)), y1 = CY + R*Math.sin(toRad(a1));
+    const xi0 = CX + r0*Math.cos(toRad(a1)), yi0 = CY + r0*Math.sin(toRad(a1));
+    const xi1 = CX + r0*Math.cos(toRad(a0)), yi1 = CY + r0*Math.sin(toRad(a0));
+    paths += `<path class="slice" data-key="${key}" data-val="${val}" data-pct="${(frac*100).toFixed(1)}"
+      d="M${x0.toFixed(2)},${y0.toFixed(2)} A${R},${R} 0 ${large} 1 ${x1.toFixed(2)},${y1.toFixed(2)} L${xi0.toFixed(2)},${yi0.toFixed(2)} A${r0},${r0} 0 ${large} 0 ${xi1.toFixed(2)},${yi1.toFixed(2)} Z"
+      fill="${COLORS[key]}" stroke="#fff" stroke-width="2" style="cursor:pointer;transition:opacity .15s;"/>`;
+  });
+  const svg = `<svg viewBox="0 0 220 220" style="width:220px;height:220px;">${paths}
+    <text x="110" y="105" text-anchor="middle" font-size="20" font-weight="800" fill="#1F2937" font-family="var(--mono)">${fmt(total)}</text>
+    <text x="110" y="124" text-anchor="middle" font-size="10.5" fill="#6B7280">lượt phân loại</text></svg>`;
+  const holder = document.getElementById('pieChart');
+  holder.innerHTML = svg;
+  holder.querySelectorAll('.slice').forEach(el=>{
+    el.addEventListener('mousemove', e=>{
+      showTip(`<b>${el.getAttribute('data-key')}</b>: ${fmt(+el.getAttribute('data-val'))} (${el.getAttribute('data-pct')}%)`, e.clientX, e.clientY);
+      el.style.opacity = 0.8;
+    });
+    el.addEventListener('mouseleave', ()=>{hideTip(); el.style.opacity=1;});
+  });
+  document.getElementById('pieLegend').innerHTML = order.map(key=>{
+    const val = s[key]; const p=(val/total*100).toFixed(1);
+    return `<span><i class="sw" style="background:${COLORS[key]}"></i>${key}: ${p}% (${fmt(val)})</span>`;
+  }).join('');
+})();
+
+/* ---------------- HEATMAP ---------------- */
+(function(){
+  const h = DATA.heatmap;
+  const matrix = h.matrix;
+  const flat = matrix.flat();
+  const maxV = Math.max(...flat);
+  const cellW = 30, cellH = 30, labelW = 60;
+  let html = `<svg viewBox="0 0 ${labelW + 24*cellW} ${30 + 7*cellH}" style="width:100%;max-width:900px;height:auto;">`;
+  for(let hh=0; hh<24; hh+=2){ html += `<text x="${labelW + hh*cellW + cellW}" y="14" font-size="9.5" fill="#9CA3AF" text-anchor="middle">${hh}h</text>`; }
+  h.weekdays.forEach((wd,ri)=>{
+    html += `<text x="${labelW-8}" y="${30+ri*cellH+cellH/2+4}" font-size="11" fill="#374151" text-anchor="end" font-weight="600">${wd}</text>`;
+    for(let hh=0; hh<24; hh++){
+      const v = matrix[ri][hh]; const t = v/maxV;
+      const bg = t < 0.001 ? '#F3F4F6' : (t>0.75 ? `rgba(249,115,22,${(0.35+t*0.6).toFixed(2)})` : `rgba(37,99,235,${(0.08+t*0.85).toFixed(2)})`);
+      html += `<rect class="hcell" data-wd="${wd}" data-h="${hh}" data-v="${v}" x="${labelW+hh*cellW}" y="${30+ri*cellH}" width="${cellW-2}" height="${cellH-2}" rx="4" fill="${bg}" style="cursor:pointer;"/>`;
+    }
+  });
+  html += `</svg>`;
+  const holder = document.getElementById('heatmap');
+  holder.innerHTML = html;
+  holder.querySelectorAll('.hcell').forEach(el=>{
+    el.addEventListener('mousemove', e=>{ showTip(`<b>${el.getAttribute('data-wd')} · ${el.getAttribute('data-h')}h</b><br>${fmt(+el.getAttribute('data-v'))} lượt`, e.clientX, e.clientY); });
+    el.addEventListener('mouseleave', hideTip);
+  });
+  document.getElementById('heatmapSub').innerHTML = `Đỉnh điểm: <b>${h.peak.weekday}, ${h.peak.hour}h</b> (${fmt(h.peak.count)} lượt)`;
+
+  // stats
+  const wdMax = h.weekdays[h.by_weekday.indexOf(Math.max(...h.by_weekday))];
+  const hourSorted = h.by_hour.map((v,i)=>[i,v]).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('heatmapStats').innerHTML = `
+    <div><b>Ngày đông nhất (cộng dồn cả tháng):</b> ${wdMax} (${fmt(Math.max(...h.by_weekday))} lượt)</div>
+    <div><b>2 khung giờ cao điểm:</b> ${hourSorted[0][0]}h (${fmt(hourSorted[0][1])}) và ${hourSorted[1][0]}h (${fmt(hourSorted[1][1])}) — có cả đỉnh buổi trưa lẫn buổi tối</div>
+    <div><b>Khung 19h-22h:</b> chiếm ${((h.by_hour[19]+h.by_hour[20]+h.by_hour[21]+h.by_hour[22])/h.by_hour.reduce((a,b)=>a+b,0)*100).toFixed(1)}% tổng tương tác cả tháng</div>`;
+})();
+
+/* ---------------- CHANNEL BARS ---------------- */
+(function(){
+  const cs = DATA.channel_sentiment;
+  const order = ["Fanpage","Group","Google Play","App Store"];
+  let html = '';
+  order.forEach(ch=>{
+    const s = cs[ch]; const total = (s.Positive||0)+(s.Negative||0)+(s.Neutral||0);
+    html += `<div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-bottom:6px;">
+        <span>${ch}</span><span style="color:#6B7280;font-weight:500;font-family:var(--mono);">${fmt(total)} lượt</span>
+      </div>
+      <div style="display:flex;height:22px;border-radius:5px;overflow:hidden;">
+        ${["Positive","Negative","Neutral"].map(k=>{
+          const v=s[k]||0; const p = total? (v/total*100):0;
+          return p>0 ? `<div class="barseg" data-ch="${ch}" data-k="${k}" data-v="${v}" data-p="${p.toFixed(1)}" style="width:${p}%;background:${COLORS[k]};cursor:pointer;"></div>` : '';
+        }).join('')}
+      </div>
+    </div>`;
+  });
+  const holder = document.getElementById('channelBars');
+  holder.innerHTML = html;
+  holder.querySelectorAll('.barseg').forEach(el=>{
+    el.addEventListener('mousemove', e=>{ showTip(`<b>${el.getAttribute('data-ch')} · ${el.getAttribute('data-k')}</b><br>${fmt(+el.getAttribute('data-v'))} (${el.getAttribute('data-p')}%)`, e.clientX, e.clientY); });
+    el.addEventListener('mouseleave', hideTip);
+  });
+})();
+
+/* ---------------- TOP POSTS (fixed filter with real content) ---------------- */
+let currentSrcFilter = 'all';
+function renderTopPosts(){
+  const q = document.getElementById('postSearch').value.toLowerCase();
+  const body = document.getElementById('topPostsBody');
+  let list;
+  if(currentSrcFilter==='all') list = DATA.top_posts_all;
+  else if(currentSrcFilter==='Fanpage') list = DATA.top_posts_fanpage;
+  else list = DATA.top_posts_group;
+  const rows = list.filter(p=>p.message.toLowerCase().includes(q));
+  body.innerHTML = rows.map(p=>`
+    <tr><td>${p.rank}</td><td>${p.date}</td><td><span class="badge">${p.source}</span></td><td>${p.message}</td>
+    <td class="num">${fmt(p.comments)}</td><td class="num">${fmt(p.likes)}</td><td class="num" style="font-weight:700;">${fmt(p.engagement)}</td></tr>`).join('')
+    || `<tr><td colspan="7" style="text-align:center;color:#9CA3AF;">Không tìm thấy kết quả</td></tr>`;
+}
+document.getElementById('postSearch').addEventListener('input', renderTopPosts);
+document.querySelectorAll('.filter-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active'); currentSrcFilter = btn.getAttribute('data-src'); renderTopPosts();
+  });
+});
+renderTopPosts();
+
+/* ---------------- TOPIC CARDS ---------------- */
+(function(){
+  document.getElementById('posTopics').innerHTML = DATA.top_positive_topics.map((t,i)=>`
+    <div class="topic-card">
+      <span class="topic-count pos">${t.total_mentions} lượt</span>
+      <div class="tname">${i+1}. ${t.topic}</div>
+      <div class="tdesc">${t.desc}</div>
+      <div class="tval">→ ${t.value}</div>
+    </div>`).join('');
+  document.getElementById('negTopics').innerHTML = DATA.top_negative_topics.map((t,i)=>`
+    <div class="topic-card neg">
+      <span class="topic-count neg">${t.count}/${t.total_topic} (${t.pct}%)</span>
+      <div class="tname">${i+1}. ${t.topic}</div>
+      <div class="tdesc">${t.desc}</div>
+      ${t.evidence ? `<ul class="hl-evidence">${t.evidence.map(e=>`<li>${e}</li>`).join('')}</ul>` : ''}
+      <div class="tval" style="color:var(--negative);">⚠ ${t.risk}</div>
+    </div>`).join('');
+})();
+
+/* ---------------- FULL TOPIC TABLE ---------------- */
+function renderTopicTable(){
+  const q = document.getElementById('topicSearch').value.toLowerCase();
+  const body = document.getElementById('topicTableBody');
+  const rows = DATA.topics.filter(t=>t.topic.toLowerCase().includes(q)).sort((a,b)=>b.total-a.total);
+  body.innerHTML = rows.map(t=>`
+    <tr><td style="font-weight:600;">${t.topic}</td>
+    <td class="num" style="color:var(--positive);">${fmt(t.positive)}</td>
+    <td class="num" style="color:var(--negative);">${fmt(t.negative)}</td>
+    <td class="num" style="color:var(--neutral);">${fmt(t.neutral)}</td>
+    <td class="num" style="font-weight:700;">${fmt(t.total)}</td></tr>`).join('');
+}
+document.getElementById('topicSearch').addEventListener('input', renderTopicTable);
+renderTopicTable();
+
+/* ---------------- HIGHLIGHTS ---------------- */
+(function(){
+  document.getElementById('highlightsList').innerHTML = DATA.highlights.map((h,i)=>{
+    const cls = h.signal.startsWith('Negative') ? 'neg' : (h.signal.startsWith('Mixed') ? 'mix' : '');
+    return `<div class="highlight-card ${cls}">
+      <div class="hl-head"><div class="hl-title">Highlight ${i+1}: ${h.title}</div><span class="pill ${h.signal.split(' ')[0]}">${h.signal}</span></div>
+      <div class="hl-row"><b>What happened:</b> ${h.what}</div>
+      <div class="hl-row"><b>Based on:</b> ${h.based_on}</div>
+      <div class="hl-row"><b>Why it matters:</b> ${h.why}</div>
+    </div>`;
+  }).join('');
+})();
+</script>
+</body>
+</html>

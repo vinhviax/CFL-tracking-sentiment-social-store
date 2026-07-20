@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Báo cáo Sentiment — Crossfire: Legends | Update 4.0</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0e1113;
+  --panel:#171b1e;
+  --panel-2:#1e2327;
+  --line:#2a3136;
+  --text:#eceff1;
+  --muted:#8b96a0;
+  --accent:#ff5722;
+  --accent-2:#ffb020;
+  --neg:#e5484d;
+  --pos:#3ddc84;
+  --neu:#5b6672;
+  --hack:#ff3b3b;
+  --mono: 'JetBrains Mono', monospace;
+  --disp: 'Barlow Condensed', sans-serif;
+  --body: 'Barlow', sans-serif;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(255,87,34,0.08), transparent 60%),
+    radial-gradient(900px 400px at 100% 0%, rgba(255,176,32,0.05), transparent 55%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--body);
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:0 28px;}
+
+/* ---------- scanline / grid texture ---------- */
+.grid-overlay{
+  position:absolute; inset:0; pointer-events:none; opacity:0.35;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 42px 42px;
+}
+
+/* ---------- HERO ---------- */
+.hero{
+  position:relative; overflow:hidden;
+  border-bottom:1px solid var(--line);
+  padding:64px 0 46px;
+  background:
+    linear-gradient(180deg, rgba(255,87,34,0.10), transparent 55%),
+    #0c0f11;
+}
+.hero-tag{
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:12px; letter-spacing:0.12em;
+  color:var(--accent-2); text-transform:uppercase;
+  border:1px solid rgba(255,176,32,0.35); background:rgba(255,176,32,0.06);
+  padding:6px 12px; border-radius:3px; margin-bottom:22px;
+}
+.hero-tag::before{content:"●"; color:var(--accent); font-size:9px;}
+h1.hero-title{
+  font-family:var(--disp); font-weight:800; text-transform:uppercase;
+  font-size:clamp(34px, 5.4vw, 62px); line-height:1.02; letter-spacing:0.01em;
+  max-width:900px;
+}
+h1.hero-title .hl{color:var(--accent);}
+.hero-sub{
+  margin-top:16px; max-width:640px; color:var(--muted); font-size:17px;
+}
+.hero-meta{
+  display:flex; gap:32px; margin-top:38px; flex-wrap:wrap;
+}
+.hero-meta .item{border-left:2px solid var(--accent); padding-left:14px;}
+.hero-meta .num{font-family:var(--mono); font-size:30px; font-weight:700; color:var(--text);}
+.hero-meta .lbl{font-size:12.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-top:2px;}
+
+/* ---------- SECTION ---------- */
+section{padding:56px 0;}
+section.divider{border-top:1px solid var(--line);}
+.eyebrow{
+  font-family:var(--mono); font-size:12.5px; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:10px; display:flex; align-items:center; gap:10px;
+}
+.eyebrow::after{content:""; flex:1; height:1px; background:linear-gradient(90deg, var(--line), transparent);}
+h2.sec-title{
+  font-family:var(--disp); font-weight:700; text-transform:uppercase;
+  font-size:clamp(26px,3.4vw,38px); margin-bottom:8px; letter-spacing:0.01em;
+}
+.sec-desc{color:var(--muted); max-width:720px; margin-bottom:34px; font-size:15.5px;}
+
+/* ---------- STAT CARDS ---------- */
+.stat-row{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:36px;}
+@media(max-width:900px){.stat-row{grid-template-columns:repeat(2,1fr);}}
+.stat-card{
+  background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:22px 20px;
+  position:relative; overflow:hidden;
+}
+.stat-card .val{font-family:var(--mono); font-weight:700; font-size:34px;}
+.stat-card .val.neg{color:var(--neg);} .stat-card .val.pos{color:var(--pos);} .stat-card .val.neu{color:var(--neu);}
+.stat-card .lbl{font-size:13px; color:var(--muted); margin-top:6px; text-transform:uppercase; letter-spacing:0.04em;}
+.stat-card .bar{height:4px; background:var(--line); border-radius:2px; margin-top:14px; overflow:hidden;}
+.stat-card .bar i{display:block; height:100%; border-radius:2px;}
+
+/* ---------- 2 col layout ---------- */
+.two-col{display:grid; grid-template-columns:1.1fr 0.9fr; gap:28px; align-items:start;}
+@media(max-width:900px){.two-col{grid-template-columns:1fr;}}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:24px;}
+.card h3{font-family:var(--disp); font-weight:700; font-size:20px; text-transform:uppercase; margin-bottom:16px; letter-spacing:0.01em;}
+canvas{max-width:100%;}
+
+/* ---------- QUOTE ---------- */
+.quote-list{display:flex; flex-direction:column; gap:12px;}
+.quote{
+  background:var(--panel-2); border-left:3px solid var(--neu); border-radius:4px;
+  padding:14px 16px; font-size:14.5px; color:#d7dbe0;
+}
+.quote.neg{border-left-color:var(--neg);}
+.quote.pos{border-left-color:var(--pos);}
+.quote.hack{border-left-color:var(--hack);}
+.quote .src{display:block; margin-top:8px; font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:0.04em;}
+
+/* ---------- TOPIC BARS (custom, not chart) ---------- */
+.topic-row{display:flex; align-items:center; gap:14px; margin-bottom:14px;}
+.topic-row .name{width:230px; flex-shrink:0; font-size:14px; color:#d7dbe0;}
+.topic-row .track{flex:1; height:22px; background:var(--panel-2); border-radius:3px; overflow:hidden; position:relative;}
+.topic-row .fill{height:100%; border-radius:3px; display:flex; align-items:center;}
+.topic-row .count{width:60px; text-align:right; font-family:var(--mono); font-size:13px; color:var(--muted); flex-shrink:0;}
+.topic-row .negtag{
+  font-family:var(--mono); font-size:10.5px; padding:1px 6px; border-radius:3px; margin-left:8px;
+  background:rgba(229,72,77,0.15); color:var(--neg); border:1px solid rgba(229,72,77,0.35);
+}
+
+/* ---------- INSIGHT CARDS ---------- */
+.insight-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:18px;}
+@media(max-width:900px){.insight-grid{grid-template-columns:1fr;}}
+.insight{
+  background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:22px;
+  border-top:3px solid var(--neg);
+}
+.insight.p1{border-top-color:#ff2d2d;}
+.insight.p2{border-top-color:#ff5722;}
+.insight.p3{border-top-color:#ffb020;}
+.insight.p4{border-top-color:#ff8a3d;}
+.insight .rank{font-family:var(--mono); font-size:12px; color:var(--muted); letter-spacing:0.1em; text-transform:uppercase;}
+.insight h4{font-family:var(--disp); font-size:22px; font-weight:700; text-transform:uppercase; margin:6px 0 10px;}
+.insight p{font-size:14.5px; color:#c6cbd1; margin-bottom:10px;}
+.insight .stat{font-family:var(--mono); color:var(--accent-2); font-weight:700;}
+
+.good-box{
+  background:linear-gradient(135deg, rgba(61,220,132,0.07), transparent); border:1px solid rgba(61,220,132,0.25);
+  border-radius:6px; padding:22px; margin-top:20px;
+}
+.good-box h4{font-family:var(--disp); color:var(--pos); text-transform:uppercase; font-size:19px; margin-bottom:10px;}
+.good-box ul{padding-left:20px; font-size:14.5px; color:#c6cbd1;}
+.good-box li{margin-bottom:6px;}
+
+/* ---------- HACK SECTION ---------- */
+.hack-section{
+  background:
+    linear-gradient(180deg, rgba(255,0,0,0.06), transparent 40%),
+    repeating-linear-gradient(135deg, rgba(255,59,59,0.025) 0 2px, transparent 2px 14px),
+    #0b0c0d;
+  border-top:1px solid rgba(255,59,59,0.3);
+  border-bottom:1px solid rgba(255,59,59,0.3);
+  position:relative;
+}
+.hack-header{display:flex; align-items:center; gap:16px; margin-bottom:8px;}
+.hack-icon{
+  width:46px; height:46px; border:2px solid var(--hack); border-radius:50%;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  position:relative;
+}
+.hack-icon::before, .hack-icon::after{content:""; position:absolute; background:var(--hack);}
+.hack-icon::before{width:2px; height:46px; left:22px; top:-2px;}
+.hack-icon::after{width:46px; height:2px; top:22px; left:-2px;}
+.hack-icon .dot{width:6px; height:6px; background:var(--hack); border-radius:50%;}
+.hack-eyebrow{font-family:var(--mono); color:var(--hack); letter-spacing:0.16em; font-size:13px; text-transform:uppercase;}
+h2.hack-title{font-family:var(--disp); font-weight:800; text-transform:uppercase; font-size:clamp(26px,3.6vw,40px); color:#fff;}
+
+.subtype-list{display:flex; flex-direction:column; gap:16px;}
+.subtype{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--hack); border-radius:6px; padding:18px 20px;}
+.subtype .top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; gap:10px; flex-wrap:wrap;}
+.subtype .name{font-family:var(--disp); font-weight:700; font-size:18px; text-transform:uppercase;}
+.subtype .pct{font-family:var(--mono); font-size:22px; font-weight:700; color:var(--hack);}
+.subtype .desc{font-size:13.5px; color:var(--muted);}
+
+.reco-box{
+  background:rgba(255,59,59,0.05); border:1px solid rgba(255,59,59,0.3); border-radius:6px; padding:22px; margin-top:28px;
+}
+.reco-box h4{font-family:var(--disp); text-transform:uppercase; font-size:20px; color:#fff; margin-bottom:12px;}
+.reco-box ol{padding-left:20px; font-size:14.5px; color:#d7dbe0;}
+.reco-box li{margin-bottom:9px;}
+.reco-box b{color:var(--accent-2);}
+
+footer{padding:36px 0 50px; color:var(--muted); font-size:13px; border-top:1px solid var(--line);}
+footer b{color:#b6bdc4;}
+
+.legend-row{display:flex; gap:20px; flex-wrap:wrap; margin-top:14px; font-size:12.5px; color:var(--muted);}
+.legend-row span{display:inline-flex; align-items:center; gap:6px;}
+.legend-row i{width:10px; height:10px; border-radius:2px; display:inline-block;}
+</style>
+</head>
+<body>
+
+<div class="hero">
+<div class="grid-overlay"></div>
+<div class="wrap" style="position:relative;">
+  <div class="hero-tag">Báo cáo nội bộ · VNG / Crossfire: Legends</div>
+  <h1 class="hero-title">Sentiment người chơi<br>sau bản cập nhật <span class="hl">4.0</span></h1>
+  <p class="hero-sub">Phân tích toàn bộ bình luận trên Fanpage Crossfire: Legends trong 7 ngày kể từ khi phiên bản 4.0 ra mắt — bao gồm phản hồi về hiệu năng, lỗi kỹ thuật, cân bằng game, cơ chế nạp/gacha và đặc biệt là vấn nạn hack/gian lận.</p>
+  <div class="hero-meta">
+    <div class="item"><div class="num">8.912</div><div class="lbl">Dòng dữ liệu thô</div></div>
+    <div class="item"><div class="num">8.833</div><div class="lbl">Bình luận hợp lệ</div></div>
+    <div class="item"><div class="num">30/06 → 07/07</div><div class="lbl">Khung thời gian (2026)</div></div>
+    <div class="item"><div class="num">56</div><div class="lbl">Bài đăng liên quan</div></div>
+  </div>
+</div>
+</div>
+
+<!-- ===================== OVERALL ===================== -->
+<section>
+<div class="wrap">
+  <div class="eyebrow">01 · Tổng quan</div>
+  <h2 class="sec-title">Bức tranh Sentiment chung</h2>
+  <p class="sec-desc">Phần lớn bình luận là tương tác trung tính (hỏi code, tag bạn bè, minigame...), nhưng trong nhóm bình luận <b style="color:#d7dbe0">có ý kiến rõ ràng</b>, tỷ lệ tiêu cực áp đảo tích cực.</p>
+
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="val">8.833</div>
+      <div class="lbl">Tổng bình luận phân tích</div>
+    </div>
+    <div class="stat-card">
+      <div class="val neg">9,3%</div>
+      <div class="lbl">Tiêu cực (824 bình luận)</div>
+      <div class="bar"><i style="width:9.3%; background:var(--neg);"></i></div>
+    </div>
+    <div class="stat-card">
+      <div class="val pos">4,5%</div>
+      <div class="lbl">Tích cực (399 bình luận)</div>
+      <div class="bar"><i style="width:4.5%; background:var(--pos);"></i></div>
+    </div>
+    <div class="stat-card">
+      <div class="val neu">86,2%</div>
+      <div class="lbl">Trung tính (7.610 bình luận)</div>
+      <div class="bar"><i style="width:86.2%; background:var(--neu);"></i></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h3>Phân bổ sentiment</h3>
+      <canvas id="sentimentDonut" height="260"></canvas>
+    </div>
+    <div class="card">
+      <h3>Trong số bình luận có quan điểm rõ ràng</h3>
+      <canvas id="opinionBar" height="120"></canvas>
+      <p style="margin-top:16px; font-size:14px; color:var(--muted);">
+        Loại trừ các bình luận trung tính (hỏi đáp, xin code, tag bạn bè...), cứ <b style="color:var(--neg)">3 người nêu quan điểm thì có gần 2 người đang phàn nàn</b> — tín hiệu cho thấy trải nghiệm sau bản 4.0 chưa được người chơi đón nhận tích cực như kỳ vọng.
+      </p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===================== TOPICS ===================== -->
+<section class="divider">
+<div class="wrap">
+  <div class="eyebrow">02 · Chủ đề được quan tâm</div>
+  <h2 class="sec-title">Người chơi đang nói về điều gì?</h2>
+  <p class="sec-desc">Mỗi bình luận được gán vào chủ đề chính dựa trên nội dung. Thanh màu thể hiện số lượng bình luận; nhãn đỏ cho biết % bình luận trong nhóm đó mang sắc thái tiêu cực — đây là chỉ dấu quan trọng hơn cả số lượng.</p>
+
+  <div id="topicBars"></div>
+
+  <div class="legend-row">
+    <span><i style="background:var(--accent)"></i> Chủ đề có volume cao</span>
+    <span><i style="background:var(--hack)"></i> Nhãn % = tỷ lệ tiêu cực trong nhóm</span>
+  </div>
+
+  <div class="two-col" style="margin-top:40px;">
+    <div class="card">
+      <h3>🐞 Lỗi kỹ thuật / Bug — 91,3% tiêu cực</h3>
+      <div class="quote-list">
+        <div class="quote neg">"Khá nhiều lỗi, ví dụ: mất tâm bắn, bắn không mất máu, thêm lỗi vào trận thì hiện trận đấu đã kết thúc, ấn vô thì nó vào lại xong không được đi ra ngoài và bị phạt hơn 200 giây rồi trừ điểm rank luôn."<span class="src">Bug — Rank / tính điểm</span></div>
+        <div class="quote neg">"Sự kiện thì ra nhiều nhưng lỗi thì không fix, tôi và đối thủ đối đầu nhau trong game, tôi sniper trúng nhưng vẫn mất hết máu cả trận dù không hề bị bắn."<span class="src">Bug — Combat / sát thương</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🌐 Lag / Hiệu năng — 86,3% tiêu cực</h3>
+      <div class="quote-list">
+        <div class="quote neg">"Game chỉ có vài GB mà càng chơi càng nóng máy, giật lag; chơi Zombie thì thôi luôn — thỉnh thoảng còn lag đơ nhân vật, mất luôn cả nút kỹ năng."<span class="src">Lag — Hiệu năng thiết bị</span></div>
+        <div class="quote neg">"Despite the new update, players in the Philippines are still experiencing severe high ping and low FPS issues — this region is still heavily affected by latency and performance drops, and it requires urgent optimization."<span class="src">Lag — Người chơi khu vực quốc tế</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===================== INSIGHTS ===================== -->
+<section class="divider">
+<div class="wrap">
+  <div class="eyebrow">03 · Nhận xét & Mức độ ưu tiên xử lý</div>
+  <h2 class="sec-title">Cần cải thiện gấp điều gì?</h2>
+  <p class="sec-desc">4 nhóm vấn đề sau đều có tỷ lệ tiêu cực trên 85% — đây là những "điểm nóng" thực sự chứ không phải cảm tính, cần được đội sản phẩm/vận hành ưu tiên xử lý trước khi ảnh hưởng đến retention.</p>
+
+  <div class="insight-grid">
+    <div class="insight p1">
+      <div class="rank">Ưu tiên 1</div>
+      <h4>Hack & gian lận tràn lan</h4>
+      <p>112 bình luận nhắc trực tiếp đến hack/cheat, <span class="stat">91,1%</span> mang sắc thái tiêu cực — cao nhất trong toàn bộ dữ liệu. Xem chi tiết ở báo cáo chuyên đề bên dưới.</p>
+    </div>
+    <div class="insight p2">
+      <div class="rank">Ưu tiên 2</div>
+      <h4>Lỗi kỹ thuật / Bug</h4>
+      <p>254 bình luận, <span class="stat">91,3%</span> tiêu cực. Nổi bật: lỗi ghi nhận sát thương/trúng đạn sai, bị phạt điểm rank khi thoát trận do lỗi hệ thống, mất vật phẩm/skin sau cập nhật.</p>
+    </div>
+    <div class="insight p3">
+      <div class="rank">Ưu tiên 3</div>
+      <h4>Khóa / Cấm tài khoản (ban oan)</h4>
+      <p>52 bình luận, <span class="stat">88,5%</span> tiêu cực. Người chơi cảm thấy bị ban nhầm trong khi hacker thật vẫn ngang nhiên hoạt động — trực tiếp gắn với vấn đề anti-cheat ở trên.</p>
+    </div>
+    <div class="insight p4">
+      <div class="rank">Ưu tiên 4</div>
+      <h4>Giật lag / Tối ưu hiệu năng</h4>
+      <p>249 bình luận, <span class="stat">86,3%</span> tiêu cực. Đặc biệt nghiêm trọng ở chế độ Zombie Truy Kích và với người chơi ngoài Việt Nam (ping cao, FPS thấp).</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:20px;">
+    <h3>Các điểm cần lưu ý thêm (mức độ trung bình)</h3>
+    <div class="quote-list">
+      <div class="quote neg">"Sau bản cập nhật mới, nút bắn bên trái không còn cố định mà tự di chuyển theo vị trí ngón tay — ảnh hưởng lớn đến người chơi thuận tay trái."<span class="src">Giao diện/UI — 31,9% tiêu cực trong nhóm (119 bình luận)</span></div>
+      <div class="quote neg">"Đổi map chọn tận bên trong phải bấm 2 lần mới vào được, thao tác rối; đã vậy map cũ (nhà máy điện, hội hoa đăng) đang chơi vui thì mất sạch."<span class="src">Bản đồ / Trải nghiệm chọn map</span></div>
+      <div class="quote neg">"Có cái đặt C4 thì lại bắt phải đấu rank mới được — khó hiểu, không phải ai cũng muốn vào rank chỉ để đặt bom."<span class="src">Ghép trận / Rank — 12,7% tiêu cực (142 bình luận)</span></div>
+      <div class="quote pos">"300 xu CF để sở hữu Battle Pass mùa này — mức giá khá ổn so với những gì nhận được."<span class="src">Nạp thẻ / Gacha — nhóm hiếm hoi có % tích cực (14,8%) cao hơn tiêu cực (7,6%)</span></div>
+    </div>
+  </div>
+
+  <div class="good-box">
+    <h4>✓ Điểm được ghi nhận tích cực</h4>
+    <ul>
+      <li>Giá Battle Pass mùa này (300 xu CF) được nhiều người chơi đánh giá hợp lý, "đáng đồng tiền".</li>
+      <li>Chế độ mới <b>C4 Kinh Tế</b> và <b>Zombie Truy Kích</b> được nhắc đến với thái độ tích cực/tò mò nhiều hơn tiêu cực (ngoại trừ phần hiệu năng).</li>
+      <li>Sự kiện offline cộng đồng (Đại học Phenikaa 28/06) nhận phản hồi rất tích cực, cho thấy hoạt động cộng đồng ngoài game đang hiệu quả.</li>
+      <li>Các minigame/giveaway (chéo, tag, code) tạo tương tác cực lớn (2.056 bình luận, ~23% tổng dữ liệu) dù bản chất trung tính — đây là kênh tốt để duy trì engagement.</li>
+    </ul>
+  </div>
+</div>
+</section>
+
+<!-- ===================== HACK SPECIAL REPORT ===================== -->
+<section class="hack-section">
+<div class="wrap" style="padding:56px 0;">
+  <div class="hack-header">
+    <div class="hack-icon"><div class="dot"></div></div>
+    <div>
+      <div class="hack-eyebrow">Báo cáo chuyên đề</div>
+      <h2 class="hack-title">Vấn nạn Hack & Gian lận</h2>
+    </div>
+  </div>
+  <p class="sec-desc" style="margin-top:14px;">Phân tích riêng 112 bình luận đề cập trực tiếp đến hack, cheat, phần mềm thứ 3 và hệ thống report/anti-cheat — nhóm chủ đề có tỷ lệ tiêu cực cao nhất trong toàn bộ dữ liệu.</p>
+
+  <div class="stat-row">
+    <div class="stat-card" style="border-color:rgba(255,59,59,0.3);">
+      <div class="val" style="color:var(--hack);">112</div>
+      <div class="lbl">Bình luận nhắc đến hack/gian lận</div>
+    </div>
+    <div class="stat-card" style="border-color:rgba(255,59,59,0.3);">
+      <div class="val" style="color:var(--hack);">1,27%</div>
+      <div class="lbl">Trên tổng 8.833 bình luận</div>
+    </div>
+    <div class="stat-card" style="border-color:rgba(255,59,59,0.3);">
+      <div class="val" style="color:var(--hack);">91,1%</div>
+      <div class="lbl">Sắc thái tiêu cực (102/112)</div>
+    </div>
+    <div class="stat-card" style="border-color:rgba(255,59,59,0.3);">
+      <div class="val" style="color:var(--hack);">12,4%</div>
+      <div class="lbl">Trong tổng số bình luận tiêu cực</div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <h3>Phân loại các loại hack người chơi gặp phải</h3>
+      <canvas id="hackDonut" height="260"></canvas>
+    </div>
+    <div class="subtype-list">
+      <div class="subtype">
+        <div class="top"><span class="name">Hack nói chung, chưa rõ hình thức</span><span class="pct">47%</span></div>
+        <div class="desc">53 bình luận — người chơi tố cáo "gặp hack" mà không mô tả rõ cơ chế, thường đi kèm cảm giác bất lực ("gặp hack nhiều chán bỏ game").</div>
+      </div>
+      <div class="subtype">
+        <div class="top"><span class="name">Hệ thống report/anti-cheat bị cho là bất công</span><span class="pct">29%</span></div>
+        <div class="desc">33 bình luận — đây là nhóm đáng chú ý nhất: người chơi không chỉ bức xúc vì có hacker, mà vì cảm thấy <b style="color:#d7dbe0">report không hiệu quả và cơ chế ban thiếu minh bạch</b> (hacker chỉ bị khóa 1–3 ngày, trong khi người chơi thường bị ban oan tương tự).</div>
+      </div>
+      <div class="subtype">
+        <div class="top"><span class="name">Phần mềm thứ 3 / Macro / Giả lập chuột</span><span class="pct">18%</span></div>
+        <div class="desc">20 bình luận — turbo, jailbreak, giả lập bàn phím-chuột. Nhiều người chơi còn không chắc hành vi nào bị coi là gian lận, cho thấy quy định chưa được truyền thông rõ.</div>
+      </div>
+      <div class="subtype">
+        <div class="top"><span class="name">Tàng hình / Xuyên tường (Wallhack)</span><span class="pct">5%</span></div>
+        <div class="desc">6 bình luận — loại hack cụ thể được nhắc đến ít nhất, nhưng mỗi lần xuất hiện đều gắn với trải nghiệm rank rất tiêu cực.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:24px;">
+    <h3>Bình luận tiêu biểu</h3>
+    <div class="quote-list">
+      <div class="quote hack">"Bọn hack công khai livestream tố cáo mà không thấy khóa. Gặp mấy chục tên. Chức năng khóa làm cho vui hay chỉ để an ủi người chơi?"<span class="src">Hack nói chung</span></div>
+      <div class="quote hack">"Không hack, không phím chuột cũng bị ban lấy thành tích à?"<span class="src">Hệ thống report bất công</span></div>
+      <div class="quote hack">"Hack thì bị khóa 1 ngày, còn không hack thì khóa 7 ngày–1 năm; khiếu nại thì không được giải quyết vì hệ thống tự động."<span class="src">Hệ thống report bất công</span></div>
+      <div class="quote hack">"Bật turbo còn bị ban thì chịu thôi... coi như chống hack có tiến bộ."<span class="src">Phần mềm thứ 3 / Macro</span></div>
+      <div class="quote hack">"Chế độ gì mà toàn bắn xuyên tường, không thấy người cũng chết."<span class="src">Wallhack</span></div>
+    </div>
+  </div>
+
+  <div class="reco-box">
+    <h4>Khuyến nghị xử lý</h4>
+    <ol>
+      <li><b>Tách bạch 2 bài toán:</b> (1) phát hiện hacker thật bằng công cụ kỹ thuật (anti-cheat/AI), và (2) cơ chế report của người chơi. Hiện tại người chơi đang đánh đồng cả hai và mất niềm tin vào cả hệ thống.</li>
+      <li><b>Tăng mức phạt & minh bạch hóa</b> cho các trường hợp hack đã xác nhận (hiện bị phản ánh chỉ khóa 1–3 ngày), đồng thời công khai định kỳ số liệu xử lý để người chơi thấy được nỗ lực thực tế (một số bình luận ghi nhận tích cực khi Fanpage có đăng danh sách tài khoản vi phạm).</li>
+      <li><b>Rà soát cơ chế report/khóa tự động:</b> nhiều người chơi phản ánh bị khóa oan dù không dùng phần mềm thứ 3 — cần kênh khiếu nại có người thật xử lý thay vì phản hồi tự động.</li>
+      <li><b>Làm rõ danh sách phần mềm/thao tác bị cấm</b> (turbo, giả lập chuột, ứng dụng giảm ping...) vì nhiều người chơi hiện không chắc hành vi nào là vi phạm.</li>
+      <li><b>Ưu tiên xử lý ở rank cao</b> — phần lớn phản ánh hack tập trung ở môi trường rank/cạnh tranh, nơi ảnh hưởng đến trải nghiệm cày thứ hạng và công sức đầu tư của người chơi.</li>
+    </ol>
+  </div>
+</div>
+</section>
+
+<footer>
+<div class="wrap">
+  <p><b>Phương pháp:</b> Phân tích dựa trên phân loại từ khóa/ngữ cảnh theo chủ đề và sắc thái (tích cực/tiêu cực/trung tính) trên 8.833 bình luận thô từ Fanpage Crossfire: Legends. Số liệu mang tính định hướng ưu tiên xử lý, không thay thế cho khảo sát định lượng chính thức hoặc phân tích log game.</p>
+  <p style="margin-top:8px;">Báo cáo tạo ngày 07/07/2026.</p>
+</div>
+</footer>
+
+<script>
+const COLORS = { neg:'#e5484d', pos:'#3ddc84', neu:'#5b6672', accent:'#ff5722', hack:'#ff3b3b', accent2:'#ffb020' };
+Chart.defaults.color = '#9aa1ab';
+Chart.defaults.font.family = "'Barlow', sans-serif";
+Chart.defaults.borderColor = '#2a3136';
+
+new Chart(document.getElementById('sentimentDonut'), {
+  type:'doughnut',
+  data:{
+    labels:['Trung tính (86,2%)','Tiêu cực (9,3%)','Tích cực (4,5%)'],
+    datasets:[{data:[7610,824,399], backgroundColor:[COLORS.neu, COLORS.neg, COLORS.pos], borderColor:'#171b1e', borderWidth:3}]
+  },
+  options:{
+    plugins:{legend:{position:'bottom', labels:{padding:16, font:{size:12.5}}}},
+    cutout:'62%'
+  }
+});
+
+new Chart(document.getElementById('opinionBar'), {
+  type:'bar',
+  data:{
+    labels:['Tỷ lệ trong nhóm có quan điểm'],
+    datasets:[
+      {label:'Tiêu cực (67,4%)', data:[67.4], backgroundColor:COLORS.neg, stack:'s'},
+      {label:'Tích cực (32,6%)', data:[32.6], backgroundColor:COLORS.pos, stack:'s'}
+    ]
+  },
+  options:{
+    indexAxis:'y',
+    plugins:{legend:{position:'bottom', labels:{font:{size:12.5}}}},
+    scales:{x:{stacked:true, max:100, ticks:{callback:v=>v+'%'}}, y:{stacked:true}}
+  }
+});
+
+new Chart(document.getElementById('hackDonut'), {
+  type:'doughnut',
+  data:{
+    labels:['Hack nói chung (47%)','Report/Anti-cheat bất công (29%)','Phần mềm thứ 3 / Macro (18%)','Tàng hình / Xuyên tường (5%)'],
+    datasets:[{data:[53,33,20,6], backgroundColor:['#ff3b3b','#ff7a3d','#ffb020','#ffd54d'], borderColor:'#171b1e', borderWidth:3}]
+  },
+  options:{ plugins:{legend:{position:'bottom', labels:{padding:14, font:{size:11.5}}}}, cutout:'58%' }
+});
+
+// Topic bars (custom horizontal bars with negative-rate tag)
+const topics = [
+  {name:'Sự kiện / Quà / Code / Giveaway', count:2056, neg:0.5},
+  {name:'Nạp thẻ / Giá cả / Gacha', count:344, neg:7.6},
+  {name:'Lỗi kỹ thuật / Bug', count:254, neg:91.3},
+  {name:'Lag / Hiệu năng - Kỹ thuật', count:249, neg:86.3},
+  {name:'Nội dung mới / Tính năng (Update)', count:154, neg:3.2},
+  {name:'Ghép trận / Server / Rank', count:142, neg:12.7},
+  {name:'Giao diện / Đồ họa / Bản đồ', count:119, neg:31.9},
+  {name:'Hack / Gian lận & Anti-cheat', count:112, neg:91.1},
+  {name:'Cân bằng súng / nhân vật', count:106, neg:5.7},
+  {name:'Khóa / Cấm tài khoản (Ban)', count:52, neg:88.5},
+];
+const maxCount = Math.max(...topics.map(t=>t.count));
+const container = document.getElementById('topicBars');
+topics.forEach(t=>{
+  const pct = (t.count/maxCount*100).toFixed(1);
+  const color = t.neg >= 60 ? COLORS.neg : (t.neg >= 25 ? COLORS.accent2 : COLORS.accent);
+  const row = document.createElement('div');
+  row.className = 'topic-row';
+  row.innerHTML = `
+    <div class="name">${t.name}</div>
+    <div class="track"><div class="fill" style="width:${pct}%; background:${color};"></div></div>
+    <div class="count">${t.count.toLocaleString('vi-VN')}</div>
+    <div class="negtag">${t.neg}% neg</div>
+  `;
+  container.appendChild(row);
+});
+</script>
+
+</body>
+</html>
