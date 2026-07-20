@@ -635,6 +635,48 @@ textarea:focus {
   grid-column: span 2;
 }
 
+.excel-source-picker {
+  grid-column: span 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.excel-source-picker legend {
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.excel-source-option {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.excel-source-option input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.excel-no-source {
+  color: var(--danger, #d14343);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .topic-chip-list {
   display: flex;
   flex-wrap: wrap;

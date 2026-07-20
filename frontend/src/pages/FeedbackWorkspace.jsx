@@ -13,6 +13,7 @@ import {
   getInsightPrompt,
   getOverview,
   getStoreBreakdown,
+  getIngestStatus,
   getSubtopicRanking,
   getTopicRanking,
   getTrend,
@@ -125,7 +126,16 @@ const UI = {
     loading: "Đang tải...",
     reportExport: "Xuất report HTML",
     excelExport: "Xuất Excel",
-    excelExportTitle: "Xuất comment ra Excel theo bộ lọc đang chọn",
+    excelExportTitle: "Xuất comment ra Excel theo nguồn, khoảng thời gian và chủ đề",
+    excelExportDescription: "Chọn nguồn, khoảng thời gian và chủ đề để xuất comment ra Excel.",
+    excelSources: "Nguồn xuất",
+    excelSourceStore: "Store",
+    excelSourceFanpage: "Fanpage",
+    excelSourceGroup: "Group Fanpage",
+    excelLatestNote: "Comment mới nhất đang có tới ngày:",
+    excelNoData: "chưa có dữ liệu",
+    excelNoSource: "Chọn ít nhất 1 nguồn để xuất.",
+    excelDownload: "Tải Excel",
     reportExportDescription: "Chọn nguồn, khoảng thời gian và ngôn ngữ report.",
     reportExportWarningTitle: "Lưu ý trước khi xuất report",
     reportExportTimeWarning: "Việc xuất report sẽ mất kha khá thời gian, tùy vào khoảng thời gian và phạm vi report bạn chọn.",
@@ -222,7 +232,16 @@ const UI = {
     loading: "加载中...",
     reportExport: "导出 HTML 报告",
     excelExport: "导出 Excel",
-    excelExportTitle: "按当前筛选条件导出评论为 Excel",
+    excelExportTitle: "按来源、时间范围和主题导出评论为 Excel",
+    excelExportDescription: "选择来源、时间范围和主题，将评论导出为 Excel。",
+    excelSources: "导出来源",
+    excelSourceStore: "Store",
+    excelSourceFanpage: "Fanpage",
+    excelSourceGroup: "Group Fanpage",
+    excelLatestNote: "当前评论数据最新日期：",
+    excelNoData: "暂无数据",
+    excelNoSource: "请至少选择一个来源。",
+    excelDownload: "下载 Excel",
     reportExportDescription: "选择来源、时间范围和报告语言。",
     reportExportWarningTitle: "导出前提示",
     reportExportTimeWarning: "导出报告可能需要较长时间，具体取决于所选时间范围和报告覆盖范围。",
@@ -435,6 +454,145 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
   );
 }
 
+const EXCEL_SOURCE_OPTIONS = [
+  { value: "store", labelKey: "excelSourceStore" },
+  { value: "fb_page", labelKey: "excelSourceFanpage" },
+  { value: "fb_group_csv", labelKey: "excelSourceGroup" },
+];
+
+function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
+  const [sources, setSources] = useState({ store: true, fb_page: true, fb_group_csv: true });
+  const [excelFrom, setExcelFrom] = useState(filters.from || "");
+  const [excelTo, setExcelTo] = useState(filters.to || "");
+  const [topicMode, setTopicMode] = useState("all");
+  const [topic, setTopic] = useState(filters.topic || "");
+  const [ingestStatus, setIngestStatus] = useState(null);
+
+  const topicKeys = useMemo(() => parseTopicSelection(topic), [topic]);
+  const topicKeySet = useMemo(() => new Set(topicKeys), [topicKeys]);
+  const topicPickerOptions = useMemo(
+    () => topicOptions.filter((option) => !topicKeySet.has(option.key)),
+    [topicOptions, topicKeySet]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setSources({ store: true, fb_page: true, fb_group_csv: true });
+    setExcelFrom(filters.from || "");
+    setExcelTo(filters.to || "");
+    setTopicMode(filters.topic ? "topic" : "all");
+    setTopic(filters.topic || "");
+    getIngestStatus().then(setIngestStatus).catch(() => setIngestStatus(null));
+  }, [open, filters.from, filters.to, filters.topic]);
+
+  if (!open) return null;
+
+  const latestBySource = new Map(
+    (ingestStatus?.source_status || []).map((row) => [row.source_type, row.latest_data_date || null])
+  );
+
+  const toggleSource = (value) => {
+    setSources((current) => ({ ...current, [value]: !current[value] }));
+  };
+
+  const addTopic = (event) => {
+    const key = event.target.value;
+    if (!key) return;
+    setTopic((current) => joinTopicSelection([...parseTopicSelection(current), key]));
+    event.target.value = "";
+  };
+
+  const removeTopic = (key) => {
+    setTopic((current) => joinTopicSelection(parseTopicSelection(current).filter((item) => item !== key)));
+  };
+
+  const selectedSources = EXCEL_SOURCE_OPTIONS.filter((option) => sources[option.value]).map((option) => option.value);
+  const canExport = selectedSources.length > 0;
+  const href = exportUrl({
+    sources: selectedSources.join(","),
+    from: excelFrom,
+    to: excelTo,
+    topic: topicMode === "topic" ? topic : "",
+  });
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-label={labels.excelExport}>
+        <div className="modal-header">
+          <div>
+            <h3>{labels.excelExport}</h3>
+            <p>{labels.excelExportDescription}</p>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>{labels.close}</button>
+        </div>
+        <div className="report-export-warning" role="note">
+          <strong>{labels.excelLatestNote}</strong>
+          <p>
+            {EXCEL_SOURCE_OPTIONS.map((option, index) => {
+              const latest = latestBySource.get(option.value);
+              return (
+                <span key={option.value}>
+                  {index > 0 ? " · " : ""}
+                  {labels[option.labelKey]}: {latest ? formatDisplayDate(latest) : labels.excelNoData}
+                </span>
+              );
+            })}
+          </p>
+        </div>
+        <div className="report-export-form">
+          <fieldset className="excel-source-picker">
+            <legend>{labels.excelSources}</legend>
+            {EXCEL_SOURCE_OPTIONS.map((option) => (
+              <label key={option.value} className="excel-source-option">
+                <input
+                  type="checkbox"
+                  checked={!!sources[option.value]}
+                  onChange={() => toggleSource(option.value)}
+                />
+                {labels[option.labelKey]}
+              </label>
+            ))}
+          </fieldset>
+          <label>{labels.reportTopicMode}
+            <select value={topicMode} onChange={(event) => setTopicMode(event.target.value)}>
+              <option value="all">{labels.reportTopicModeAll}</option>
+              <option value="topic">{labels.reportTopicModeTopic}</option>
+            </select>
+          </label>
+          {topicMode === "topic" && (
+            <div className="topic-picker report-topic-picker">
+              <label>{labels.reportTopic}
+                <select value="" onChange={addTopic}>
+                  <option value="">{labels.chooseTopicFirst}</option>
+                  {topicPickerOptions.map((option) => (
+                    <option key={option.key} value={option.key}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="topic-chip-list">
+                {topicKeys.map((key) => (
+                  <span className="topic-chip" key={key}>
+                    {topicOptionLabel(topicOptions, key)}
+                    <button type="button" onClick={() => removeTopic(key)} aria-label={`Remove ${key}`}>x</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <label>{labels.from}<DateTextInput value={excelFrom} onChange={setExcelFrom} /></label>
+          <label>{labels.to}<DateTextInput value={excelTo} onChange={setExcelTo} /></label>
+        </div>
+        <div className="report-export-options">
+          {!canExport && <small className="excel-no-source">{labels.excelNoSource}</small>}
+          {canExport
+            ? <a className="btn" href={href} onClick={onClose}>{labels.excelDownload}</a>
+            : <button className="btn" type="button" disabled>{labels.excelDownload}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function renderInlineMarkdown(text) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
   return parts.map((part, index) => {
@@ -535,6 +693,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [page, setPage] = useState(1);
   const [error, setError] = useState(null);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [excelDialogOpen, setExcelDialogOpen] = useState(false);
 
   const tabs = group === "store"
     ? [{ value: "gp", label: t.google }, { value: "ios", label: t.appstore }]
@@ -785,13 +944,14 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         </div>
         <div className="header-actions">
           {section === "data" && (
-            <a
+            <button
               className="btn btn-secondary report-export-header-button"
-              href={exportUrl(aggregateParams)}
+              type="button"
+              onClick={() => setExcelDialogOpen(true)}
               title={t.excelExportTitle}
             >
               {t.excelExport}
-            </a>
+            </button>
           )}
           <button className="btn btn-secondary report-export-header-button" type="button" onClick={() => setReportDialogOpen(true)}>
             {t.reportExport}
@@ -1150,6 +1310,14 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         labels={t}
         topicOptions={allTopicOptions}
         onClose={() => setReportDialogOpen(false)}
+      />
+
+      <ExcelExportDialog
+        open={excelDialogOpen}
+        filters={filters}
+        labels={t}
+        topicOptions={allTopicOptions}
+        onClose={() => setExcelDialogOpen(false)}
       />
 
       {selected && (

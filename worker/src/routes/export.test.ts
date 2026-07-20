@@ -49,36 +49,64 @@ const sampleRow = {
   confidence: 0.9,
 };
 
+function readWorkbook(buf: ArrayBuffer) {
+  return XLSX.read(new Uint8Array(buf), { type: "array" });
+}
+
 describe("exportRoute", () => {
-  test("returns an xlsx file with the store filter applied", async () => {
+  test("exports a single store sheet with the new columns", async () => {
     const { env, calls } = makeEnv({ rows: [sampleRow] });
-    const res = await exportRoute.request("/?group=store&from=2026-07-01&to=2026-07-15", {}, env);
+    const res = await exportRoute.request("/?sources=store&from=2026-07-01&to=2026-07-15", {}, env);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("spreadsheetml.sheet");
     expect(res.headers.get("Content-Disposition")).toContain("CFL_Comments_Store_20260701-20260715.xlsx");
 
     const rowsQuery = calls.find((call) => call.sql.includes("ORDER BY c.created_at DESC"));
-    expect(rowsQuery?.sql).toContain("c.source_type = 'store'");
+    expect(rowsQuery?.sql).toContain("c.source_type = ?");
+    expect(rowsQuery?.args).toContain("store");
 
-    const buf = await res.arrayBuffer();
-    const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const aoa = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
+    const wb = readWorkbook(await res.arrayBuffer());
+    expect(wb.SheetNames).toEqual(["Store"]);
+    const aoa = XLSX.utils.sheet_to_json<string[]>(wb.Sheets.Store, { header: 1 });
     expect(aoa[0]).toEqual(expect.arrayContaining(["Quốc gia", "Chợ ứng dụng", "Link post Facebook"]));
     expect(aoa[1]).toContain("VN");
     expect(aoa[1]).toContain("Google Play");
   });
 
-  test("names the file with the facebook scope", async () => {
+  test("creates one sheet per selected source", async () => {
+    const { env } = makeEnv({ rows: [sampleRow] });
+    const res = await exportRoute.request("/?sources=store,fb_page,fb_group_csv&from=2026-07-01&to=2026-07-15", {}, env);
+    const wb = readWorkbook(await res.arrayBuffer());
+    expect(wb.SheetNames).toEqual(["Store", "Fanpage", "Group"]);
+    expect(res.headers.get("Content-Disposition")).toContain("CFL_Comments_All_20260701-20260715.xlsx");
+  });
+
+  test("names the file after the selected subset of sources", async () => {
     const { env } = makeEnv({ rows: [] });
-    const res = await exportRoute.request("/?group=facebook&from=2026-07-01&to=2026-07-15", {}, env);
-    expect(res.headers.get("Content-Disposition")).toContain("CFL_Comments_Facebook_");
+    const res = await exportRoute.request("/?sources=fb_page,fb_group_csv&from=2026-07-01&to=2026-07-15", {}, env);
+    const wb = readWorkbook(await res.arrayBuffer());
+    expect(wb.SheetNames).toEqual(["Fanpage", "Group"]);
+    expect(res.headers.get("Content-Disposition")).toContain("CFL_Comments_Fanpage-Group_20260701-20260715.xlsx");
+  });
+
+  test("falls back to all sources when none are specified", async () => {
+    const { env } = makeEnv({ rows: [] });
+    const res = await exportRoute.request("/", {}, env);
+    const wb = readWorkbook(await res.arrayBuffer());
+    expect(wb.SheetNames).toEqual(["Store", "Fanpage", "Group"]);
+  });
+
+  test("still honours the legacy facebook group param", async () => {
+    const { env } = makeEnv({ rows: [] });
+    const res = await exportRoute.request("/?group=facebook", {}, env);
+    const wb = readWorkbook(await res.arrayBuffer());
+    expect(wb.SheetNames).toEqual(["Fanpage", "Group"]);
   });
 
   test("rejects an export that exceeds the row cap", async () => {
     const { env } = makeEnv({ total: 999999 });
-    const res = await exportRoute.request("/?group=store", {}, env);
+    const res = await exportRoute.request("/?sources=store", {}, env);
     expect(res.status).toBe(413);
   });
 

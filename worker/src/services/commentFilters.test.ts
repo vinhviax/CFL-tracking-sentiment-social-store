@@ -37,6 +37,19 @@ describe("buildCommentFilters", () => {
     expect(error).toBe("Invalid subtopic filter");
   });
 
+  test("maps a sources list into a source_type IN clause", () => {
+    const { where, params } = buildCommentFilters({ sources: "store,fb_page" });
+    expect(where.some((clause) => clause.includes("c.source_type IN (?,?)"))).toBe(true);
+    expect(params).toEqual(expect.arrayContaining(["store", "fb_page"]));
+  });
+
+  test("drops unknown source types from a sources list", () => {
+    const { where, params } = buildCommentFilters({ sources: "store,evil_source" });
+    expect(where.some((clause) => clause.includes("c.source_type IN (?)"))).toBe(true);
+    expect(params).toContain("store");
+    expect(params).not.toContain("evil_source");
+  });
+
   test("expands a valid subtopic filter into an EXISTS clause", () => {
     const { where, params } = buildCommentFilters({ subtopic: "lag_fps:drop_fps" });
     expect(where.some((clause) => clause.includes("comment_subtopics"))).toBe(true);

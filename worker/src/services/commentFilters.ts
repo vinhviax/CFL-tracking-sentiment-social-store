@@ -2,6 +2,15 @@ import { addTopicFilter } from "./topicScope";
 
 export type CommentFilterQuery = Record<string, string | undefined>;
 
+export const EXPORTABLE_SOURCE_TYPES = ["store", "fb_page", "fb_group_csv"] as const;
+
+export function parseSourceTypes(value?: string): string[] {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => (EXPORTABLE_SOURCE_TYPES as readonly string[]).includes(item));
+}
+
 function dateKey(value?: string | null) {
   const text = String(value || "").slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
@@ -44,6 +53,13 @@ export function buildCommentFilters(q: CommentFilterQuery): CommentFilterResult 
   const params: any[] = [];
 
   if (q.source) { where.push("c.source_type = ?"); params.push(q.source); }
+  if (q.sources) {
+    const sourceTypes = parseSourceTypes(q.sources);
+    if (sourceTypes.length) {
+      where.push(`c.source_type IN (${sourceTypes.map(() => "?").join(",")})`);
+      params.push(...sourceTypes);
+    }
+  }
   if (q.group === "store") where.push("c.source_type = 'store'");
   if (q.group === "facebook") where.push("c.source_type IN ('fb_page','fb_group_csv')");
   if (q.post_id) { where.push("c.post_id = ?"); params.push(Number(q.post_id)); }

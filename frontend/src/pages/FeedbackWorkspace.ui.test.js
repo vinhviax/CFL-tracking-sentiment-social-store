@@ -26,13 +26,32 @@ test("workspace exposes header HTML report export with source, date, and languag
   assert.ok(source.indexOf("report-export-header-button") < source.indexOf("insight-workbench"));
 });
 
-test("workspace exposes an Excel export button that follows the current filters", () => {
+test("workspace exposes an Excel export dialog with sources, date range and topic", () => {
   assert.match(source, /exportUrl,/);
+  assert.match(source, /getIngestStatus,/);
   assert.match(source, /excelExport: "Xuất Excel"/);
   assert.match(source, /excelExport: "导出 Excel"/);
-  assert.match(source, /href=\{exportUrl\(aggregateParams\)\}/);
-  assert.match(source, /\{t\.excelExport\}/);
+  // header button opens the dialog rather than linking directly
+  assert.match(source, /onClick=\{\(\) => setExcelDialogOpen\(true\)\}/);
   assert.match(source, /section === "data" && \(/);
+  // dialog component and wiring
+  assert.match(source, /function ExcelExportDialog\(/);
+  assert.match(source, /<ExcelExportDialog/);
+  assert.match(source, /const \[excelDialogOpen, setExcelDialogOpen\] = useState\(false\)/);
+  // sources multi-select
+  assert.match(source, /EXCEL_SOURCE_OPTIONS/);
+  assert.match(source, /value: "store"/);
+  assert.match(source, /value: "fb_page"/);
+  assert.match(source, /value: "fb_group_csv"/);
+  assert.match(source, /type="checkbox"/);
+  // latest-data-date note
+  assert.match(source, /excelLatestNote/);
+  assert.match(source, /getIngestStatus\(\)\.then\(setIngestStatus\)/);
+  assert.match(source, /latestBySource/);
+  // topic picker + export href with sources
+  assert.match(source, /sources: selectedSources\.join\(","\)/);
+  assert.match(source, /topic: topicMode === "topic" \? topic : ""/);
+  assert.match(source, /labels\.excelNoSource/);
 });
 
 test("workspace supports multi-topic scoped insight and topic report export", () => {
