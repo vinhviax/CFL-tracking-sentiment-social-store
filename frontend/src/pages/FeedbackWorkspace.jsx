@@ -17,6 +17,7 @@ import {
   getTopicRanking,
   getTrend,
   exportReportHtmlUrl,
+  exportUrl,
   listSavedInsights,
   listComments,
   listPosts,
@@ -123,6 +124,8 @@ const UI = {
     noData: "Chưa có dữ liệu phù hợp bộ lọc.",
     loading: "Đang tải...",
     reportExport: "Xuất report HTML",
+    excelExport: "Xuất Excel",
+    excelExportTitle: "Xuất comment ra Excel theo bộ lọc đang chọn",
     reportExportDescription: "Chọn nguồn, khoảng thời gian và ngôn ngữ report.",
     reportExportWarningTitle: "Lưu ý trước khi xuất report",
     reportExportTimeWarning: "Việc xuất report sẽ mất kha khá thời gian, tùy vào khoảng thời gian và phạm vi report bạn chọn.",
@@ -218,6 +221,8 @@ const UI = {
     noData: "当前筛选条件下没有数据。",
     loading: "加载中...",
     reportExport: "导出 HTML 报告",
+    excelExport: "导出 Excel",
+    excelExportTitle: "按当前筛选条件导出评论为 Excel",
     reportExportDescription: "选择来源、时间范围和报告语言。",
     reportExportWarningTitle: "导出前提示",
     reportExportTimeWarning: "导出报告可能需要较长时间，具体取决于所选时间范围和报告覆盖范围。",
@@ -779,6 +784,15 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
           <p className="page-subtitle">{t.subtitle}</p>
         </div>
         <div className="header-actions">
+          {section === "data" && (
+            <a
+              className="btn btn-secondary report-export-header-button"
+              href={exportUrl(aggregateParams)}
+              title={t.excelExportTitle}
+            >
+              {t.excelExport}
+            </a>
+          )}
           <button className="btn btn-secondary report-export-header-button" type="button" onClick={() => setReportDialogOpen(true)}>
             {t.reportExport}
           </button>

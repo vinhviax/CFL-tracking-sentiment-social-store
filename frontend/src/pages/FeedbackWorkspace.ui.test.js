@@ -26,6 +26,15 @@ test("workspace exposes header HTML report export with source, date, and languag
   assert.ok(source.indexOf("report-export-header-button") < source.indexOf("insight-workbench"));
 });
 
+test("workspace exposes an Excel export button that follows the current filters", () => {
+  assert.match(source, /exportUrl,/);
+  assert.match(source, /excelExport: "Xuất Excel"/);
+  assert.match(source, /excelExport: "导出 Excel"/);
+  assert.match(source, /href=\{exportUrl\(aggregateParams\)\}/);
+  assert.match(source, /\{t\.excelExport\}/);
+  assert.match(source, /section === "data" && \(/);
+});
+
 test("workspace supports multi-topic scoped insight and topic report export", () => {
   assert.match(source, /reportTopicMode/);
   assert.match(source, /reportTopic/);

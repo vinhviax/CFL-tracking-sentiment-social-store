@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
-import { addTopicFilter } from "../services/topicScope";
+import { buildCommentFilters } from "../services/commentFilters";
 import { isTopic } from "../taxonomy";
 import type { Env } from "../types";
 
@@ -19,26 +19,6 @@ const SELECT = `
   LEFT JOIN analyses a ON a.comment_id = c.id
   LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
 `;
-
-function dateKey(value?: string | null) {
-  const text = String(value || "").slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
-}
-
-function addDateFilter(where: string[], params: any[], column: string, operator: ">=" | "<=", value?: string) {
-  const key = dateKey(value);
-  if (!key) return;
-  where.push(`substr(${column}, 1, 10) ${operator} ?`);
-  params.push(key);
-}
-
-function parseSubtopicKeys(value?: string) {
-  return String(value || "")
-    .split(",")
-    .map((key) => key.trim())
-    .filter(Boolean)
-    .slice(0, 30);
-}
 
 async function loadCommentSubtopics(db: D1Database, commentIds: number[], lang: string): Promise<Map<number, any[]>> {
   const out = new Map<number, any[]>();
@@ -208,32 +188,10 @@ commentsRoute.patch("/:id/analysis", async (c) => {
 
 commentsRoute.get("/", async (c) => {
   const q = c.req.query();
-  const where: string[] = [];
-  const filterParams: any[] = [];
   const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
 
-  if (q.source) { where.push("c.source_type = ?"); filterParams.push(q.source); }
-  if (q.group === "store") where.push("c.source_type = 'store'");
-  if (q.group === "facebook") where.push("c.source_type IN ('fb_page','fb_group_csv')");
-  if (q.post_id) { where.push("c.post_id = ?"); filterParams.push(Number(q.post_id)); }
-  if (q.store) { where.push("c.store = ?"); filterParams.push(q.store); }
-  if (q.q) { where.push("(c.message LIKE ? OR t.message_translated LIKE ?)"); filterParams.push(`%${q.q}%`, `%${q.q}%`); }
-  addDateFilter(where, filterParams, "c.created_at", ">=", q.from);
-  addDateFilter(where, filterParams, "c.created_at", "<=", q.to);
-  addTopicFilter(where, filterParams, q.topic);
-  if (q.subtopic) {
-    const subtopicKeys = parseSubtopicKeys(q.subtopic);
-    if (!subtopicKeys.length) return c.json({ detail: "Invalid subtopic filter" }, 400);
-    const placeholders = subtopicKeys.map(() => "?").join(",");
-    where.push(`EXISTS (
-      SELECT 1 FROM comment_subtopics cs
-      JOIN taxonomy_subtopics st ON st.id = cs.subtopic_id
-      WHERE cs.comment_id = c.id AND st.key IN (${placeholders})
-    )`);
-    filterParams.push(...subtopicKeys);
-  }
-  if (q.sentiment) { where.push("a.sentiment = ?"); filterParams.push(q.sentiment); }
-  if (q.urgency) { where.push("a.urgency = ?"); filterParams.push(q.urgency); }
+  const { where, params: filterParams, error } = buildCommentFilters(q);
+  if (error) return c.json({ detail: error }, 400);
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const page = Math.max(1, Number(q.page) || 1);
