@@ -123,6 +123,17 @@ function sourceName(sourceType) {
   return sourceType || "Không rõ nguồn";
 }
 
+const RUNS_PER_PAGE = 50;
+
+// Bộ lọc lịch sử ingest theo nhóm nguồn. Dữ liệu Group nằm trong lần upload CSV
+// (source_type = facebook_csv / fb_group_csv), Fanpage kéo qua Graph API (fb_page).
+const RUN_SOURCE_FILTERS = [
+  { key: "all", label: "Tất cả", types: null },
+  { key: "store", label: "Store", types: ["store"] },
+  { key: "fanpage", label: "Fanpage", types: ["fb_page"] },
+  { key: "group", label: "Group", types: ["facebook_csv", "fb_group_csv"] },
+];
+
 function runScope(run) {
   if (!run) return "Chưa rõ phạm vi";
   const note = parseRunNote(run.note);
@@ -466,6 +477,8 @@ export default function IngestSettings() {
   const [fbError, setFbError] = useState(null);
 
   const [runs, setRuns] = useState([]);
+  const [runSourceFilter, setRunSourceFilter] = useState("all");
+  const [runPage, setRunPage] = useState(0);
   const [deletingRunId, setDeletingRunId] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const [health, setHealth] = useState(null);
@@ -477,7 +490,7 @@ export default function IngestSettings() {
   const [llmConfigError, setLlmConfigError] = useState(null);
 
   const loadRuns = useCallback(() => {
-    listRuns({ limit: 20 }).then(setRuns).catch(() => {});
+    listRuns({ limit: 500 }).then(setRuns).catch(() => {});
   }, []);
 
   const loadIngestStatus = useCallback(() => {
@@ -679,6 +692,21 @@ export default function IngestSettings() {
       .finally(() => setFbBusy(false));
   };
 
+  const activeRunFilter = RUN_SOURCE_FILTERS.find((f) => f.key === runSourceFilter) || RUN_SOURCE_FILTERS[0];
+  const filteredRuns = activeRunFilter.types
+    ? runs.filter((run) => activeRunFilter.types.includes(run.source_type))
+    : runs;
+  const runPageCount = Math.max(1, Math.ceil(filteredRuns.length / RUNS_PER_PAGE));
+  const safeRunPage = Math.min(runPage, runPageCount - 1);
+  const pagedRuns = filteredRuns.slice(safeRunPage * RUNS_PER_PAGE, safeRunPage * RUNS_PER_PAGE + RUNS_PER_PAGE);
+
+  const selectRunFilter = (key) => {
+    setRunSourceFilter(key);
+    setRunPage(0);
+  };
+
+  const runCountByType = (types) => (types ? runs.filter((run) => types.includes(run.source_type)).length : runs.length);
+
   return (
     <>
       <h2 className="page-title">Ingest &amp; Cài đặt</h2>
@@ -849,8 +877,22 @@ export default function IngestSettings() {
       <div className="panel">
         <h3>Lịch sử Ingest</h3>
         {deleteError && <div className="error-banner">{deleteError}</div>}
+        <div className="segmented" style={{ marginBottom: 12 }}>
+          {RUN_SOURCE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              className={f.key === runSourceFilter ? "active" : ""}
+              onClick={() => selectRunFilter(f.key)}
+            >
+              {f.label} ({runCountByType(f.types)})
+            </button>
+          ))}
+        </div>
         {runs.length === 0 ? (
           <div className="empty-state">Chưa có lần nạp dữ liệu nào.</div>
+        ) : filteredRuns.length === 0 ? (
+          <div className="empty-state">Không có lần nạp nào cho nguồn “{activeRunFilter.label}”.</div>
         ) : (
           <div className="table-scroll">
             <table>
@@ -870,7 +912,7 @@ export default function IngestSettings() {
                 </tr>
               </thead>
               <tbody>
-                {runs.map((run) => (
+                {pagedRuns.map((run) => (
                   <tr key={run.id}>
                     <td>{run.id}</td>
                     <td>{sourceName(run.source_type)}</td>
@@ -904,6 +946,29 @@ export default function IngestSettings() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {filteredRuns.length > RUNS_PER_PAGE && (
+          <div className="run-pagination">
+            <button
+              type="button"
+              className="btn btn-secondary run-action-button"
+              disabled={safeRunPage <= 0}
+              onClick={() => setRunPage((p) => Math.max(0, p - 1))}
+            >
+              ← Trước
+            </button>
+            <span className="progress-caption">
+              Trang {safeRunPage + 1}/{runPageCount} · {filteredRuns.length} lần nạp
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary run-action-button"
+              disabled={safeRunPage >= runPageCount - 1}
+              onClick={() => setRunPage((p) => Math.min(runPageCount - 1, p + 1))}
+            >
+              Sau →
+            </button>
           </div>
         )}
       </div>

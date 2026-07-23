@@ -1496,6 +1496,14 @@ tbody tr {
   white-space: nowrap;
 }
 
+.run-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+
 .pagination {
   display: flex;
   gap: 9px;
