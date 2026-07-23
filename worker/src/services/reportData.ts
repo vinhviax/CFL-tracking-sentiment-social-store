@@ -14,7 +14,28 @@ export interface BuildReportParams {
   to?: string;
   lang?: ReportLanguage;
   topic?: string;
+  subtopic?: string;
   autoGenerateInsight?: boolean;
+}
+
+function parseSubtopicKeys(value?: string) {
+  return String(value || "")
+    .split(",")
+    .map((key) => key.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+function addSubtopicFilter(where: string[], params: any[], value?: string) {
+  const keys = parseSubtopicKeys(value);
+  if (!keys.length) return;
+  const placeholders = keys.map(() => "?").join(",");
+  where.push(`EXISTS (
+      SELECT 1 FROM comment_subtopics cs_rep
+      JOIN taxonomy_subtopics st_rep ON st_rep.id = cs_rep.subtopic_id
+      WHERE cs_rep.comment_id = c.id AND st_rep.key IN (${placeholders})
+    )`);
+  params.push(...keys);
 }
 
 function dateKey(value?: string | null) {
@@ -63,6 +84,7 @@ function buildBaseWhere(params: BuildReportParams, opts: { includeTopic?: boolea
   if (opts.includeTopic && params.topic) {
     addTopicFilter(where, bind, params.topic);
   }
+  addSubtopicFilter(where, bind, params.subtopic);
   return { where, bind };
 }
 
@@ -328,6 +350,7 @@ async function generateReportInsight(env: Env, params: BuildReportParams, overvi
     from: params.from || "",
     to: params.to || "",
     topic: params.topic || "",
+    subtopic: params.subtopic || "",
   };
   const samples = await sampleBySentiment(env, filters);
   const result = await generateSummary(env, overview, samples, undefined, lang);
@@ -344,7 +367,7 @@ async function generateReportInsight(env: Env, params: BuildReportParams, overvi
 
 export async function buildReportData(env: Env, params: BuildReportParams): Promise<FeedbackReportData> {
   const lang = normalizeLang(params.lang);
-  const q = { group: params.group, from: params.from || "", to: params.to || "", lang, topic: params.topic || "" };
+  const q = { group: params.group, from: params.from || "", to: params.to || "", lang, topic: params.topic || "", subtopic: params.subtopic || "" };
   const overview = await computeOverview(env.DB, q);
   const channels = await loadChannels(env.DB, params);
   const storeBreakdown = await loadStoreBreakdown(env.DB, params);

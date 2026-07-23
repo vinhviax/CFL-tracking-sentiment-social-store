@@ -3,7 +3,7 @@ import type { Env } from "../types";
 import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOPIC_LABELS_ZH_CN } from "../taxonomy";
 import { summarizeStoreBreakdown } from "../services/storeStats";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
-import { addTopicFilter } from "../services/topicScope";
+import { addTopicFilter, parseTopicKeys } from "../services/topicScope";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
@@ -382,6 +382,36 @@ statsRoute.get("/subtopic-ranking", async (c) => {
   }
 
   return c.json({ items: withSamples });
+});
+
+statsRoute.get("/subtopics", async (c) => {
+  const q = c.req.query();
+  const lang = q.lang === "zh-CN" ? "zh-CN" : "vi";
+  const topicKeys = parseTopicKeys(q.topic);
+  const where = ["st.status = 'active'"];
+  const params: any[] = [];
+  if (topicKeys.length) {
+    where.push(`st.parent_topic IN (${topicKeys.map(() => "?").join(",")})`);
+    params.push(...topicKeys);
+  }
+  const rows = await c.env.DB.prepare(
+    `SELECT st.key, st.parent_topic, st.label_vi, st.label_zh_cn, st.evidence_count
+     FROM taxonomy_subtopics st
+     WHERE ${where.join(" AND ")}
+     ORDER BY st.parent_topic, st.evidence_count DESC, st.label_vi`
+  ).bind(...params).all<any>();
+
+  return c.json({
+    items: rows.results.map((row) => ({
+      key: row.key,
+      parent_topic: row.parent_topic,
+      parent_label: topicLabel(row.parent_topic, lang),
+      label: subtopicLabel(row, lang),
+      label_vi: row.label_vi,
+      label_zh_cn: row.label_zh_cn || null,
+      evidence_count: Number(row.evidence_count || 0),
+    })),
+  });
 });
 
 statsRoute.get("/store", async (c) => {

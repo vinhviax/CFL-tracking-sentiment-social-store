@@ -15,6 +15,7 @@ import {
   getStoreBreakdown,
   getIngestStatus,
   getSubtopicRanking,
+  getSubtopics,
   getTopicRanking,
   getTrend,
   exportReportHtmlUrl,
@@ -149,6 +150,8 @@ const UI = {
     reportTopicModeAll: "Tổng quan",
     reportTopicModeTopic: "Theo chủ đề",
     reportTopic: "Chủ đề report",
+    exportSubtopic: "Chủ đề con",
+    exportSubtopicAll: "Tất cả chủ đề con",
     reportLanguage: "Ngôn ngữ report",
     reportLanguageVi: "Tiếng Việt",
     reportLanguageZh: "中文",
@@ -255,6 +258,8 @@ const UI = {
     reportTopicModeAll: "总览",
     reportTopicModeTopic: "按主题",
     reportTopic: "报告主题",
+    exportSubtopic: "子主题",
+    exportSubtopicAll: "全部子主题",
     reportLanguage: "报告语言",
     reportLanguageVi: "Tiếng Việt",
     reportLanguageZh: "中文",
@@ -341,19 +346,32 @@ function cleanParams(filters, group, subtab, page, metaLang) {
   return params;
 }
 
-function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose }) {
+function ReportExportDialog({ open, filters, lang, labels, topicOptions, subtopicOptions = [], onClose }) {
   const [reportGroup, setReportGroup] = useState("all");
   const [reportFrom, setReportFrom] = useState(filters.from || "");
   const [reportTo, setReportTo] = useState(filters.to || "");
   const [reportLang, setReportLang] = useState(lang === "zh-CN" ? "zh-CN" : "vi");
   const [reportTopicMode, setReportTopicMode] = useState("all");
   const [reportTopic, setReportTopic] = useState(filters.topic || "");
+  const [reportSubtopic, setReportSubtopic] = useState(filters.subtopic || "");
   const reportTopicKeys = useMemo(() => parseTopicSelection(reportTopic), [reportTopic]);
   const reportTopicKeySet = useMemo(() => new Set(reportTopicKeys), [reportTopicKeys]);
   const reportTopicOptions = useMemo(
     () => topicOptions.filter((option) => !reportTopicKeySet.has(option.key)),
     [topicOptions, reportTopicKeySet]
   );
+  const reportSubtopicOptions = useMemo(
+    () => (reportTopicMode === "topic" && reportTopicKeys.length
+      ? subtopicOptions.filter((option) => reportTopicKeySet.has(option.parent_topic))
+      : subtopicOptions),
+    [subtopicOptions, reportTopicMode, reportTopicKeys, reportTopicKeySet]
+  );
+
+  useEffect(() => {
+    if (reportSubtopic && !reportSubtopicOptions.some((option) => option.key === reportSubtopic)) {
+      setReportSubtopic("");
+    }
+  }, [reportSubtopic, reportSubtopicOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -363,7 +381,8 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
     setReportLang(lang === "zh-CN" ? "zh-CN" : "vi");
     setReportTopicMode(filters.topic ? "topic" : "all");
     setReportTopic(filters.topic || "");
-  }, [open, filters.from, filters.to, filters.topic, lang]);
+    setReportSubtopic(filters.subtopic || "");
+  }, [open, filters.from, filters.to, filters.topic, filters.subtopic, lang]);
 
   if (!open) return null;
 
@@ -384,6 +403,7 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
     to: reportTo,
     lang: reportLang,
     topic: reportTopicMode === "topic" ? reportTopic : "",
+    subtopic: reportSubtopic,
   });
 
   return (
@@ -436,6 +456,14 @@ function ReportExportDialog({ open, filters, lang, labels, topicOptions, onClose
               </div>
             </div>
           )}
+          <label>{labels.exportSubtopic}
+            <select value={reportSubtopic} onChange={(event) => setReportSubtopic(event.target.value)}>
+              <option value="">{labels.exportSubtopicAll}</option>
+              {reportSubtopicOptions.map((option) => (
+                <option key={option.key} value={option.key}>{option.parent_label} › {option.label}</option>
+              ))}
+            </select>
+          </label>
           <label>{labels.from}<DateTextInput value={reportFrom} onChange={setReportFrom} /></label>
           <label>{labels.to}<DateTextInput value={reportTo} onChange={setReportTo} /></label>
           <label>{labels.reportLanguage}
@@ -460,12 +488,13 @@ const EXCEL_SOURCE_OPTIONS = [
   { value: "fb_group_csv", labelKey: "excelSourceGroup" },
 ];
 
-function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
+function ExcelExportDialog({ open, filters, labels, topicOptions, subtopicOptions = [], onClose }) {
   const [sources, setSources] = useState({ store: true, fb_page: true, fb_group_csv: true });
   const [excelFrom, setExcelFrom] = useState(filters.from || "");
   const [excelTo, setExcelTo] = useState(filters.to || "");
   const [topicMode, setTopicMode] = useState("all");
   const [topic, setTopic] = useState(filters.topic || "");
+  const [subtopic, setSubtopic] = useState(filters.subtopic || "");
   const [ingestStatus, setIngestStatus] = useState(null);
 
   const topicKeys = useMemo(() => parseTopicSelection(topic), [topic]);
@@ -474,6 +503,18 @@ function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
     () => topicOptions.filter((option) => !topicKeySet.has(option.key)),
     [topicOptions, topicKeySet]
   );
+  const visibleSubtopicOptions = useMemo(
+    () => (topicMode === "topic" && topicKeys.length
+      ? subtopicOptions.filter((option) => topicKeySet.has(option.parent_topic))
+      : subtopicOptions),
+    [subtopicOptions, topicMode, topicKeys, topicKeySet]
+  );
+
+  useEffect(() => {
+    if (subtopic && !visibleSubtopicOptions.some((option) => option.key === subtopic)) {
+      setSubtopic("");
+    }
+  }, [subtopic, visibleSubtopicOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -482,8 +523,9 @@ function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
     setExcelTo(filters.to || "");
     setTopicMode(filters.topic ? "topic" : "all");
     setTopic(filters.topic || "");
+    setSubtopic(filters.subtopic || "");
     getIngestStatus().then(setIngestStatus).catch(() => setIngestStatus(null));
-  }, [open, filters.from, filters.to, filters.topic]);
+  }, [open, filters.from, filters.to, filters.topic, filters.subtopic]);
 
   if (!open) return null;
 
@@ -513,6 +555,7 @@ function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
     from: excelFrom,
     to: excelTo,
     topic: topicMode === "topic" ? topic : "",
+    subtopic,
   });
 
   return (
@@ -579,6 +622,14 @@ function ExcelExportDialog({ open, filters, labels, topicOptions, onClose }) {
               </div>
             </div>
           )}
+          <label>{labels.exportSubtopic}
+            <select value={subtopic} onChange={(event) => setSubtopic(event.target.value)}>
+              <option value="">{labels.exportSubtopicAll}</option>
+              {visibleSubtopicOptions.map((option) => (
+                <option key={option.key} value={option.key}>{option.parent_label} › {option.label}</option>
+              ))}
+            </select>
+          </label>
           <label>{labels.from}<DateTextInput value={excelFrom} onChange={setExcelFrom} /></label>
           <label>{labels.to}<DateTextInput value={excelTo} onChange={setExcelTo} /></label>
         </div>
@@ -694,6 +745,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   const [error, setError] = useState(null);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [excelDialogOpen, setExcelDialogOpen] = useState(false);
+  const [subtopicOptions, setSubtopicOptions] = useState([]);
 
   const tabs = group === "store"
     ? [{ value: "gp", label: t.google }, { value: "ios", label: t.appstore }]
@@ -795,6 +847,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
     getInsightPrompt().then((r) => setInsightPrompt(r.prompt || "")).catch(() => {});
     refreshSavedInsights().catch(() => {});
   }, [refreshSavedInsights]);
+
+  useEffect(() => {
+    getSubtopics({ lang }).then((r) => setSubtopicOptions(r.items || [])).catch(() => setSubtopicOptions([]));
+  }, [lang]);
 
   useEffect(() => {
     setManualReviewTopic(selected?.analysis?.topic_main || "");
@@ -1309,6 +1365,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         lang={lang}
         labels={t}
         topicOptions={allTopicOptions}
+        subtopicOptions={subtopicOptions}
         onClose={() => setReportDialogOpen(false)}
       />
 
@@ -1317,6 +1374,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         filters={filters}
         labels={t}
         topicOptions={allTopicOptions}
+        subtopicOptions={subtopicOptions}
         onClose={() => setExcelDialogOpen(false)}
       />
 

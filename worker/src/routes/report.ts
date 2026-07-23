@@ -5,6 +5,7 @@ import { renderFeedbackReportBundleHtml } from "../services/reportHtml";
 import type { ReportLanguage } from "../services/reportHtml";
 import { isTopic } from "../taxonomy";
 import { normalizeTopicParam, parseTopicKeys, topicFilenamePart } from "../services/topicScope";
+import { parseSubtopicKeys } from "../services/commentFilters";
 
 export const reportRoute = new Hono<{ Bindings: Env }>();
 
@@ -54,6 +55,7 @@ reportRoute.get("/html", async (c) => {
     return c.json({ detail: "Invalid report topic" }, 400);
   }
   const topic = normalizeTopicParam(q.topic);
+  const subtopic = parseSubtopicKeys(q.subtopic).join(",");
 
   const reports = [];
   for (const lang of languages) {
@@ -64,6 +66,7 @@ reportRoute.get("/html", async (c) => {
         to: q.to,
         lang,
         topic: topic || undefined,
+        subtopic: subtopic || undefined,
         autoGenerateInsight: true,
       }));
     }
