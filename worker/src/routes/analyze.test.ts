@@ -52,7 +52,8 @@ describe("analyzeRoute queueing", () => {
       status: "queued",
     });
     expect(mocks.enqueueProcessingJobs).toHaveBeenCalledWith(env, [
-      { job_type: "analysis", run_id: 77, progress_key: "run-77" },
+      // force defaults to false: a plain "Phân tích" only picks up unanalysed comments.
+      { job_type: "analysis", run_id: 77, progress_key: "run-77", force: false },
     ]);
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);

@@ -30,10 +30,16 @@
   // Which provider and model each slot uses lives in the provider catalog
   // (src/services/llmCatalog.ts) and llm_agent_configs, not here.
   "vars": {
-    "CLASSIFY_BATCH_SIZE": "50",
-    "ANALYSIS_BATCH_SIZE": "50",
-    "TRANSLATION_BATCH_SIZE": "40",
-    "LLM_BATCH_CONCURRENCY": "3",
+    // Sized so a batch reliably finishes inside one invocation. At 50 comments a batch
+    // took longer than the request budget, so the invocation died with every batch
+    // logged as "started" and none completed — the run made no progress at all.
+    // Smaller batches with more of them in flight move far more comments per
+    // invocation, because the LLM calls overlap.
+    "CLASSIFY_BATCH_SIZE": "20",
+    "ANALYSIS_BATCH_SIZE": "20",
+    "TRANSLATION_BATCH_SIZE": "20",
+    "LLM_BATCH_CONCURRENCY": "5",
+    "PROCESSING_JOB_MAX_BATCHES": "5",
     "PROCESSING_QUEUE_CONCURRENCY": "3",
     "LLM_VIAX_BASE_URL": "https://rpi7jss.abc-tunnel.us/v1"
   }

@@ -837,7 +837,9 @@ export default function IngestSettings() {
 
   const startAnalyze = (run) => {
     const target = resolveRun(run);
-    runAnalyze({ run_id: target.id, only_unanalyzed: true })
+    // force when the run already has analyses: that is what "Phân tích lại" means, and
+    // without it the backend treats them as done and the button does nothing.
+    runAnalyze({ run_id: target.id, force: target.analysis_status === "done" })
       .then((r) => {
         enqueueTrackedJobs([{ kind: "analysis", progressKey: r.progress_key, run: target }]);
         loadTrackedJobs();
@@ -846,7 +848,10 @@ export default function IngestSettings() {
 
   const startTranslate = (run) => {
     const target = resolveRun(run);
-    runTranslate({ run_id: target.id, locale: "zh-CN" })
+    // Same for translation: a comment that already has a zh-CN row is skipped unless
+    // forced, so "Dịch lại" was a no-op. Re-translating also refreshes the Chinese
+    // summary, which is stale whenever the analysis was redone.
+    runTranslate({ run_id: target.id, locale: "zh-CN", force: target.translation_status === "done" })
       .then((r) => {
         enqueueTrackedJobs([{ kind: "translation", progressKey: r.progress_key, run: target }]);
         loadTrackedJobs();

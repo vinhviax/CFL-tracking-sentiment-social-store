@@ -20,6 +20,8 @@ export interface ProcessingJobSpec {
 
 export interface ProcessingQueueJob extends ProcessingJobSpec {
   id: number;
+  /** First-claim time, used as the cutoff for a forced re-run so retries converge. */
+  started_at?: string;
   run_id?: number;
   comment_ids?: number[];
   locale?: string;
@@ -192,7 +194,7 @@ const d1QueueStore: QueueStore = {
          ORDER BY q.id
          LIMIT 1
        )
-       RETURNING id, job_type, run_id, comment_ids_json, locale, progress_key, force, limit_count`
+       RETURNING id, job_type, run_id, comment_ids_json, locale, progress_key, force, limit_count, started_at`
     ).bind(now, now, maxRunning).first<any>();
     if (!row) return null;
     return {
@@ -204,6 +206,7 @@ const d1QueueStore: QueueStore = {
       progress_key: row.progress_key,
       force: Boolean(row.force),
       limit: row.limit_count == null ? undefined : Number(row.limit_count),
+      started_at: row.started_at || undefined,
     };
   },
 
@@ -385,6 +388,8 @@ export async function drainProcessingQueue(
           commentIds: job.comment_ids,
           progressKey: job.progress_key,
           maxBatches: getProcessingJobMaxBatches(env),
+          force: job.force,
+          forceSince: job.started_at,
           shouldContinue: ensureNotCancelled,
           // In-memory only: a BYO provider belongs to the request that carried it,
           // so a later drain (cron, or after the tab closed) uses the slot default.

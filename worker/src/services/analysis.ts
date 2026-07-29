@@ -63,21 +63,35 @@ export async function loadHumanCorrectionExamples(env: Env, limit = 12): Promise
 }
 
 async function pendingComments(
-  env: Env, opts: { commentIds?: number[]; runId?: number }
+  env: Env, opts: { commentIds?: number[]; runId?: number; force?: boolean; forceSince?: string | null }
 ): Promise<PendingComment[]> {
+  // Without force, only comments that have no analysis at the current prompt version.
+  // With force, every comment in scope — which is what "Phân tích lại" means. The old
+  // behaviour made that button a no-op: a comment classified by the keyword fallback is
+  // still recorded at the current prompt version, so it looked already analysed and the
+  // button returned 0/0 without doing anything.
+  //
+  // A forced run needs `forceSince` (the job's first-claim time) to converge: without it
+  // every retry would re-select the whole run, reprocess the same first batches and never
+  // finish. Comparing against analyzed_at means a comment drops out of the pending set as
+  // soon as this run has redone it, so retries resume where they left off.
+  const versionFilter = opts.force
+    ? (opts.forceSince ? "AND (a.comment_id IS NULL OR a.analyzed_at IS NULL OR a.analyzed_at < ?)" : "")
+    : "AND (a.comment_id IS NULL OR a.prompt_version != ?)";
   const baseSql = `
     SELECT c.id, c.message, c.rating, c.post_id
     FROM comments c
     LEFT JOIN analyses a ON a.comment_id = c.id
     WHERE c.skipped_analysis = 0
-      AND (a.comment_id IS NULL OR a.prompt_version != ?)
+      ${versionFilter}
   `;
+  const versionParams = opts.force ? (opts.forceSince ? [opts.forceSince] : []) : [PROMPT_VERSION];
 
   // Filter by ingest_run_id directly rather than passing thousands of ids —
   // D1/SQLite caps bound parameters per statement well below dataset size.
   if (opts.runId != null) {
     const res = await env.DB.prepare(`${baseSql} AND c.ingest_run_id = ?`)
-      .bind(PROMPT_VERSION, opts.runId).all<PendingComment>();
+      .bind(...versionParams, opts.runId).all<PendingComment>();
     return res.results;
   }
 
@@ -86,13 +100,13 @@ async function pendingComments(
     for (const idsChunk of chunk(opts.commentIds, 90)) {
       const placeholders = idsChunk.map(() => "?").join(",");
       const res = await env.DB.prepare(`${baseSql} AND c.id IN (${placeholders})`)
-        .bind(PROMPT_VERSION, ...idsChunk).all<PendingComment>();
+        .bind(...versionParams, ...idsChunk).all<PendingComment>();
       out.push(...res.results);
     }
     return out;
   }
 
-  const res = await env.DB.prepare(baseSql).bind(PROMPT_VERSION).all<PendingComment>();
+  const res = await env.DB.prepare(baseSql).bind(...versionParams).all<PendingComment>();
   return res.results;
 }
 
@@ -115,6 +129,10 @@ export async function runAnalysis(
     progressKey: string;
     maxBatches?: number;
     shouldContinue?: () => Promise<void> | void;
+    /** Re-analyse comments that already have an analysis — what "Phân tích lại" means. */
+    force?: boolean;
+    /** When forcing, only redo analyses older than this — keeps retries converging. */
+    forceSince?: string | null;
     /** Caller's own provider, used in memory only and never persisted. */
     byo?: ByoOverride | null;
   }
@@ -122,7 +140,12 @@ export async function runAnalysis(
   const chain = await resolveLlmProviderChain(env, "reasoning", opts.byo);
   const svc = new ClassifierService(env, chain);
   await opts.shouldContinue?.();
-  const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
+  const comments = await pendingComments(env, {
+    commentIds: opts.commentIds,
+    runId: opts.runId,
+    force: opts.force,
+    forceSince: opts.forceSince,
+  });
   const humanExamples = await loadHumanCorrectionExamples(env);
   const previousProgress = await getProgressJob(env, opts.progressKey);
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));

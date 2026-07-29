@@ -20,6 +20,7 @@ analyzeRoute.post("/run", async (c) => {
       ...(runId != null ? { run_id: runId } : {}),
       ...(commentIds?.length ? { comment_ids: commentIds } : {}),
       progress_key: progressKey,
+      force: Boolean(body.force),
     },
   ]);
 
