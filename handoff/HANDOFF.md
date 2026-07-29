@@ -3,24 +3,34 @@
 Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligence**.
 (Phiên trước trong cùng ngày — token metering + fix upload CSV — nằm trong mục lịch sử bên dưới. Các session cũ hơn nằm sau cùng.)
 
-## ⚠️ VIỆC ĐANG CHẠY — ĐỌC TRƯỚC KHI LÀM GÌ KHÁC
+## ✅ ĐÃ HOÀN TẤT: 100% comment đã có phân tích LLM thật (đêm 29→30/07)
 
-**33 run đang được phân tích lại + dịch lại trên production**, kích hoạt cuối phiên trước (`force:true`). Cron 5 phút (`*/5 * * * *`) sẽ tự drain queue qua đêm, không cần máy tính nào mở. Tiến độ đo được qua nhiều lần kiểm tra (số comment còn là fallback từ khóa):
+**Toàn bộ 58.718 comment cần phân tích lại đã xong.** Tiến độ đo được qua nhiều lần kiểm tra (số comment còn là fallback từ khóa):
 
 ```
 58.718 → 58.500 → 58.180 → 57.920 → 54.898 → 53.898 → 53.535
-→ 21.279 → 1.001 (mắc kẹt tại đây do bug — xem mục G)
+→ 21.279 → 1.001 (mắc kẹt do bug — xem mục G, đã fix)
+→ 981 → 20 (1 batch lỗi tức thời cả 2 provider) → 0
 ```
 
-**Đã tìm ra và fix 1 bug quan trọng trong đêm (mục G bên dưới)**: cơ chế "force re-chạy" bị mắc kẹt vĩnh viễn ở 1.001 comment cuối cùng vì `started_at` của job không bao giờ được reset khi re-force. Đã fix + deploy (commit `2f497e3`) + re-kích hoạt 9 run còn bị kẹt (99, 47, 53, 59, 61, 67, 75, 83, 73) với code đã sửa, và khởi động thêm vòng lặp drain nền. Khi bạn vào lại:
+**Xác nhận chất lượng cuối cùng trên toàn bộ bảng `analyses`** (không chỉ 33 run, toàn bộ DB):
+- `summary` rỗng: **0** dòng (trước đây 59.034 dòng rỗng)
+- Số mức `confidence` khác nhau: **88** (trước đây tất cả đều đúng `0.35`)
+- `confidence` trung bình: **0.839**, dao động 0.1–1.0
 
-1. Kiểm tra còn bao nhiêu comment còn là fallback từ khóa — query D1 trực tiếp (xem "Lệnh nhanh" bên dưới):
-   `SELECT COUNT(*) FROM analyses WHERE (summary IS NULL OR TRIM(summary)='') AND confidence=0.35`.
-   Nếu số này đã giảm mạnh dưới 1.001 (đặc biệt nếu về gần 0), nghĩa là fix ở mục G đã hoạt động đúng — không cần làm gì thêm với bug đó.
-   Nếu số này **vẫn đứng yên ở 1.001** hoặc gần đó sau khi bạn đã chạy `POST /api/processing/drain` vài lần, đọc kỹ mục G để hiểu cơ chế rồi debug tiếp (có thể còn 1 lỗ hổng khác tương tự chưa phát hiện).
-2. Nếu còn nhiều, **dùng vòng lặp drain đồng bộ** thay vì chờ cron — xem mục "Lệnh nhanh" — vòng lặp `POST /api/processing/drain`.
-3. Nếu đã xong hết (con_keyword ~0 hoặc chỉ còn vài chục dòng lẻ tẻ do lỗi thật của LLM, không phải do bug), kiểm tra chất lượng bằng cách đọc vài dòng `summary` thật và báo cho user.
-4. **Sau khi TẤT CẢ run đã chạy xong**, **sửa lỗi hiển thị UI đã ghi ở mục F bên dưới** — user đã yêu cầu để lỗi đó lại, ưu tiên chạy xong data trước.
+Trong lúc chạy, **phát hiện thêm 1 bug quan trọng và đã fix** (mục G): cơ chế "force re-chạy" bị mắc kẹt vĩnh viễn vì `started_at` của job không bao giờ reset khi re-force — đã fix + deploy (commit `2f497e3`), viết test, verify trên production.
+
+**Việc phát sinh còn đang chạy khi viết handoff này**: phát hiện **22.783 comment** có summary tiếng Việt thật (mới, sau khi phân tích lại) nhưng bản dịch summary zh-CN vẫn RỖNG — vì bản dịch cũ được tạo từ lúc summary tiếng Việt còn rỗng (trước khi có phân tích LLM thật), và việc "Phân tích lại" xong không tự động kéo theo dịch lại summary. Đã kích hoạt dịch lại đúng 22.783 ID này (chia 6 lô, dùng `comment_ids` cụ thể để không tốn công dịch lại phần đã đúng), đang chạy vòng lặp drain nền. Khi bạn vào lại:
+
+1. Kiểm tra còn bao nhiêu comment còn summary zh-CN rỗng (dù đã có summary tiếng Việt):
+   ```sql
+   SELECT COUNT(*) FROM comments c JOIN analyses a ON a.comment_id=c.id
+   JOIN comment_translations t ON t.comment_id=c.id AND t.locale='zh-CN'
+   WHERE c.skipped_analysis=0 AND TRIM(COALESCE(a.summary,''))!='' AND TRIM(COALESCE(t.summary_translated,''))='';
+   ```
+   Nếu số này đã về 0 hoặc gần 0, việc dịch lại summary đã xong — không cần làm gì thêm.
+2. Nếu còn nhiều, dùng vòng lặp drain đồng bộ (xem "Lệnh nhanh").
+3. **Giờ mới nên sửa lỗi hiển thị UI ghi ở mục F bên dưới** — data đã ổn định, không còn lý do phải hoãn.
 
 **Danh sách 33 run đã kích hoạt ban đầu** (analysis + translation, force=true), ID:
 ```
