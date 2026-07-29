@@ -19,9 +19,19 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 Working tree J: sach, local va `origin/main` da dong bo.
 
 > ⚠️ **Luu y ve nhieu ban clone**: co it nhat 3 cho chua source:
-> - `J:\...\Tracking Store Social` = **canonical git, branch main** (nguon su that, edit o day).
-> - `G:\CFM\Research\Crossfire Legends Sea` = clone CU, branch `codex/sensortower-zh-workspace`, **CHUA co game-modes / taxonomy moi** va **CHUA co fix CSV cua session nay**. ĐUNG dung lam nguon.
+> - `J:\My Drive\CFL\Agent\Tracking Store Social` = **canonical git, branch main** (nguon su that, edit o day). `J:` la mount cua Google Drive (volume label "Google Drive", 232 GB, root chi co `My Drive`).
+> - `G:\CFM\Research\Crossfire Legends Sea` = clone CU, branch `codex/sensortower-zh-workspace`, HEAD `fb9fc9e` (06/07), ref `origin/main` cua no cung cu tu hom do. **CHUA co game-modes / taxonomy moi va CHUA co fix CSV.** ĐUNG dung lam nguon.
 > - `C:\Temp\cfl-export-20260720-1442` = ban copy local (khong-git) da `npm ci`, dung de build/test/deploy (vi node_modules tren Drive treo vitest). Da sync khop J: sau session nay (`diff -rq` sach).
+>
+> **`G:` KHONG phai Google Drive** (da kiem tra 2026-07-29). Tren may cong ty, `G:` la o du lieu local 4.6 TB volume label "**Work**", khong co thu muc `My Drive`; va trong Drive account `vinhvnn@vng.com.vn` **khong ton tai thu muc `CFM` hay `Crossfire Legends Sea`** (da search bang Drive API, khong chi liet ke o dia). Nen `G:\CFM\...` la ban local-only, khong bao gio tu dong nhan thay doi.
+>
+> User tung hieu la "G: la may o nha, J: la may cong ty, ca hai deu la My Drive" — **khong dung**. Day la 2 ban doc lap. Kenh dong bo that giua nha va cong ty la **GitHub**, khong phai Drive. O ban clone nao dang lac hau, chay:
+>
+> ```bash
+> git fetch origin && git checkout main && git pull
+> ```
+>
+> (Neu o nha Drive dang nhap bang account Google KHAC thi `G:\CFM\...` o nha co the la Drive cua account do — khong kiem tra duoc tu day — nhung van la storage khac voi `J:\My Drive\CFL\...`, ket luan khong doi.)
 
 ## Session nay lam gi
 
