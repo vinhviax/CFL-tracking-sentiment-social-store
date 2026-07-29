@@ -146,7 +146,7 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 
 - D1 unique constraint co the loi neu dedupe hash trung khi upload CSV/Sensor Tower; ingest service da co dedupe, neu sua can giu logic idempotent.
 - D1 bound parameter limit thap, query `IN` can chunk.
-- CSV Group file lon gap 2 gioi han khac nhau: dedupe lookup `IN (...)` phai chunk nho de khong vuot SQL variable, nhung insert `db.batch` phai du lon de khong tao qua nhieu D1 subrequest trong mot Worker invocation. Ban moi giu dedupe 45 rows/chunk va insert 100 rows/batch.
+- CSV Facebook file lon tung gap 2 gioi han nguoc chieu nhau: dedupe lookup `IN (...)` phai chunk nho (bound parameter limit ~90) nhung nhu vay so subrequest lai tang theo so dong, va ~30k dong da vuot 1000 subrequest/invocation. Da fix (commit `c32e9ed`): khong con gui hash cua file vao `IN (...)` nua — dedupe quet `comments` trong khoang ngay cua file (phan trang 5000/lan), post quet theo prefix `fanpage_csv:`/`group_csv:`, nen chi phi lookup khong con ti le voi so dong file. Insert batch 100 -> 250 (gioi han 100 bound param la MOI STATEMENT, khong phai moi batch). **Dung quay lai kieu chunk `IN (...)` theo hash cua file.** Gioi han cung hien tai: 60.000 dong/lan nap (`CSV_MAX_IMPORTABLE_ROWS`), vuot thi bao nguoi dung chia file; qua nguong nay Worker het memory 128MB khi decode file chu khong phai het subrequest.
 - Facebook pagination khong duoc keo vo han; giu limit de tranh Too many subrequests.
 - Worker background job dung `ctx.waitUntil`; progress khong luu in-memory ma luu D1.
 - CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua. Neu file khong co dong Group moi hoac toan duplicate, upload bi tu choi truoc khi tao ingest run.
