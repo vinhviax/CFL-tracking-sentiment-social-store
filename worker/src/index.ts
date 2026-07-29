@@ -16,7 +16,13 @@ import { translateRoute } from "./routes/translate";
 import { ingestFacebook } from "./services/facebook";
 import { describeSlotResolution } from "./services/llmAgentConfig";
 import { BYO_HEADER } from "./services/llmCatalog";
-import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "./services/processingQueue";
+import {
+  buildRunProcessingJobs,
+  drainProcessingQueue,
+  enqueueProcessingJobs,
+  recoverStaleProcessingJobs,
+  retryFailedProcessingJobs,
+} from "./services/processingQueue";
 import { ingestSensorTower } from "./services/sensortower";
 import {
   addDays,
@@ -88,10 +94,32 @@ app.route("/api/processing", processingRoute);
 export default {
   fetch: app.fetch,
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(dailyJob(env));
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // Two schedules share this handler: the daily ingest, and a five-minute sweep that
+    // only keeps the processing queue moving. The sweep must not re-run the ingest.
+    ctx.waitUntil(event.cron === DAILY_INGEST_CRON ? dailyJob(env) : sweepProcessingQueue(env));
   },
 };
+
+export const DAILY_INGEST_CRON = "45 6 * * *";
+
+/**
+ * Return abandoned and retryable jobs to the queue, then drain.
+ *
+ * This is what makes a long run finish on its own. Draining used to happen only inside
+ * requests the browser made, so closing the Ingest tab left the remainder of a run
+ * unprocessed until someone opened it again.
+ */
+export async function sweepProcessingQueue(env: Env) {
+  try {
+    await recoverStaleProcessingJobs(env);
+    const retried = await retryFailedProcessingJobs(env);
+    if (retried) console.log(`processing sweep: requeued ${retried} failed job(s)`);
+    await drainProcessingQueue(env);
+  } catch (e) {
+    console.error("processing queue sweep failed", e);
+  }
+}
 
 export async function dailyJob(env: Env) {
   try {

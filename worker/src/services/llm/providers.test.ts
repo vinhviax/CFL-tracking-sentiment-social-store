@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { GeminiProvider, OpenAIProvider, parseOpenAIChatContent, parseOpenAIChatResult } from "./providers";
+import { ensureMentionsJson, GeminiProvider, OpenAIProvider, parseOpenAIChatContent, parseOpenAIChatResult } from "./providers";
 import { addUsage } from "./base";
 
 describe("parseOpenAIChatContent", () => {
@@ -115,5 +115,39 @@ describe("GeminiProvider", () => {
         headers: expect.objectContaining({ "content-type": "application/json" }),
       })
     );
+  });
+});
+
+describe("ensureMentionsJson", () => {
+  test("appends a JSON mention when the prompt has none", () => {
+    // agent-shop rejects json_object mode outright if no message says "json".
+    const out = ensureMentionsJson("Phân loại các bình luận sau:\n[id=1] lag quá");
+    expect(out).toMatch(/json/i);
+    expect(out).toContain("Phân loại các bình luận sau:");
+  });
+
+  test("leaves a prompt that already mentions JSON untouched, in any case", () => {
+    const upper = 'Trả về JSON: {"results":[]}';
+    const lower = "return json only";
+    expect(ensureMentionsJson(upper)).toBe(upper);
+    expect(ensureMentionsJson(lower)).toBe(lower);
+  });
+
+  test("json mode sends the guaranteed mention, plain text mode does not touch the prompt", async () => {
+    const bodies: any[] = [];
+    const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
+      bodies.push(JSON.parse(String(init?.body || "{}")));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAIProvider("gpt-x", "key", "https://example.test/v1", "openai_viax");
+    await provider.completeJson("system without the word", "user without it either");
+    await provider.completeText("system without the word", "user without it either");
+
+    expect(bodies[0].response_format).toEqual({ type: "json_object" });
+    expect(bodies[0].messages[1].content).toMatch(/json/i);
+    expect(bodies[1].response_format).toBeUndefined();
+    expect(bodies[1].messages[1].content).toBe("user without it either");
   });
 });

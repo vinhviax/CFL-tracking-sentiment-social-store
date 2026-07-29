@@ -20,7 +20,11 @@
   ],
 
   "triggers": {
-    "crons": ["45 6 * * *"]
+    // 45 6 UTC = 13:45 GMT+7: the daily ingest.
+    // Every 5 minutes: sweep abandoned/failed processing jobs and keep the queue
+    // moving. Without it, progress depends on a browser polling the Ingest page, so a
+    // long re-analysis stalled the moment the tab was closed.
+    "crons": ["45 6 * * *", "*/5 * * * *"]
   },
 
   // Which provider and model each slot uses lives in the provider catalog

@@ -32,6 +32,7 @@ type QueueStore = {
   claimNext(env: Env, opts?: { maxRunning?: number }): Promise<ProcessingQueueJob | null>;
   markDone(env: Env, id: number): Promise<void>;
   requeue(env: Env, id: number): Promise<void>;
+  failAttempt(env: Env, id: number, error: string, maxAttempts: number): Promise<{ willRetry: boolean; attempts: number }>;
   markFailed(env: Env, id: number, error: string): Promise<void>;
   markCancelled(env: Env, id: number, error: string): Promise<void>;
   isCancelled(env: Env, id: number): Promise<boolean>;
@@ -50,7 +51,23 @@ const defaultDeps: QueueDeps = {
   runTranslation,
 };
 
-const STALE_RUNNING_MS = 10 * 60 * 1000;
+/**
+ * How long a 'running' job may go without logging a batch before it is considered
+ * abandoned and returned to the queue.
+ *
+ * Short, because the common failure is a drain whose Worker invocation ends mid-flight
+ * (waitUntil cut off, or a limit hit): the row stays 'running' with nothing to finish
+ * it, and until it is reclaimed the run simply stops. Safe to keep short because
+ * liveness is measured from the job's newest batch log, not from when it started — a
+ * job that is still working keeps logging.
+ */
+const STALE_RUNNING_MS = 3 * 60 * 1000;
+/**
+ * Retries per job before giving up. High on purpose: every attempt processes up to
+ * PROCESSING_JOB_MAX_BATCHES batches and only re-selects what is still unprocessed, so
+ * attempts are progress, not repetition. This is a runaway guard, not a budget.
+ */
+const MAX_JOB_ATTEMPTS = 200;
 const DEFAULT_QUEUE_CONCURRENCY = 2;
 const MAX_QUEUE_CONCURRENCY = 5;
 const DEFAULT_JOB_MAX_BATCHES = 3;
@@ -87,13 +104,33 @@ export async function recoverStaleProcessingJobs(env: Env, staleMs = STALE_RUNNI
        )`
   ).bind(now, now).run();
 
+  // Liveness is the newest batch log for the job, falling back to updated_at for a job
+  // that died before logging anything. Using started_at/updated_at alone would either
+  // reclaim a job that is still working or wait far too long to notice a dead one.
   const cutoff = new Date(Date.now() - staleMs).toISOString();
   await env.DB.prepare(
     `UPDATE processing_queue
      SET status = 'queued', updated_at = ?, error = NULL
      WHERE status = 'running'
-       AND updated_at < ?`
+       AND COALESCE(
+             (SELECT MAX(l.created_at) FROM processing_logs l WHERE l.processing_job_id = processing_queue.id),
+             processing_queue.updated_at
+           ) < ?`
   ).bind(new Date().toISOString(), cutoff).run();
+}
+
+/**
+ * Re-queue jobs that failed but still have attempts left, so a transient upstream error
+ * (502 from the LLM proxy, a dropped connection) does not end a run permanently.
+ */
+export async function retryFailedProcessingJobs(env: Env, maxAttempts = MAX_JOB_ATTEMPTS) {
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(
+    `UPDATE processing_queue
+     SET status = 'queued', updated_at = ?, finished_at = NULL
+     WHERE status = 'failed' AND attempts < ?`
+  ).bind(now, maxAttempts).run();
+  return Number(result.meta?.changes || 0);
 }
 
 const d1QueueStore: QueueStore = {
@@ -182,6 +219,26 @@ const d1QueueStore: QueueStore = {
     await env.DB.prepare(
       `UPDATE processing_queue SET status = 'queued', updated_at = ? WHERE id = ? AND status = 'running'`
     ).bind(now, id).run();
+  },
+
+  /**
+   * Count the attempt and put the job back in the queue unless it has used them all.
+   * Returns true when the job will be retried, so the caller can report "will retry"
+   * rather than "failed".
+   */
+  async failAttempt(env, id, error, maxAttempts) {
+    const now = new Date().toISOString();
+    const row = await env.DB.prepare(
+      `UPDATE processing_queue
+       SET attempts = attempts + 1,
+           error = ?,
+           updated_at = ?,
+           status = CASE WHEN attempts + 1 < ? THEN 'queued' ELSE 'failed' END,
+           finished_at = CASE WHEN attempts + 1 < ? THEN NULL ELSE ? END
+       WHERE id = ?
+       RETURNING status, attempts`
+    ).bind(error, now, maxAttempts, maxAttempts, now, id).first<{ status: string; attempts: number }>();
+    return { willRetry: row?.status === "queued", attempts: Number(row?.attempts || 0) };
   },
 
   async markFailed(env, id, error) {
@@ -367,9 +424,15 @@ export async function drainProcessingQueue(
         return true;
       }
       const error = e?.message || String(e);
-      await setProgress(env, job.progress_key, { status: "failed", error });
-      await store.markFailed(env, job.id, error);
-      return true;
+      // A transient upstream error used to end the run here. Count the attempt and put
+      // the job back instead: the next attempt re-selects only comments that are still
+      // unprocessed, so a retry resumes rather than repeats.
+      const { willRetry, attempts } = await store.failAttempt(env, job.id, error, MAX_JOB_ATTEMPTS);
+      await setProgress(env, job.progress_key, {
+        status: willRetry ? "queued" : "failed",
+        error: willRetry ? `${error} (sẽ thử lại, lần ${attempts})` : error,
+      });
+      return !willRetry;
     }
   }
 

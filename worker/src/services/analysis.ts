@@ -150,6 +150,9 @@ export async function runAnalysis(
   const batchSize = getAnalysisBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
   let analyzed = 0;
+  // Batches whose LLM call failed. They stay unprocessed so the job requeues and picks
+  // them up next attempt, rather than the whole run ending on one bad batch.
+  let failedBatches = 0;
   const analyzedAt = new Date().toISOString();
   const groups = chunk(comments, batchSize);
   const groupsToProcess = opts.maxBatches == null ? groups : groups.slice(0, Math.max(1, opts.maxBatches));
@@ -201,7 +204,14 @@ export async function runAnalysis(
           error: e?.message || String(e),
         });
       }
-      throw e;
+      // Do not rethrow. Rejecting here aborts the sibling batches running under
+      // mapWithConcurrency, throwing away work that had already succeeded. Record the
+      // failure, leave this group unprocessed, and let the job requeue: the next
+      // attempt re-selects exactly the comments still missing an analysis.
+      // Cancellation must still propagate so the job stops instead of retrying.
+      if (e?.name === "ProcessingJobCancelledError") throw e;
+      failedBatches += 1;
+      return;
     }
 
     const stmts = batch.classifications.map((r) =>
@@ -255,9 +265,9 @@ export async function runAnalysis(
     await opts.shouldContinue?.();
   });
 
-  if (analyzed < comments.length) {
+  if (analyzed < comments.length || failedBatches > 0) {
     await setProgress(env, opts.progressKey, { status: "queued" });
-    return { analyzed, provider: svc.providerName, total, complete: false };
+    return { analyzed, provider: svc.providerName, total, complete: false, failedBatches };
   }
 
   await setProgress(env, opts.progressKey, { status: "done" });

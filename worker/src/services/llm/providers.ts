@@ -1,6 +1,22 @@
 import type { LLMProvider, LLMResult, LLMUsage } from "./base";
 import { getLlmProvider } from "../llmCatalog";
 
+/**
+ * Guarantee the user message mentions JSON, which `response_format: json_object`
+ * requires.
+ *
+ * OpenAI documents the rule and some gateways enforce it hard: agent-shop translates
+ * Chat Completions into the Responses API and rejects the call outright with
+ * "Response input messages must contain the word 'json' in some form to use
+ * 'text.format' of type 'json_object'" — a per-batch failure that is invisible unless
+ * you read the upstream body. Enforcing it here rather than in each prompt means a
+ * future prompt edit cannot silently reintroduce it.
+ */
+export function ensureMentionsJson(user: string): string {
+  if (/json/i.test(user)) return user;
+  return `${user}\n\nTrả lời bằng JSON hợp lệ (json).`;
+}
+
 /** Read an OpenAI-shaped `usage` object. Returns undefined unless both counts are present. */
 function readOpenAIUsage(usage: any): LLMUsage | undefined {
   const input = usage?.prompt_tokens;
@@ -156,12 +172,13 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   private async chat(system: string, user: string, jsonMode: boolean): Promise<LLMResult> {
+    const messages = [
+      { role: "system", content: system },
+      { role: "user", content: jsonMode ? ensureMentionsJson(user) : user },
+    ];
     const body: any = {
       model: this.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      messages,
       temperature: jsonMode ? 0 : 0.3,
     };
     if (jsonMode) body.response_format = { type: "json_object" };

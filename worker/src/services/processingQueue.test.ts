@@ -20,6 +20,7 @@ describe("processing queue", () => {
         calls.push(`done:${id}`);
       }),
       requeue: vi.fn(),
+      failAttempt: vi.fn(async () => ({ willRetry: false, attempts: 1 })),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => false),
@@ -75,6 +76,7 @@ describe("processing queue", () => {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(async () => undefined),
       requeue: vi.fn(),
+      failAttempt: vi.fn(async () => ({ willRetry: false, attempts: 1 })),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => false),
@@ -115,6 +117,7 @@ describe("processing queue", () => {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(),
       requeue: vi.fn(),
+      failAttempt: vi.fn(async () => ({ willRetry: false, attempts: 1 })),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => true),
@@ -148,6 +151,7 @@ describe("processing queue", () => {
       claimNext: vi.fn(),
       markDone: vi.fn(),
       requeue: vi.fn(),
+      failAttempt: vi.fn(async () => ({ willRetry: false, attempts: 1 })),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(),
@@ -293,6 +297,7 @@ describe("processing queue", () => {
       claimNext: vi.fn(async () => jobs.shift() || null),
       markDone: vi.fn(),
       requeue: vi.fn(),
+      failAttempt: vi.fn(async () => ({ willRetry: false, attempts: 1 })),
       markFailed: vi.fn(),
       markCancelled: vi.fn(),
       isCancelled: vi.fn(async () => false),
@@ -315,5 +320,86 @@ describe("processing queue", () => {
     expect(deps.runAnalysis).toHaveBeenCalledWith(env, expect.objectContaining({
       maxBatches: 3,
     }));
+  });
+});
+
+describe("retrying instead of dying", () => {
+  /** setProgress writes to analyze_jobs, so the error paths need a DB that responds. */
+  function envWithDb() {
+    return {
+      DB: {
+        prepare() {
+          return {
+            bind() { return this; },
+            async first() { return { id: 1 }; },
+            async run() { return {}; },
+            async all() { return { results: [] }; },
+          };
+        },
+      },
+    } as any;
+  }
+
+  function storeWithFailAttempt(willRetry: boolean) {
+    return {
+      claimNext: vi.fn()
+        .mockResolvedValueOnce({ id: 7, job_type: "analysis", progress_key: "run-97", run_id: 97 } as any)
+        .mockResolvedValue(null),
+      markDone: vi.fn(async () => {}),
+      requeue: vi.fn(async () => {}),
+      failAttempt: vi.fn(async () => ({ willRetry, attempts: willRetry ? 3 : 200 })),
+      markFailed: vi.fn(async () => {}),
+      markCancelled: vi.fn(async () => {}),
+      isCancelled: vi.fn(async () => false),
+      cancelJob: vi.fn(async () => null),
+      enqueueJobs: vi.fn(async () => {}),
+    };
+  }
+
+  test("a thrown job counts an attempt and is queued again, not marked failed", async () => {
+    // One 502 from the LLM proxy used to end the whole run here.
+    const store = storeWithFailAttempt(true);
+    const deps = {
+      runAnalysis: vi.fn(async () => { throw new Error("OpenAI API lỗi 502"); }),
+      discoverAndStoreRunMemory: vi.fn(async () => ({}) as any),
+      runTranslation: vi.fn(async () => ({}) as any),
+    } as any;
+
+    await drainProcessingQueue(envWithDb(), deps, store as any);
+
+    expect(store.failAttempt).toHaveBeenCalledWith(expect.anything(), 7, expect.stringContaining("502"), expect.any(Number));
+    expect(store.markFailed).not.toHaveBeenCalled();
+  });
+
+  test("only once the attempts are exhausted does the job stay failed", async () => {
+    const store = storeWithFailAttempt(false);
+    const deps = {
+      runAnalysis: vi.fn(async () => { throw new Error("still broken"); }),
+      discoverAndStoreRunMemory: vi.fn(async () => ({}) as any),
+      runTranslation: vi.fn(async () => ({}) as any),
+    } as any;
+
+    await drainProcessingQueue(envWithDb(), deps, store as any);
+
+    // failAttempt itself flips the row to 'failed' once attempts run out, so the job
+    // is neither requeued nor separately marked failed.
+    expect(store.failAttempt).toHaveBeenCalledTimes(1);
+    expect(store.requeue).not.toHaveBeenCalled();
+    expect(store.markDone).not.toHaveBeenCalled();
+  });
+
+  test("a cancelled job is still cancelled, not retried", async () => {
+    const store = storeWithFailAttempt(true);
+    store.isCancelled = vi.fn(async () => true);
+    const deps = {
+      runAnalysis: vi.fn(async () => ({ analyzed: 0, complete: true }) as any),
+      discoverAndStoreRunMemory: vi.fn(async () => ({}) as any),
+      runTranslation: vi.fn(async () => ({}) as any),
+    } as any;
+
+    await drainProcessingQueue(envWithDb(), deps, store as any);
+
+    expect(store.markCancelled).toHaveBeenCalled();
+    expect(store.failAttempt).not.toHaveBeenCalled();
   });
 });

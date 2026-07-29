@@ -260,6 +260,8 @@ export async function runTranslation(
 
   const translatedAt = new Date().toISOString();
   let done = 0;
+  // Batches whose LLM call failed; left unprocessed so the job requeues for them.
+  let failedBatches = 0;
   const batchSize = getTranslationBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
   const groups = chunk(comments, batchSize);
@@ -313,7 +315,12 @@ export async function runTranslation(
             error: e?.message || String(e),
           });
         }
-        throw e;
+        // Not rethrown: rejecting aborts the sibling batches under mapWithConcurrency
+        // and discards their finished work. The job requeues and re-selects only the
+        // comments still missing a translation.
+        if (e?.name === "ProcessingJobCancelledError") throw e;
+        failedBatches += 1;
+        return;
       }
       const byId = new Map<number, TranslationResult>();
       for (const t of parseTranslationResults(raw)) byId.set(t.id, t);
@@ -369,9 +376,9 @@ export async function runTranslation(
     throw e;
   }
 
-  if (done < comments.length) {
+  if (done < comments.length || failedBatches > 0) {
     await setProgress(env, opts.progressKey, { status: "queued" });
-    return { translated: done, total, provider: providerName, complete: false };
+    return { translated: done, total, provider: providerName, complete: false, failedBatches };
   }
 
   await setProgress(env, opts.progressKey, { status: "done" });
