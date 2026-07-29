@@ -38,7 +38,14 @@
     "CLASSIFY_BATCH_SIZE": "20",
     "ANALYSIS_BATCH_SIZE": "20",
     "TRANSLATION_BATCH_SIZE": "20",
-    "LLM_BATCH_CONCURRENCY": "5",
+    // Lowered from 5 back toward the original default overnight 2026-07-29→30: the
+    // shared "gemini_viax" (ag/gemini-3-flash-agent via the antigravity backend) proxy
+    // started returning 403 "reset after Ns" on every translation batch once this many
+    // concurrent LLM calls hit it at once — the 403 re-triggered on the very next
+    // attempt each time, so it was not a one-off, it needed less concurrent load.
+    // Reasoning-slot batches (openai_viax) ran fine at 5 all night; this proxy just has
+    // a lower concurrent-request ceiling.
+    "LLM_BATCH_CONCURRENCY": "2",
     "PROCESSING_JOB_MAX_BATCHES": "5",
     "PROCESSING_QUEUE_CONCURRENCY": "3",
     "LLM_VIAX_BASE_URL": "https://rpi7jss.abc-tunnel.us/v1"
