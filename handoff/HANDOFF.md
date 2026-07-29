@@ -5,16 +5,24 @@ Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligenc
 
 ## ⚠️ VIỆC ĐANG CHẠY — ĐỌC TRƯỚC KHI LÀM GÌ KHÁC
 
-**33 run đang được phân tích lại + dịch lại trên production**, kích hoạt cuối phiên trước (`force:true`). Cron 5 phút (`*/5 * * * *`) sẽ tự drain queue qua đêm, không cần máy tính nào mở. Khi bạn vào lại:
+**33 run đang được phân tích lại + dịch lại trên production**, kích hoạt cuối phiên trước (`force:true`). Cron 5 phút (`*/5 * * * *`) sẽ tự drain queue qua đêm, không cần máy tính nào mở. Tiến độ đo được qua nhiều lần kiểm tra (số comment còn là fallback từ khóa):
+
+```
+58.718 → 58.500 → 58.180 → 57.920 → 54.898 → 53.898 → 53.535
+→ 21.279 → 1.001 (mắc kẹt tại đây do bug — xem mục G)
+```
+
+**Đã tìm ra và fix 1 bug quan trọng trong đêm (mục G bên dưới)**: cơ chế "force re-chạy" bị mắc kẹt vĩnh viễn ở 1.001 comment cuối cùng vì `started_at` của job không bao giờ được reset khi re-force. Đã fix + deploy (commit `2f497e3`) + re-kích hoạt 9 run còn bị kẹt (99, 47, 53, 59, 61, 67, 75, 83, 73) với code đã sửa, và khởi động thêm vòng lặp drain nền. Khi bạn vào lại:
 
 1. Kiểm tra còn bao nhiêu comment còn là fallback từ khóa — query D1 trực tiếp (xem "Lệnh nhanh" bên dưới):
    `SELECT COUNT(*) FROM analyses WHERE (summary IS NULL OR TRIM(summary)='') AND confidence=0.35`.
-   Mốc đo được: **58.718** (đầu phiên, trước khi kích hoạt) → 58.500 → 58.180 → 57.920 → 54.898 → 53.898 → **53.535** (mốc cuối cùng đo được trước khi kết thúc phiên). Tốc độ quan sát được: **~1 comment/giây** khi chạy drain liên tục. Với tốc độ này, phần còn lại cần nhiều giờ chạy liên tục — cron 5 phút một mình sẽ chậm hơn nhiều vì mỗi lần chỉ 1 chu kỳ claim.
-2. Nếu còn nhiều (queue chưa chạy hết qua đêm), **dùng vòng lặp drain đồng bộ** thay vì chờ cron — xem mục "Lệnh nhanh" — vòng lặp `POST /api/processing/drain`. Cuối phiên trước đã khởi động một vòng lặp nền 200 lần drain (~115s/lần) — kiểm tra xem nó đã chạy xong chưa và số liệu đã giảm tới đâu trước khi khởi động vòng lặp mới.
-3. Nếu đã xong hết (con_keyword ~0), kiểm tra chất lượng bằng cách đọc vài dòng `summary` thật và báo cho user.
-4. **Sau khi TẤT CẢ run đã chạy xong** (con_keyword ~0 hoặc rất thấp, chỉ còn vài dòng thật sự không phân loại được), **sửa lỗi hiển thị UI đã ghi ở mục F bên dưới** — user đã yêu cầu để lỗi đó lại, ưu tiên chạy xong data trước.
+   Nếu số này đã giảm mạnh dưới 1.001 (đặc biệt nếu về gần 0), nghĩa là fix ở mục G đã hoạt động đúng — không cần làm gì thêm với bug đó.
+   Nếu số này **vẫn đứng yên ở 1.001** hoặc gần đó sau khi bạn đã chạy `POST /api/processing/drain` vài lần, đọc kỹ mục G để hiểu cơ chế rồi debug tiếp (có thể còn 1 lỗ hổng khác tương tự chưa phát hiện).
+2. Nếu còn nhiều, **dùng vòng lặp drain đồng bộ** thay vì chờ cron — xem mục "Lệnh nhanh" — vòng lặp `POST /api/processing/drain`.
+3. Nếu đã xong hết (con_keyword ~0 hoặc chỉ còn vài chục dòng lẻ tẻ do lỗi thật của LLM, không phải do bug), kiểm tra chất lượng bằng cách đọc vài dòng `summary` thật và báo cho user.
+4. **Sau khi TẤT CẢ run đã chạy xong**, **sửa lỗi hiển thị UI đã ghi ở mục F bên dưới** — user đã yêu cầu để lỗi đó lại, ưu tiên chạy xong data trước.
 
-**Danh sách 33 run đã kích hoạt** (analysis + translation, force=true), ID:
+**Danh sách 33 run đã kích hoạt ban đầu** (analysis + translation, force=true), ID:
 ```
 47 51 53 54 55 56 57 58 59 61 62 63 64 65 67 69 70 71 72 73
 75 77 79 81 82 83 85 86 87 89 91 95 99
@@ -106,6 +114,22 @@ User báo "sao tôi chả thấy gì" khi nhìn danh sách "Hàng đợi xử l�
 - Cân nhắc: 2 run siêu lớn (#47, #53) có nên tách thành job kích thước giới hạn hơn (theo comment_ids con thay vì cả run) để không chiếm slot liên tục, cho các run nhỏ chạy song song thay vì xếp hàng dài? Đây là thay đổi kiến trúc, cần bàn với user trước khi làm.
 - File liên quan: `frontend/src/pages/IngestSettings.jsx` (component hiển thị "Hàng đợi xử lý" / tracked jobs), `worker/src/services/processingQueue.ts` (logic FIFO + concurrency).
 
+### G. Bug nghiêm trọng: cơ chế "force re-chạy" tự mắc kẹt vĩnh viễn — ĐÃ FIX (commit `2f497e3`)
+
+**Phát hiện lúc nào**: đêm 29→30/07, sau khi 33 run kích hoạt ban đầu đã giảm số fallback từ 58.718 xuống 21.279 rồi xuống 1.001 — nhưng sau đó **đứng yên tuyệt đối ở 1.001** dù chạy thêm 300 lần drain. Đào sâu phát hiện: log lỗi mới nhất của run-47 dừng ở `19:17`, dù tôi đã re-force nó nhiều giờ sau — nghĩa là lần re-force đó **không hề chạm** vào các comment còn lại.
+
+**Nguyên nhân gốc** (bug tôi tự gây ra khi viết cơ chế `forceSince` ở mục E): khi bấm "Phân tích lại" trên 1 run **đã từng chạy xong** (progress_key trùng, vd `run-47`), hàm `enqueueJobs` chỉ có `ON CONFLICT DO UPDATE` reset `status`/`error`, **không reset `started_at`**. Mà `started_at` chính là `forceSince` — mốc cutoff để quyết định comment nào "còn cần xử lý" (`analyzed_at < forceSince`). Vì `started_at` dùng `COALESCE(started_at, ?)` khi claim — chỉ set 1 lần duy nhất trong toàn bộ vòng đời của progress_key đó, không bao giờ đổi sau đó.
+
+**Hệ quả tai hại**: giả sử run-47 được kích hoạt lần đầu lúc 15:53. Batch nào đó lỗi cả 2 provider (`openai_viax` lẫn `gemini_viax` fallback safety net) → rơi về keyword fallback lúc 19:17, ghi `analyzed_at = 19:17`. Nếu bạn bấm "Phân tích lại" run-47 một lần nữa vào lúc 21:00, hệ thống dùng lại `forceSince = 15:53` (KHÔNG đổi) — mà `19:17 > 15:53`, nên điều kiện `analyzed_at < forceSince` là SAI với đúng comment vừa fallback đó → nó bị coi là "đã xử lý trong phiên force này rồi", **bỏ qua vĩnh viễn**, dù thực chất chưa từng được LLM phân tích thật. Không có cách nào bấm lại nút để sửa — nó sẽ mãi mãi bỏ qua đúng những comment cần sửa nhất.
+
+Đây chính là lý do 1.001 comment (rải ở run #99, #47, #53, #59, #61, #67, #75, #83, #73) đứng yên không nhúc nhích dù chạy drain bao nhiêu lần.
+
+**Cách fix**: sửa `ON CONFLICT DO UPDATE` trong `worker/src/services/processingQueue.ts` (`enqueueJobs`) — chỉ reset `started_at = NULL` và `attempts = 0` khi row đang ở trạng thái **terminal** (`done`/`failed`/`cancelled`); nếu job đang `queued`/`running` thật sự (active) thì GIỮ NGUYÊN baseline của nó (tránh xáo trộn 1 job đang chạy dở). Đã viết 4 test mô phỏng đúng hành vi `ON CONFLICT` bằng D1 giả lập thật (`fakeQueueDb` trong `processingQueue.test.ts`), verify trên production: `started_at` của run-47 nhảy từ `2026-07-29T15:53:57Z` (đông cứng) sang timestamp mới sau khi re-force với code đã fix.
+
+**Đã làm sau khi fix**: deploy (Version `398d1796...`), re-force lại cả 9 run bị kẹt (analyze + translate), khởi động thêm vòng lặp drain nền 80 lần. Cần kiểm tra kết quả khi đọc handoff này — xem số liệu ở mục "VIỆC ĐANG CHẠY" đầu file.
+
+**Bài học nếu viết lại cơ chế "force" cho chỗ khác trong tương lai**: đừng dùng mốc thời gian cố định (`started_at`/`forceSince`) làm điều kiện hội tụ nếu bản thân quá trình xử lý có thể **ghi lại `analyzed_at` mới** cho đúng những dòng chưa xử lý thành công (như fallback). Cách an toàn hơn: theo dõi rõ ràng "đã thử qua LLM thật trong phiên force này chưa" bằng 1 cột/giá trị riêng (không dùng timestamp so sánh), hoặc đảm bảo baseline luôn được refresh mỗi khi có ai chủ động bấm "chạy lại".
+
 ## Câu hỏi còn treo: có cần dịch lại summary không?
 
 User hỏi riêng câu này. Trả lời: **bản dịch COMMENT thì không cần** (0/58.718 rỗng, nội dung không đổi). Nhưng **bản dịch SUMMARY thì có** — vì lúc dịch, summary tiếng Việt đang RỖNG (trước khi có phân tích LLM thật), nên `summary_translated` hoặc rỗng (24.948 dòng) hoặc dịch từ chuỗi rỗng (không khớp gì với summary mới sau khi phân tích lại). Hiện **chưa có chế độ "chỉ dịch lại summary"** — bấm "Dịch lại" sẽ dịch lại CẢ comment lẫn summary, tốn thêm token vô ích cho phần comment (đã đúng rồi). Nếu muốn tối ưu, có thể thêm mode riêng — chưa làm trong phiên này, hỏi user trước khi làm vì là thay đổi hành vi API.
@@ -150,6 +174,7 @@ cd "C:\Temp\cfl-export-20260720-1442\worker"; npx wrangler tail cfl-feedback-wor
 ## Gotcha quan trọng (còn hiệu lực, cộng thêm phiên này)
 
 - **Nút "Phân tích lại"/"Dịch lại" phải gửi `force`** — nếu sau này sửa code frontend, đừng vô tình bỏ mất tham số này, nó sẽ quay lại thành no-op im lặng y hệt bug vừa fix.
+- **`enqueueJobs` phải reset `started_at`/`attempts` khi re-enqueue 1 job đang ở trạng thái terminal** (xem mục G) — nếu sau này sửa lại SQL `ON CONFLICT` của bảng `processing_queue`, đừng bỏ mất phần reset này, nếu không "force re-chạy" sẽ lại mắc kẹt vĩnh viễn giống hệt bug đã fix đêm 29→30/07.
 - **`prompt_version` KHÔNG phải bằng chứng LLM đã chạy** — nó chỉ là version của PROMPT, không phải của "provider đã tạo ra dòng này". Muốn biết có thật sự là LLM hay fallback, kiểm tra `summary` rỗng + `confidence=0.35` đồng thời (chữ ký của `classifyFallback`).
 - **Batch size 20 là kết quả đo lường thật, đừng tăng lại 50** nếu chưa có lý do rõ ràng — sẽ làm run đứng im (mỗi batch "started" không bao giờ "completed").
 - **`STALE_RUNNING_MS` = 3 phút, đo bằng log mới nhất của job** (không phải `started_at`/`updated_at` đơn thuần) — đừng sửa về cách đo cũ, sẽ làm job "còn sống" giả tạo kéo dài mãi mãi.
