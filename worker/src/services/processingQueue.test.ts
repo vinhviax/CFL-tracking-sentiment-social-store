@@ -2,10 +2,58 @@ import { describe, expect, test, vi } from "vitest";
 import {
   cancelProcessingJob,
   drainProcessingQueue,
+  enqueueProcessingJobs,
   listProcessingJobs,
   recoverStaleProcessingJobs,
   type ProcessingQueueJob,
 } from "./processingQueue";
+
+/**
+ * Minimal SQLite-shaped D1 fake that actually implements the enqueue
+ * INSERT ... ON CONFLICT upsert in JS, keyed by progress_key, so these tests exercise
+ * the real SQL semantics rather than a mock that just records calls.
+ */
+function fakeQueueDb() {
+  const rows = new Map<string, any>();
+  const DB = {
+    async batch(statements: any[]) {
+      return Promise.all(statements.map((s) => s.run()));
+    },
+    prepare(sql: string) {
+      return {
+        bind(...args: any[]) {
+          return {
+            // enqueueProcessingJobs also calls setProgress, which reads/writes
+            // analyze_jobs first — irrelevant to what these tests check, so just no-op it.
+            async first() { return null; },
+            async run() {
+              if (!sql.includes("INSERT INTO processing_queue")) return {};
+              const [job_type, run_id, comment_ids_json, locale, progress_key, force, limit_count, created_at, updated_at] = args;
+              const existing = rows.get(progress_key);
+              if (!existing) {
+                rows.set(progress_key, {
+                  job_type, run_id, comment_ids_json, locale, progress_key, force, limit_count,
+                  status: "queued", error: null, attempts: 0, started_at: null, created_at, updated_at,
+                });
+                return {};
+              }
+              const active = existing.status === "queued" || existing.status === "running";
+              existing.status = active ? existing.status : "queued";
+              existing.error = null;
+              existing.updated_at = updated_at;
+              if (!active) {
+                existing.started_at = null;
+                existing.attempts = 0;
+              }
+              return {};
+            },
+          };
+        },
+      };
+    },
+  };
+  return { env: { DB } as any, rows };
+}
 
 describe("processing queue", () => {
   test("drains queued jobs one at a time in FIFO order", async () => {
@@ -401,5 +449,60 @@ describe("retrying instead of dying", () => {
 
     expect(store.markCancelled).toHaveBeenCalled();
     expect(store.failAttempt).not.toHaveBeenCalled();
+  });
+});
+
+describe("re-enqueueing a progress_key with a real D1 upsert", () => {
+  test("a terminal job (done) gets a fresh started_at/attempts baseline on re-enqueue", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 47, progress_key: "run-47", force: true }]);
+    const row = rows.get("run-47");
+    row.status = "done";
+    row.started_at = "2026-07-29T15:53:57.308Z"; // first-ever claim time
+    row.attempts = 0;
+
+    // This is the exact bug: force-re-triggering "Phân tích lại" reuses the same
+    // progress_key. Without resetting started_at here, forceSince stays frozen at the
+    // first pass, so any comment whose fallback re-stamped analyzed_at after that time
+    // — even during THIS force run — looks "already handled" forever and can never be
+    // picked up by a later re-force.
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 47, progress_key: "run-47", force: true }]);
+
+    expect(rows.get("run-47")).toMatchObject({ status: "queued", started_at: null, attempts: 0, error: null });
+  });
+
+  test("an active job (queued or running) keeps its convergence baseline untouched", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 47, progress_key: "run-47" }]);
+    const row = rows.get("run-47");
+    row.status = "running";
+    row.started_at = "2026-07-29T15:53:57.308Z";
+    row.attempts = 3;
+
+    // ON CONFLICT can fire even for a job that is still genuinely in flight (e.g. a
+    // second enqueue call racing the first drain). Resetting started_at here would
+    // shift the running job's own cutoff out from under it.
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 47, progress_key: "run-47" }]);
+
+    expect(rows.get("run-47")).toMatchObject({ status: "running", started_at: "2026-07-29T15:53:57.308Z", attempts: 3 });
+  });
+
+  test("a failed job also gets a fresh baseline, not just done", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "translation", progress_key: "translate-run-47-zh-CN" }]);
+    const row = rows.get("translate-run-47-zh-CN");
+    row.status = "failed";
+    row.started_at = "2026-07-29T10:00:00.000Z";
+    row.attempts = 200;
+
+    await enqueueProcessingJobs(env, [{ job_type: "translation", progress_key: "translate-run-47-zh-CN" }]);
+
+    expect(rows.get("translate-run-47-zh-CN")).toMatchObject({ status: "queued", started_at: null, attempts: 0 });
+  });
+
+  test("a brand new progress_key just gets created, no conflict branch involved", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 200, progress_key: "run-200" }]);
+    expect(rows.get("run-200")).toMatchObject({ status: "queued", started_at: null, attempts: 0 });
   });
 });

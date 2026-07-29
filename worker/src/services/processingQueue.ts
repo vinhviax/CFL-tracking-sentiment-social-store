@@ -149,7 +149,23 @@ const d1QueueStore: QueueStore = {
              ELSE 'queued'
            END,
            error = NULL,
-           updated_at = excluded.updated_at`
+           updated_at = excluded.updated_at,
+           -- A forced re-run of a terminal job (done/failed/cancelled) needs a fresh
+           -- started_at: runAnalysis/runTranslation use it as the cutoff a comment must
+           -- be older than to still count as pending, so a comment re-analysed under the
+           -- first run (even one that fell back to keyword) stamps a fresh analyzed_at and
+           -- would look "already handled by this session" forever if the cutoff never
+           -- moved — the exact bug that stranded ~1,000 comments after the first pass.
+           -- An active (queued/running) job's own convergence baseline must not shift
+           -- underneath it, hence the same terminal-only guard as the status branch.
+           started_at = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.started_at
+             ELSE NULL
+           END,
+           attempts = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.attempts
+             ELSE 0
+           END`
       ).bind(
         job.job_type,
         job.run_id ?? null,
