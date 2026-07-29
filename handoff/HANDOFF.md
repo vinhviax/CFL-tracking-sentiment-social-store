@@ -7,13 +7,14 @@ Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
 
 - Workspace canonical (git repo): `J:\My Drive\CFL\Agent\Tracking Store Social` (branch `main`)
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
-- Commit moi nhat da push: `31092bc Correct the stale CSV chunking note in MEMORY.md`
-  - Commit chinh cua session: `c32e9ed Fix large Facebook CSV upload hitting Worker subrequest limit`
+- Commit moi nhat da push: `5313260 Preview the Facebook CSV in the browser instead of uploading it twice`
+  - Cac commit chinh: `c32e9ed` (fix subrequest CSV), `e0a5a57` (bat token usage), `e8e36e3` (aggregate token), `f0eb349` (UI token), `5313260` (bo upload 2 lan)
 - Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev`
-  - **Da deploy trong session nay**: Version ID `66566f6e-3d41-499d-b137-7ee28ecc8e43`
+  - **Da deploy**: Version ID `553e3156-5cf3-4804-86b0-abba4d7a0e2a`
 - Pages production: `https://cfl-feedback.pages.dev`
-  - **KHONG deploy trong session nay** (khong doi frontend). Deployment moi nhat van la `dae607a4`.
-- Test: 154/154 pass (33 file), `tsc --noEmit` exit 0.
+  - **Da deploy**: deployment `62087786` (Production/main), bundle `index-GPSgEEyD.js` / `index-oDrRCUkN.css`
+- **D1 migration da apply tren remote**: `0011_processing_logs_tokens.sql` (them `input_tokens`/`output_tokens` nullable vao `processing_logs` + index `created_at`).
+- Test: worker 174/174 (34 file) + frontend 60/60, `tsc --noEmit` exit 0.
 - **User da test tren production va confirm OK**: upload CSV Facebook file lon da chay duoc.
 
 Working tree J: sach, local va `origin/main` da dong bo.
@@ -73,9 +74,30 @@ Cong them 2 buc tuong nua se dung tiep neu file lon hon: **CPU 30s** (`wrangler.
 
 Tests moi trong `worker/src/services/csvIngest.test.ts`: stub D1 ghi lai SQL/params (`fakeDbReturning`) → verify quet 1 lan dung params, verify phan trang tiep khi page full va resume dung `id` cuoi, verify bo dieu kien ngay khi khong co ngay, verify budget subrequest o 60k dong < 900, verify message chia file.
 
+### Do token LLM: hien theo run + tong theo khoang ngay (commit e0a5a57, e8e36e3, f0eb349)
+
+**Truoc day KHONG luu token o dau ca**: `completeJson/completeText` chi tra `Promise<string>`, doc content roi bo luon object `usage`.
+
+- `LLMProvider` gio tra `{content, usage}` (`worker/src/services/llm/base.ts`). Moi provider map shape rieng: OpenAI `prompt_tokens`/`completion_tokens` (ke ca chunk cuoi cua response streaming), Anthropic `input_tokens`/`output_tokens`, Gemini `usageMetadata`. 5 caller da doi: `classifier.ts`, `translation.ts`, `insights.ts`, `taxonomyMemory.ts`, `gameModeTagging.ts`.
+  - **Usage phai di kem ket qua, KHONG duoc luu vao field tren provider instance** — `LLM_BATCH_CONCURRENCY` batch dung chung 1 instance nen `lastUsage` se gan token cho batch nao xong sau cung.
+- Luu vao `processing_logs.input_tokens/output_tokens` (nullable). **NULL = provider khong bao, KHAC 0 token** — dung bao gio collapse 2 cai nay.
+- `GET /api/stats/token-usage?from&to` group theo model; `from`/`to` la ngay **local Bangkok**, doi sang bound UTC trong JS (`resolveUtcDayRange`) chu khong boc `datetime(created_at)` vi se mat index.
+- `/api/runs` them `analysis_tokens`/`translation_tokens`, join qua **`processing_queue.run_id`** (chinh xac, va 1 query cho ca trang run). Ban theo khoang ngay thi doc `processing_logs` truc tiep, KHONG join — de con dem ca job `scheduled-pending` (run_id NULL) vi do cung la spend thuc.
+- UI: duoi badge Phan tich/Da dich moi run co so token + ten model; panel loc ngay nam canh hang pill nguon. Logic 3 trang thai o `frontend/src/pages/IngestSettings.helpers.js` (`tokenUsageState`): `none` (khong co batch → khong render gi), `missing` (co batch nhung khong bao usage → hien "chua ghi nhan"), `partial`/`full`.
+- **Da verify proxy `llm_viax` CO tra usage** (goi `/api/insights/generate` that: `input_tokens: 3444, output_tokens: 2499` voi `codex-lb/gpt-5.6-terra`).
+- ⚠️ **Mat xich CHUA quan sat duoc voi token that**: `analysis.ts`/`translation.ts` ghi `batch.usage` vao log. Luc lam thi DB da xu ly het (0 pending) nen khong co viec nao chay ma khong ton token vo ich; da khong xoa analysis that de test. **Lan chay dau tien sau day (cron 13:45 GMT+7, hoac upload CSV/keo Fanpage moi) se tu xac nhan** — vao Lich su Ingest xem run moi co so token thay cho "chua ghi nhan".
+- Tat ca 1.261 batch cu deu `batches_with_usage = 0` (chay truoc khi co do token) — dung, khong phai bug.
+
+### Bo viec upload CSV 2 lan (commit 5313260)
+
+Keo file vao truoc day POST ca file len `/api/ingest/preview-csv`, roi bam xac nhan POST **dung file do** len `/api/ingest/upload-csv` → file qua mang 2 lan, parse 2 lan. Gio preview parse ngay tren browser (`frontend/src/utils/facebookCsv.js`), **khong ton upload nao**.
+
+- `facebookCsv.js` la **ban port** cua `decodeCsvBytes`/`parseTsv`/`parseRows`/`parseVnDate` trong `worker/src/services/csvIngest.ts`. Worker **van parse lai** khi upload (khong tin client duoc) → **2 parser phai khop, doi format thi phai sua CA HAI**. `facebookCsv.test.js` mirror bo test cua worker de bat lech.
+- Da cross-check 2 parser voi endpoint that tren file co tinh kho (UTF-16LE BOM, CRLF, field quoted nhieu dong co tab, quote lap `""`, dong Store bi bo, dong thieu cot, ngay sai, ngay ISO, emoji): **moi count + khoang ngay + toan bo sample khop 100%**.
+- `/api/ingest/preview-csv` **van giu** — client khong dung nua nhung la mốc de cross-check ban port.
+
 ## Viec co the lam tiep (chua lam)
 
-- **File CSV bi upload + parse 2 LAN** — `onFileSelect` (`frontend/src/pages/IngestSettings.jsx:~598`) goi `previewCsv(file)` ngay khi keo vao, roi `confirmUpload` (`:~607`) goi `uploadCsv(file)` voi cung File do; worker parse lai tu dau ca 2 lan (`routes/ingest.ts:140` va `:125`). Bo duoc se giam nua thoi gian cho va nua ap luc memory. Huong don gian nhat: parse client-side cho phan preview (contract format ghi o dau `csvIngest.ts`). **Da tao task chip cho viec nay** (`task_d941cb7e`).
 - **Zombie v4 chi 1 tag** — gan nhu thieu tu khoa (nguoi choi goi kieu khac: "zombie 4.0", "zb4", hoac chi "zombie"). Xin user vai cach goi thuc te → them keyword vao dinh nghia mode → chay lai `POST /api/game-modes/tag` (vai giay). User da noi "tinh sau".
 - Neu user doi y muon loc subtopic doc lap tren workspace: backend da san sang (comments/stats/export deu EXISTS tren `comment_subtopics` doc lap topic); chi can bo `disabled={!filters.topic}` o dropdown Chu de con. User da tu choi 1 lan (chon "Giu nguyen").
 - Chay `game-modes/tag` dinh ky khi co data moi (route idempotent).
