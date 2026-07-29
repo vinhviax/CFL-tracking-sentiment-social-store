@@ -66,10 +66,14 @@ describe("addUsage", () => {
 
 describe("OpenAIProvider", () => {
   test("does not send stream_options, which is only legal alongside stream:true", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      choices: [{ message: { content: "{}" } }],
-      usage: { prompt_tokens: 7, completion_tokens: 8 },
-    }), { status: 200 }));
+    let sentBody = "";
+    const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
+      sentBody = String(init?.body || "");
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "{}" } }],
+        usage: { prompt_tokens: 7, completion_tokens: 8 },
+      }), { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const provider = new OpenAIProvider("gpt-x", "key", "https://example.test/v1", "llm_viax");
@@ -78,7 +82,7 @@ describe("OpenAIProvider", () => {
       usage: { input_tokens: 7, output_tokens: 8 },
     });
 
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const body = JSON.parse(sentBody);
     expect(body.stream_options).toBeUndefined();
     expect(body.stream).toBeUndefined();
   });

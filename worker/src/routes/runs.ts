@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
 import { deleteIngestRun } from "../services/deleteIngestRun";
+import { loadRunTokenUsage, sumTokenUsage, type TokenUsageGroup } from "../services/tokenUsage";
 
 export const runsRoute = new Hono<{ Bindings: Env }>();
 
@@ -11,7 +12,27 @@ function progressStatus(done: number, total: number): "not_applicable" | "not_st
   return "partial";
 }
 
-export function mapRunRow(row: any) {
+/**
+ * Split a run's token groups by job type. Returns null for a job type with no
+ * logged batches so the UI shows "no data" rather than a zero that looks like
+ * a free run — runs processed before token logging existed have none.
+ */
+function tokensForJobType(groups: TokenUsageGroup[], jobType: string) {
+  const matching = groups.filter((g) => g.job_type === jobType);
+  if (!matching.length) return null;
+  const total = sumTokenUsage(matching);
+  return {
+    ...total,
+    /** More than one entry means the job spanned models, e.g. a mid-run config change. */
+    by_model: matching.map((g) => ({
+      model: g.model,
+      input_tokens: g.input_tokens,
+      output_tokens: g.output_tokens,
+    })),
+  };
+}
+
+export function mapRunRow(row: any, tokenGroups: TokenUsageGroup[] = []) {
   const total = Number(row.comment_count || 0);
   const analyzed = Number(row.analyzed_count || 0);
   const translatedZhCn = Number(row.translated_zh_cn_count || 0);
@@ -24,6 +45,8 @@ export function mapRunRow(row: any) {
     translation_status: progressStatus(translatedZhCn, total),
     analysis_progress: { done: analyzed, total },
     translation_progress: { done: translatedZhCn, total, locale: "zh-CN" },
+    analysis_tokens: tokensForJobType(tokenGroups, "analysis"),
+    translation_tokens: tokensForJobType(tokenGroups, "translation"),
   };
 }
 
@@ -70,14 +93,17 @@ runsRoute.get("/", async (c) => {
     .prepare(`${RUN_SELECT} ORDER BY r.id DESC LIMIT ?`)
     .bind(limit)
     .all();
-  return c.json(rows.results.map(mapRunRow));
+  const results = rows.results as any[];
+  const tokensByRun = await loadRunTokenUsage(c.env, results.map((row) => Number(row.id)));
+  return c.json(results.map((row) => mapRunRow(row, tokensByRun.get(Number(row.id)) || [])));
 });
 
 runsRoute.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const row = await c.env.DB.prepare(`${RUN_SELECT} WHERE r.id = ?`).bind(id).first();
   if (!row) return c.json({ detail: "Run not found" }, 404);
-  return c.json(mapRunRow(row));
+  const tokensByRun = await loadRunTokenUsage(c.env, [id]);
+  return c.json(mapRunRow(row, tokensByRun.get(id) || []));
 });
 
 runsRoute.delete("/:id", async (c) => {

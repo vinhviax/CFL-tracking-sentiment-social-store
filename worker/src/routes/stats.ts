@@ -4,6 +4,7 @@ import { LEGACY_TOPIC_LABELS_VI, LEGACY_TOPIC_LABELS_ZH_CN, TOPIC_LABELS_VI, TOP
 import { summarizeStoreBreakdown } from "../services/storeStats";
 import { getSemanticSubtopic } from "../services/subtopicSemantics";
 import { addTopicFilter, parseTopicKeys } from "../services/topicScope";
+import { loadTokenUsageByRange } from "../services/tokenUsage";
 
 export const statsRoute = new Hono<{ Bindings: Env }>();
 
@@ -438,4 +439,16 @@ statsRoute.get("/store", async (c) => {
   }));
 
   return c.json({ rating_distribution: ratingDist, platforms, ...summarizeStoreBreakdown(ratingDist, platforms) });
+});
+
+/**
+ * LLM token spend over a date range, grouped by model.
+ *
+ * `from`/`to` are inclusive Bangkok-local days. Only batches logged after token
+ * capture shipped have figures, so an empty result for older dates means "not
+ * recorded", not "nothing spent".
+ */
+statsRoute.get("/token-usage", async (c) => {
+  const q = c.req.query();
+  return c.json(await loadTokenUsageByRange(c.env, { from: q.from, to: q.to }));
 });
