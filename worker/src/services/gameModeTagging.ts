@@ -197,7 +197,7 @@ export async function tagGameModes(env: Env, options: TagGameModesOptions = {}):
       const batch = ambiguousItems.slice(start, start + verifyBatchSize);
       llmBatches += 1;
       try {
-        const raw = await provider.completeJson(buildVerifySystem(), buildVerifyUser(batch));
+        const { content: raw } = await provider.completeJson(buildVerifySystem(), buildVerifyUser(batch));
         const results = parseVerifyResults(raw);
         if (options.debug && debugSamples.length < 2) {
           debugSamples.push({ raw: String(raw).slice(0, 1500), parsed_ids: [...results.keys()] });

@@ -295,7 +295,7 @@ async function discoverCandidates(env: Env, comments: RunCommentForMemory[]): Pr
   if (!provider) return { candidates: fallbackCandidates(comments), provider: "fallback", model: null };
 
   try {
-    const raw = await provider.completeJson(buildDiscoverySystem(), buildDiscoveryUser(comments, existing));
+    const { content: raw } = await provider.completeJson(buildDiscoverySystem(), buildDiscoveryUser(comments, existing));
     const parsed = parseSubtopicDiscoveryResults(raw);
     return {
       candidates: mergeSubtopicCandidates(parsed.length

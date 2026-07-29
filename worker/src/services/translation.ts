@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import type { LLMUsage } from "./llm/base";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { resolveLlmProvider } from "./llmAgentConfig";
 import { safeAddProcessingLog } from "./processingLogs";
@@ -286,8 +287,11 @@ export async function runTranslation(
         });
       }
       let raw: string;
+      let batchUsage: LLMUsage | undefined;
       try {
-        raw = await provider.completeJson(TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
+        const completion = await provider.completeJson(TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
+        raw = completion.content;
+        batchUsage = completion.usage;
       } catch (e: any) {
         if (opts.jobId != null) {
           await safeAddProcessingLog(env, {
@@ -350,6 +354,8 @@ export async function runTranslation(
           provider: providerName,
           model,
           duration_ms: Date.now() - started,
+          input_tokens: batchUsage?.input_tokens ?? null,
+          output_tokens: batchUsage?.output_tokens ?? null,
         });
       }
       await opts.shouldContinue?.();

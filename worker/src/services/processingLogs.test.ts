@@ -79,6 +79,8 @@ describe("processing logs", () => {
                     model: "ag/gemini-3-flash-agent",
                     duration_ms: 1500,
                     error: null,
+                    input_tokens: 12000,
+                    output_tokens: 3400,
                     created_at: "2026-07-07T03:00:00.000Z",
                   },
                 ],
@@ -105,6 +107,8 @@ describe("processing logs", () => {
         model: "ag/gemini-3-flash-agent",
         duration_ms: 1500,
         error: null,
+        input_tokens: 12000,
+        output_tokens: 3400,
         created_at: "2026-07-07T03:00:00.000Z",
       },
     ]);

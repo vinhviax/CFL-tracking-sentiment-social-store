@@ -17,6 +17,9 @@ export interface ProcessingLogEntry {
   model?: string | null;
   duration_ms?: number | null;
   error?: string | null;
+  /** NULL when the provider reported no usage — not the same as 0 tokens. */
+  input_tokens?: number | null;
+  output_tokens?: number | null;
 }
 
 function truncate(value: string | null | undefined, max = 1000) {
@@ -29,8 +32,9 @@ export async function addProcessingLog(env: Env, entry: ProcessingLogEntry) {
   await env.DB.prepare(
     `INSERT INTO processing_logs
        (processing_job_id, progress_key, job_type, level, phase, message,
-        batch_index, batch_total, item_count, provider, model, duration_ms, error, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        batch_index, batch_total, item_count, provider, model, duration_ms, error,
+        input_tokens, output_tokens, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     entry.processing_job_id,
     entry.progress_key,
@@ -45,6 +49,8 @@ export async function addProcessingLog(env: Env, entry: ProcessingLogEntry) {
     entry.model ?? null,
     entry.duration_ms ?? null,
     truncate(entry.error),
+    entry.input_tokens ?? null,
+    entry.output_tokens ?? null,
     now
   ).run();
 }
@@ -61,7 +67,8 @@ export async function listProcessingJobLogs(env: Env, jobId: number, opts: { lim
   const limit = Math.max(1, Math.min(Number(opts.limit) || 20, 100));
   const rows = await env.DB.prepare(
     `SELECT id, processing_job_id, progress_key, job_type, level, phase, message,
-            batch_index, batch_total, item_count, provider, model, duration_ms, error, created_at
+            batch_index, batch_total, item_count, provider, model, duration_ms, error,
+            input_tokens, output_tokens, created_at
      FROM processing_logs
      WHERE processing_job_id = ?
      ORDER BY id DESC
@@ -82,6 +89,8 @@ export async function listProcessingJobLogs(env: Env, jobId: number, opts: { lim
     model: row.model || null,
     duration_ms: row.duration_ms == null ? null : Number(row.duration_ms),
     error: row.error || null,
+    input_tokens: row.input_tokens == null ? null : Number(row.input_tokens),
+    output_tokens: row.output_tokens == null ? null : Number(row.output_tokens),
     created_at: row.created_at,
   }));
 }

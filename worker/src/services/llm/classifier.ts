@@ -1,15 +1,21 @@
 import { PROMPT_VERSION, TOPICS } from "../../taxonomy";
 import type { Env } from "../../types";
 import { TOPIC_KEYWORD_HINTS } from "../topicKeywords";
-import { Classification, CommentInput, validateClassification } from "./base";
+import { addUsage, Classification, CommentInput, validateClassification } from "./base";
 import { classifyFallback } from "./fallback";
 import { buildProvider } from "./providers";
-import type { LLMProvider } from "./base";
+import type { LLMProvider, LLMUsage } from "./base";
 
 export interface HumanCorrectionExample {
   comment: string;
   topic_main: string;
   note: string;
+}
+
+export interface ClassifyResult {
+  classifications: Classification[];
+  /** Undefined when the provider reported no usage (or the fallback classifier ran). */
+  usage?: LLMUsage;
 }
 
 export const CLASSIFIER_SYSTEM_PROMPT = `Bạn là senior liveops analyst cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Mục tiêu là đọc hiểu phản hồi người chơi để team vận hành/game ops biết vấn đề cần xử lý, không chỉ gắn nhãn theo từ khóa.
@@ -115,26 +121,39 @@ export class ClassifierService {
     this.batchSize = Number(env.CLASSIFY_BATCH_SIZE) || 30;
   }
 
-  private async classifyBatchLlm(items: CommentInput[], humanExamples: HumanCorrectionExample[] = []): Promise<Map<number, Classification>> {
+  private async classifyBatchLlm(
+    items: CommentInput[],
+    humanExamples: HumanCorrectionExample[] = []
+  ): Promise<{ classifications: Map<number, Classification>; usage?: LLMUsage }> {
     const out = new Map<number, Classification>();
-    if (!this.provider) return out;
-    const raw = await this.provider.completeJson(CLASSIFIER_SYSTEM_PROMPT, buildClassifierUserPrompt(items, humanExamples));
-    for (const rec of parseResults(raw)) {
+    if (!this.provider) return { classifications: out };
+    const { content, usage } = await this.provider.completeJson(
+      CLASSIFIER_SYSTEM_PROMPT,
+      buildClassifierUserPrompt(items, humanExamples)
+    );
+    for (const rec of parseResults(content)) {
       const c = validateClassification(rec);
       if (c) out.set(c.id, c);
     }
-    return out;
+    return { classifications: out, usage };
   }
 
-  async classify(items: CommentInput[], humanExamples: HumanCorrectionExample[] = []): Promise<Classification[]> {
+  async classify(
+    items: CommentInput[],
+    humanExamples: HumanCorrectionExample[] = []
+  ): Promise<ClassifyResult> {
     const results = new Map<number, Classification>();
+    // Summed across inner batches; stays undefined unless at least one call
+    // reported usage, so "unknown" never collapses into a misleading zero.
+    let usage: LLMUsage | undefined;
 
     if (this.provider) {
       for (let i = 0; i < items.length; i += this.batchSize) {
         const batch = items.slice(i, i + this.batchSize);
         try {
           const got = await this.classifyBatchLlm(batch, humanExamples);
-          got.forEach((v, k) => results.set(k, v));
+          got.classifications.forEach((v, k) => results.set(k, v));
+          usage = addUsage(usage, got.usage);
         } catch (e) {
           console.warn(`LLM batch failed (${e}), using fallback for ${batch.length} items`);
         }
@@ -144,6 +163,6 @@ export class ClassifierService {
     for (const it of items) {
       if (!results.has(it.id)) results.set(it.id, classifyFallback(it));
     }
-    return items.map((it) => results.get(it.id)!);
+    return { classifications: items.map((it) => results.get(it.id)!), usage };
   }
 }

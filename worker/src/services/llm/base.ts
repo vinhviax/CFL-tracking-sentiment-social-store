@@ -43,13 +43,49 @@ export function validateClassification(raw: any): Classification | null {
   };
 }
 
+/** Token counts for one LLM call, normalised across providers. Absent when the provider does not report them. */
+export interface LLMUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
+/**
+ * Sum two usage records, treating a missing side as "nothing to add" rather than
+ * as zero. Returns undefined only when neither side reported anything, so a
+ * provider that never reports usage stays distinguishable from one that used 0 tokens.
+ */
+export function addUsage(a?: LLMUsage, b?: LLMUsage): LLMUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    input_tokens: a.input_tokens + b.input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+  };
+}
+
+export interface LLMResult {
+  content: string;
+  /**
+   * Undefined when the upstream response carried no usage — notably an
+   * OpenAI-compatible proxy streaming without `stream_options.include_usage`.
+   * Callers must treat missing usage as unknown, never as zero.
+   */
+  usage?: LLMUsage;
+}
+
 export interface LLMProvider {
   name: string;
   model: string;
-  /** Ask for a JSON response (array/object). Provider may enforce JSON mode. */
-  completeJson(system: string, user: string): Promise<string>;
+  /**
+   * Ask for a JSON response (array/object). Provider may enforce JSON mode.
+   *
+   * Usage is returned per call rather than stashed on the provider because one
+   * provider instance serves LLM_BATCH_CONCURRENCY concurrent batches; a shared
+   * `lastUsage` field would attribute tokens to whichever batch finished last.
+   */
+  completeJson(system: string, user: string): Promise<LLMResult>;
   /** Ask for free-form text (no JSON mode) — used for the insight summary. */
-  completeText(system: string, user: string): Promise<string>;
+  completeText(system: string, user: string): Promise<LLMResult>;
 }
 
 export { TOPICS };

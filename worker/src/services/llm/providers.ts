@@ -1,13 +1,31 @@
-import type { LLMProvider } from "./base";
+import type { LLMProvider, LLMResult, LLMUsage } from "./base";
+
+/** Read an OpenAI-shaped `usage` object. Returns undefined unless both counts are present. */
+function readOpenAIUsage(usage: any): LLMUsage | undefined {
+  const input = usage?.prompt_tokens;
+  const output = usage?.completion_tokens;
+  if (typeof input !== "number" || typeof output !== "number") return undefined;
+  return { input_tokens: input, output_tokens: output };
+}
 
 export function parseOpenAIChatContent(raw: string): string {
+  return parseOpenAIChatResult(raw).content;
+}
+
+export function parseOpenAIChatResult(raw: string): LLMResult {
   const text = raw.trim();
   if (!text.startsWith("data:")) {
     const data: any = JSON.parse(text);
-    return data.choices?.[0]?.message?.content || "";
+    return {
+      content: data.choices?.[0]?.message?.content || "",
+      usage: readOpenAIUsage(data.usage),
+    };
   }
 
   const chunks: string[] = [];
+  // A streamed response reports usage only in a trailing chunk, and only when the
+  // caller asked for it; keep the last one seen rather than the first.
+  let usage: LLMUsage | undefined;
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
@@ -16,8 +34,9 @@ export function parseOpenAIChatContent(raw: string): string {
     const data: any = JSON.parse(payload);
     const content = data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content ?? "";
     if (content) chunks.push(content);
+    usage = readOpenAIUsage(data.usage) ?? usage;
   }
-  return chunks.join("");
+  return { content: chunks.join(""), usage };
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -28,7 +47,7 @@ export class AnthropicProvider implements LLMProvider {
     this.baseUrl = (baseUrl || "https://api.anthropic.com/v1").replace(/\/$/, "");
   }
 
-  private async complete(system: string, user: string): Promise<string> {
+  private async complete(system: string, user: string): Promise<LLMResult> {
     const res = await fetch(`${this.baseUrl}/messages`, {
       method: "POST",
       signal: AbortSignal.timeout(90000),
@@ -48,16 +67,24 @@ export class AnthropicProvider implements LLMProvider {
       throw new Error(`Anthropic API lỗi ${res.status}: ${await res.text()}`);
     }
     const data: any = await res.json();
-    return (data.content || [])
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("");
+    const input = data.usage?.input_tokens;
+    const output = data.usage?.output_tokens;
+    return {
+      content: (data.content || [])
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join(""),
+      usage:
+        typeof input === "number" && typeof output === "number"
+          ? { input_tokens: input, output_tokens: output }
+          : undefined,
+    };
   }
 
-  completeJson(system: string, user: string): Promise<string> {
+  completeJson(system: string, user: string): Promise<LLMResult> {
     return this.complete(system, user);
   }
-  completeText(system: string, user: string): Promise<string> {
+  completeText(system: string, user: string): Promise<LLMResult> {
     return this.complete(system, user);
   }
 }
@@ -70,7 +97,7 @@ export class GeminiProvider implements LLMProvider {
     this.baseUrl = (baseUrl || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
   }
 
-  private async generate(system: string, user: string, jsonMode: boolean): Promise<string> {
+  private async generate(system: string, user: string, jsonMode: boolean): Promise<LLMResult> {
     const url = `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
     const body: any = {
       contents: [
@@ -95,16 +122,24 @@ export class GeminiProvider implements LLMProvider {
       throw new Error(`Gemini API lỗi ${res.status}: ${await res.text()}`);
     }
     const data: any = await res.json();
-    return (data.candidates?.[0]?.content?.parts || [])
-      .map((part: any) => part.text || "")
-      .join("");
+    const input = data.usageMetadata?.promptTokenCount;
+    const output = data.usageMetadata?.candidatesTokenCount;
+    return {
+      content: (data.candidates?.[0]?.content?.parts || [])
+        .map((part: any) => part.text || "")
+        .join(""),
+      usage:
+        typeof input === "number" && typeof output === "number"
+          ? { input_tokens: input, output_tokens: output }
+          : undefined,
+    };
   }
 
-  completeJson(system: string, user: string): Promise<string> {
+  completeJson(system: string, user: string): Promise<LLMResult> {
     return this.generate(system, user, true);
   }
 
-  completeText(system: string, user: string): Promise<string> {
+  completeText(system: string, user: string): Promise<LLMResult> {
     return this.generate(system, user, false);
   }
 }
@@ -119,7 +154,7 @@ export class OpenAIProvider implements LLMProvider {
     else if (baseUrl) this.name = "openai_compatible";
   }
 
-  private async chat(system: string, user: string, jsonMode: boolean): Promise<string> {
+  private async chat(system: string, user: string, jsonMode: boolean): Promise<LLMResult> {
     const body: any = {
       model: this.model,
       messages: [
@@ -142,13 +177,16 @@ export class OpenAIProvider implements LLMProvider {
     if (!res.ok) {
       throw new Error(`OpenAI API lỗi ${res.status}: ${await res.text()}`);
     }
-    return parseOpenAIChatContent(await res.text());
+    // No `stream_options.include_usage` here: it is only legal alongside
+    // `stream: true`, which this request does not ask for. If the upstream proxy
+    // streams anyway, usage simply comes back absent.
+    return parseOpenAIChatResult(await res.text());
   }
 
-  completeJson(system: string, user: string): Promise<string> {
+  completeJson(system: string, user: string): Promise<LLMResult> {
     return this.chat(system, user, true);
   }
-  completeText(system: string, user: string): Promise<string> {
+  completeText(system: string, user: string): Promise<LLMResult> {
     return this.chat(system, user, false);
   }
 }

@@ -1,5 +1,6 @@
 // Ported from backend/app/services/insights.py.
 import type { Env } from "../types";
+import type { LLMUsage } from "./llm/base";
 import { buildProvider } from "./llm/providers";
 import { addTopicFilter } from "./topicScope";
 
@@ -209,7 +210,7 @@ export async function saveInsightPrompt(env: Env, prompt: string): Promise<void>
   ).bind(INSIGHT_PROMPT_KEY, prompt, new Date().toISOString()).run();
 }
 
-export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string, locale: InsightLanguage = "vi"): Promise<{ summary: string; provider: string; model: string | null }> {
+export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string, locale: InsightLanguage = "vi"): Promise<{ summary: string; provider: string; model: string | null; usage?: LLMUsage }> {
   const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
     anthropicKey: env.ANTHROPIC_API_KEY, openaiKey: env.OPENAI_API_KEY, baseUrl: env.LLM_BASE_URL,
     llmViaxKey: env.LLM_VIAX_API_KEY, llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
@@ -217,7 +218,8 @@ export async function generateSummary(env: Env, overview: any, samples: Sentimen
   if (!provider) return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   try {
     const [system, user] = buildInsightMessages(systemPrompt || await getInsightPrompt(env), overview, samples, locale);
-    return { summary: (await provider.completeText(system, user)).trim(), provider: provider.name, model: provider.model };
+    const { content, usage } = await provider.completeText(system, user);
+    return { summary: content.trim(), provider: provider.name, model: provider.model, usage };
   } catch {
     return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   }

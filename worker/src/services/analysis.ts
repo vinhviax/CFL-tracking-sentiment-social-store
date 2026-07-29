@@ -178,9 +178,9 @@ export async function runAnalysis(
       rating: c.rating,
     }));
 
-    let results: Awaited<ReturnType<ClassifierService["classify"]>>;
+    let batch: Awaited<ReturnType<ClassifierService["classify"]>>;
     try {
-      results = await svc.classify(inputs, humanExamples);
+      batch = await svc.classify(inputs, humanExamples);
     } catch (e: any) {
       if (opts.jobId != null) {
         await safeAddProcessingLog(env, {
@@ -202,7 +202,7 @@ export async function runAnalysis(
       throw e;
     }
 
-    const stmts = results.map((r) =>
+    const stmts = batch.classifications.map((r) =>
       env.DB.prepare(
         `INSERT INTO analyses (comment_id, topic_main, topics_sub, sentiment, urgency, summary, other_suggested, confidence, provider, model, prompt_version, status, analyzed_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -234,6 +234,8 @@ export async function runAnalysis(
         provider: svc.providerName,
         model: svc.model,
         duration_ms: Date.now() - started,
+        input_tokens: batch.usage?.input_tokens ?? null,
+        output_tokens: batch.usage?.output_tokens ?? null,
       });
     }
     await opts.shouldContinue?.();
