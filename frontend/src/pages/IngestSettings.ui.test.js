@@ -186,3 +186,30 @@ test("ingest history can delete a run with an explicit confirmation", () => {
   assert.match(source, /deleteIngestRun\(run\.id\)/);
   assert.match(source, /className="btn btn-danger run-action-button"/);
 });
+
+test("ingest history shows token spend under each run's analysis and translation cells", () => {
+  assert.match(source, /function TokenUsageNote\(/);
+  assert.match(source, /<TokenUsageNote usage=\{run\.analysis_tokens\} \/>/);
+  assert.match(source, /<TokenUsageNote usage=\{run\.translation_tokens\} \/>/);
+  // the note sits below the existing status badge, not replacing it
+  assert.match(source, /className="run-cell-stack"/);
+  assert.ok(source.indexOf("<ProcessingBadge status={run.analysis_status}") < source.indexOf("<TokenUsageNote usage={run.analysis_tokens}"));
+  // "chưa ghi nhận" rather than a zero, so pre-token-capture runs are not read as free
+  assert.match(source, /Token: chưa ghi nhận/);
+});
+
+test("ingest history has a date-filtered token total broken down by model", () => {
+  assert.match(source, /function TokenUsagePanel\(/);
+  assert.match(source, /<TokenUsagePanel/);
+  assert.match(source, /getTokenUsage,/);
+  assert.match(source, /const \[tokenRange, setTokenRange\] = useState\(\(\) => defaultTokenRange\(\)\)/);
+  assert.match(source, /function defaultTokenRange\(\)/);
+  assert.match(source, /getTokenUsage\(\{ from: tokenRange\.from, to: tokenRange\.to \}\)/);
+  // both bounds required, so the filter never silently totals all history
+  assert.match(source, /if \(!tokenRange\.from \|\| !tokenRange\.to\) return;/);
+  // panel sits beside the source pills in a shared toolbar
+  assert.match(source, /className="run-toolbar"/);
+  assert.ok(source.indexOf("RUN_SOURCE_FILTERS.map") < source.indexOf("<TokenUsagePanel"));
+  // reprocessing a run refreshes the totals too
+  assert.match(source, /loadTokenUsage\(\);\n\s*\}, \[loadRuns, loadIngestStatus, loadTokenUsage\]\)/);
+});

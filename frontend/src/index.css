@@ -1845,6 +1845,130 @@ tbody tr {
   color: var(--text-dim);
 }
 
+/* Ingest history toolbar: source pills on the left, token totals on the right. */
+.run-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.run-cell-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.token-note {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.token-note-missing {
+  font-style: italic;
+}
+
+.token-note-model {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.token-panel {
+  flex: 1 1 320px;
+  min-width: 300px;
+  max-width: 520px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.token-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* .date-input is width:100% by default, which would put every control on its own row. */
+.token-panel-head .date-input {
+  width: auto;
+  flex: 0 1 122px;
+  min-width: 108px;
+}
+
+.token-panel-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.token-panel-sep {
+  color: var(--muted);
+}
+
+/* Adjacent spans leave no whitespace of their own, so space the separator here. */
+.token-panel-dot {
+  margin: 0 6px;
+  color: var(--muted);
+}
+
+.token-panel-empty,
+.token-panel-warn {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.token-panel-warn {
+  color: var(--urgent-medium);
+}
+
+.token-panel-total {
+  margin-top: 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.token-strong {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.token-panel-table {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.token-panel-table th,
+.token-panel-table td {
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.token-panel-table th:nth-child(3),
+.token-panel-table th:nth-child(4),
+.token-panel-table td:nth-child(3),
+.token-panel-table td:nth-child(4) {
+  text-align: right;
+}
+
 .status-card {
   margin-bottom: 18px;
   padding: 14px 15px;

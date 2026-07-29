@@ -35,6 +35,8 @@ export const getSubtopicRanking = (params) =>
   api.get("/api/stats/subtopic-ranking", { params }).then((r) => r.data);
 export const getSubtopics = (params) =>
   api.get("/api/stats/subtopics", { params }).then((r) => r.data);
+export const getTokenUsage = (params) =>
+  api.get("/api/stats/token-usage", { params }).then((r) => r.data);
 
 export const listComments = (params) =>
   api.get("/api/comments", { params }).then((r) => r.data);

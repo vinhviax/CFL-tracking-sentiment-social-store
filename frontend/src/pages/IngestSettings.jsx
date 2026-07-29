@@ -6,6 +6,7 @@ import {
   getHealth,
   getIngestStatus,
   getLlmAgentConfig,
+  getTokenUsage,
   getTranslateProgress,
   ingestFacebook,
   ingestSensorTower,
@@ -19,6 +20,7 @@ import {
   uploadCsv,
 } from "../api/client.js";
 import DateTextInput from "../components/DateTextInput.jsx";
+import { formatTokens, shortModelName, tokenUsageState, totalTokens, usageModelLabel } from "./IngestSettings.helpers.js";
 import { StatusPill } from "../components/Badges.jsx";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 
@@ -134,6 +136,15 @@ const RUN_SOURCE_FILTERS = [
   { key: "group", label: "Group", types: ["facebook_csv", "fb_group_csv"] },
 ];
 
+/** Last 7 days inclusive, as the token panel's opening range. */
+function defaultTokenRange() {
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 6);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  return { from: iso(start), to: iso(today) };
+}
+
 function runScope(run) {
   if (!run) return "Chưa rõ phạm vi";
   const note = parseRunNote(run.note);
@@ -168,6 +179,106 @@ function analysisRunActionLabel(run) {
 function translationRunActionLabel(run) {
   const label = run.translation_status === "done" ? "Dịch lại" : "Dịch";
   return `${label} #${run.id}`;
+}
+
+/**
+ * Token spend for one job on one run. See tokenUsageState for why "no batches",
+ * "batches but no usage reported" and "partially reported" are three distinct cases.
+ */
+function TokenUsageNote({ usage }) {
+  const state = tokenUsageState(usage);
+  if (state === "none") return null;
+  if (state === "missing") {
+    return <span className="token-note token-note-missing">Token: chưa ghi nhận</span>;
+  }
+  const partial = state === "partial";
+  const models = usageModelLabel(usage);
+  return (
+    <span
+      className="token-note"
+      title={`${usage.batches_with_usage}/${usage.batches} batch có số token${partial ? " — tổng hiển thị là chưa đủ" : ""}`}
+    >
+      ↑{formatTokens(usage.input_tokens)} ↓{formatTokens(usage.output_tokens)} token
+      {partial ? " (một phần)" : ""}
+      {models && <span className="token-note-model">{models}</span>}
+    </span>
+  );
+}
+
+/**
+ * Total token spend over a date range, split by model.
+ *
+ * Counts every logged batch, including the scheduled catch-up pass that belongs
+ * to no ingest run — that spend is real even though no run row shows it.
+ */
+function TokenUsagePanel({ range, onRangeChange, usage, loading, error, onReload }) {
+  const total = usage?.total;
+  const models = usage?.by_model || [];
+  const state = tokenUsageState(total);
+  const recorded = total?.batches_with_usage || 0;
+  const batches = total?.batches || 0;
+
+  return (
+    <div className="token-panel">
+      <div className="token-panel-head">
+        <span className="token-panel-title">Token đã dùng</span>
+        <DateTextInput value={range.from} onChange={(value) => onRangeChange({ ...range, from: value })} />
+        <span className="token-panel-sep">→</span>
+        <DateTextInput value={range.to} onChange={(value) => onRangeChange({ ...range, to: value })} />
+        <button type="button" className="btn btn-secondary run-action-button" disabled={loading} onClick={onReload}>
+          {loading ? "Đang tính..." : "Làm mới"}
+        </button>
+      </div>
+
+      {error && <div className="error-banner" style={{ marginTop: 8 }}>{error}</div>}
+
+      {!error && !loading && (
+        state === "none" ? (
+          <div className="token-panel-empty">Không có batch LLM nào trong khoảng này.</div>
+        ) : state === "missing" ? (
+          <div className="token-panel-empty">
+            {formatTokens(batches)} batch trong khoảng này, nhưng chưa batch nào ghi nhận token
+            (chỉ các lần chạy sau khi bật đo token mới có số).
+          </div>
+        ) : (
+          <>
+            <div className="token-panel-total">
+              <span className="token-strong">↑ {formatTokens(total.input_tokens)}</span> input
+              <span className="token-panel-dot">·</span>
+              <span className="token-strong">↓ {formatTokens(total.output_tokens)}</span> output
+              <span className="token-panel-dot">·</span>
+              {formatTokens(totalTokens(total))} tổng
+            </div>
+            {state === "partial" && (
+              <div className="token-panel-warn">
+                Chỉ {formatTokens(recorded)}/{formatTokens(batches)} batch có số token — tổng trên là chưa đủ.
+              </div>
+            )}
+            <table className="token-panel-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Việc</th>
+                  <th>Input</th>
+                  <th>Output</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((m) => (
+                  <tr key={`${m.job_type}|${m.model}`}>
+                    <td title={m.model || ""}>{shortModelName(m.model)}</td>
+                    <td>{m.job_type === "translation" ? "Dịch" : "Phân tích"}</td>
+                    <td>{formatTokens(m.input_tokens)}</td>
+                    <td>{formatTokens(m.output_tokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )
+      )}
+    </div>
+  );
 }
 
 function ProcessingBadge({ status, progress, kind }) {
@@ -479,6 +590,10 @@ export default function IngestSettings() {
   const [runs, setRuns] = useState([]);
   const [runSourceFilter, setRunSourceFilter] = useState("all");
   const [runPage, setRunPage] = useState(0);
+  const [tokenRange, setTokenRange] = useState(() => defaultTokenRange());
+  const [tokenUsage, setTokenUsage] = useState(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenError, setTokenError] = useState(null);
   const [deletingRunId, setDeletingRunId] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const [health, setHealth] = useState(null);
@@ -519,10 +634,23 @@ export default function IngestSettings() {
       .catch(() => {});
   }, []);
 
+  const loadTokenUsage = useCallback(() => {
+    // Both bounds are required: an open-ended range would silently total every
+    // batch ever logged, which is not what the date filter is for.
+    if (!tokenRange.from || !tokenRange.to) return;
+    setTokenLoading(true);
+    setTokenError(null);
+    getTokenUsage({ from: tokenRange.from, to: tokenRange.to })
+      .then(setTokenUsage)
+      .catch((e) => setTokenError(e?.response?.data?.detail || e.message))
+      .finally(() => setTokenLoading(false));
+  }, [tokenRange.from, tokenRange.to]);
+
   const refreshAfterProcessing = useCallback(() => {
     loadRuns();
     loadIngestStatus();
-  }, [loadRuns, loadIngestStatus]);
+    loadTokenUsage();
+  }, [loadRuns, loadIngestStatus, loadTokenUsage]);
 
   useEffect(() => {
     loadRuns();
@@ -531,6 +659,10 @@ export default function IngestSettings() {
     loadIngestStatus();
     loadLlmConfig();
   }, [loadRuns, loadTrackedJobs, loadIngestStatus, loadLlmConfig]);
+
+  useEffect(() => {
+    loadTokenUsage();
+  }, [loadTokenUsage]);
 
   function openLlmConfig() {
     setLlmConfigError(null);
@@ -877,17 +1009,27 @@ export default function IngestSettings() {
       <div className="panel">
         <h3>Lịch sử Ingest</h3>
         {deleteError && <div className="error-banner">{deleteError}</div>}
-        <div className="segmented" style={{ marginBottom: 12 }}>
-          {RUN_SOURCE_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              className={f.key === runSourceFilter ? "active" : ""}
-              onClick={() => selectRunFilter(f.key)}
-            >
-              {f.label} ({runCountByType(f.types)})
-            </button>
-          ))}
+        <div className="run-toolbar">
+          <div className="segmented">
+            {RUN_SOURCE_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={f.key === runSourceFilter ? "active" : ""}
+                onClick={() => selectRunFilter(f.key)}
+              >
+                {f.label} ({runCountByType(f.types)})
+              </button>
+            ))}
+          </div>
+          <TokenUsagePanel
+            range={tokenRange}
+            onRangeChange={setTokenRange}
+            usage={tokenUsage}
+            loading={tokenLoading}
+            error={tokenError}
+            onReload={loadTokenUsage}
+          />
         </div>
         {runs.length === 0 ? (
           <div className="empty-state">Chưa có lần nạp dữ liệu nào.</div>
@@ -921,8 +1063,18 @@ export default function IngestSettings() {
                     <td>{formatDateTime(run.started_at)}</td>
                     <td>{run.rows_new}</td>
                     <td>{run.rows_fetched}</td>
-                    <td><ProcessingBadge status={run.analysis_status} progress={run.analysis_progress} kind="analysis" /></td>
-                    <td><ProcessingBadge status={run.translation_status} progress={run.translation_progress} kind="translation" /></td>
+                    <td>
+                      <div className="run-cell-stack">
+                        <ProcessingBadge status={run.analysis_status} progress={run.analysis_progress} kind="analysis" />
+                        <TokenUsageNote usage={run.analysis_tokens} />
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-cell-stack">
+                        <ProcessingBadge status={run.translation_status} progress={run.translation_progress} kind="translation" />
+                        <TokenUsageNote usage={run.translation_tokens} />
+                      </div>
+                    </td>
                     <td style={{ color: "var(--negative)", fontSize: 12 }}>{run.error || ""}</td>
                     <td className="run-actions-cell">
                       {run.status === "done" && run.rows_new > 0 && (
