@@ -9,9 +9,11 @@ import {
   parseRows,
   sourceTypeForCsvRow,
   validateFacebookCsvImport,
-  getCsvDedupeLookupChunkSize,
+  validateFacebookCsvSize,
   getCsvCommentInsertChunkSize,
   getCsvPostInsertChunkSize,
+  getCsvMaxImportableRows,
+  loadExistingCsvHashes,
 } from "./csvIngest";
 
 describe("filterFreshUniqueHashes", () => {
@@ -31,14 +33,84 @@ describe("filterFreshUniqueHashes", () => {
   });
 });
 
-describe("Facebook CSV guardrails", () => {
-  test("keeps CSV dedupe lookups under the SQL variable limit", () => {
-    expect(getCsvDedupeLookupChunkSize() * 2).toBeLessThanOrEqual(90);
+/** Minimal D1 stub that records the SQL it was asked to run and replays canned pages. */
+function fakeDbReturning(pages: { id: number; dedupe_hash: string }[][]) {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  let call = 0;
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...params: unknown[]) {
+          calls.push({ sql, params });
+          return {
+            async all() {
+              return { results: pages[call++] ?? [] };
+            },
+          };
+        },
+      };
+    },
+  };
+  return { db: db as unknown as Parameters<typeof loadExistingCsvHashes>[0], calls };
+}
+
+describe("loadExistingCsvHashes", () => {
+  test("reads the upload's date window once instead of one lookup per row", async () => {
+    const { db, calls } = fakeDbReturning([[{ id: 7, dedupe_hash: "stored-a" }, { id: 9, dedupe_hash: "stored-b" }]]);
+
+    const existing = await loadExistingCsvHashes(db, { data_start_date: "2026-06-29", data_end_date: "2026-07-23" });
+
+    expect(existing).toEqual(new Set(["stored-a", "stored-b"]));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("source_type IN (?,?)");
+    // NULL created_at cannot be range-filtered, so those rows must stay in scope.
+    expect(calls[0].sql).toContain("created_at IS NULL");
+    // Window is padded a day either side to absorb the Bangkok-vs-UTC storage skew.
+    expect(calls[0].params).toEqual(["fb_page", "fb_group_csv", "2026-06-28T00:00:00", "2026-07-25T00:00:00", 0]);
   });
 
+  test("keeps paging while a page comes back full, resuming after the last id", async () => {
+    const fullPage = Array.from({ length: 5000 }, (_, i) => ({ id: i + 1, dedupe_hash: `h${i}` }));
+    const { db, calls } = fakeDbReturning([fullPage, [{ id: 5001, dedupe_hash: "tail" }]]);
+
+    const existing = await loadExistingCsvHashes(db, { data_start_date: "2026-07-01", data_end_date: "2026-07-02" });
+
+    expect(existing.size).toBe(5001);
+    expect(existing.has("tail")).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].params.at(-1)).toBe(5000);
+  });
+
+  test("scans every Facebook comment when no row carried a parseable date", async () => {
+    const { db, calls } = fakeDbReturning([[]]);
+
+    await loadExistingCsvHashes(db, { data_start_date: null, data_end_date: null });
+
+    expect(calls[0].sql).not.toContain("created_at");
+    expect(calls[0].params).toEqual(["fb_page", "fb_group_csv", 0]);
+  });
+});
+
+describe("Facebook CSV guardrails", () => {
   test("keeps CSV insert batches large enough to avoid Worker subrequest limits", () => {
     expect(getCsvPostInsertChunkSize()).toBeGreaterThanOrEqual(50);
-    expect(getCsvCommentInsertChunkSize()).toBeGreaterThanOrEqual(100);
+    expect(getCsvCommentInsertChunkSize()).toBeGreaterThanOrEqual(250);
+  });
+
+  test("keeps the whole upload inside one Worker's 1000 subrequest budget", () => {
+    // Worst case: every row is new and every row is its own post. Lookups no longer
+    // scale with the file (loadExistingCsvHashes / loadCsvPostIds page instead), so only
+    // the inserts grow — but they still have to fit, or a big upload dies mid-ingest.
+    const rows = getCsvMaxImportableRows();
+    const commentBatches = Math.ceil(rows / getCsvCommentInsertChunkSize());
+    const postBatches = Math.ceil(rows / getCsvPostInsertChunkSize());
+    const pagedLookups = Math.ceil(rows / 5000) + 2;
+    expect(commentBatches + postBatches + pagedLookups).toBeLessThan(900);
+  });
+
+  test("rejects an upload too large for one Worker invocation with a split-the-file hint", () => {
+    expect(() => validateFacebookCsvSize(getCsvMaxImportableRows())).not.toThrow();
+    expect(() => validateFacebookCsvSize(getCsvMaxImportableRows() + 1)).toThrow(/chia file thanh nhieu phan/i);
   });
 
   test("parses Facebook CSV using columns A to E only and ignores source labels in later columns", () => {

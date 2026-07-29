@@ -12,14 +12,19 @@ export interface ParsedRow {
 }
 
 const EMPTY_MARKERS = new Set(["", "...", ".", "-"]);
-const CSV_D1_BIND_LIMIT = 90;
-const CSV_DEDUPE_HASHES_PER_ROW = 2;
-const CSV_POST_INSERT_BATCH_SIZE = 100;
-const CSV_COMMENT_INSERT_BATCH_SIZE = 100;
-
-export function getCsvDedupeLookupChunkSize(): number {
-  return Math.floor(CSV_D1_BIND_LIMIT / CSV_DEDUPE_HASHES_PER_ROW);
-}
+const CSV_POST_INSERT_BATCH_SIZE = 250;
+const CSV_COMMENT_INSERT_BATCH_SIZE = 250;
+/** Rows hashed per await, so a big export does not hold N pending digests at once. */
+const CSV_HASH_CHUNK_SIZE = 2000;
+/** Existing dedupe hashes read per D1 page while scanning the upload's date window. */
+const CSV_DEDUPE_SCAN_PAGE_SIZE = 5000;
+/**
+ * Upload ceiling. Above this a single Worker invocation runs out of memory decoding
+ * the file long before it runs out of subrequests, so fail with an actionable message
+ * instead of a raw runtime error.
+ */
+const CSV_MAX_IMPORTABLE_ROWS = 60000;
+const FACEBOOK_CSV_SOURCE_TYPES = ["fb_page", "fb_group_csv"] as const;
 
 export function getCsvPostInsertChunkSize(): number {
   return CSV_POST_INSERT_BATCH_SIZE;
@@ -27,6 +32,10 @@ export function getCsvPostInsertChunkSize(): number {
 
 export function getCsvCommentInsertChunkSize(): number {
   return CSV_COMMENT_INSERT_BATCH_SIZE;
+}
+
+export function getCsvMaxImportableRows(): number {
+  return CSV_MAX_IMPORTABLE_ROWS;
 }
 
 function normalizeIdentityPart(value?: string | null): string {
@@ -87,6 +96,15 @@ export function validateCsvGroupImport(opts: { totalRows: number; groupRows: num
   }
   if (opts.freshRows === 0) {
     throw new Error("CSV Facebook Group khong co comment Group moi de nhap; tat ca da ton tai hoac bi trung trong file.");
+  }
+}
+
+export function validateFacebookCsvSize(importableRows: number): void {
+  if (importableRows > CSV_MAX_IMPORTABLE_ROWS) {
+    throw new Error(
+      `CSV Facebook co ${importableRows} dong hop le, vuot gioi han ${CSV_MAX_IMPORTABLE_ROWS} dong moi lan nap. ` +
+        "Hay chia file thanh nhieu phan nho hon roi nap lan luot; nap trung lap la an toan vi comment da co se bi bo qua."
+    );
   }
 }
 
@@ -254,6 +272,88 @@ export function getCsvDateRange(rows: ParsedRow[]): { data_start_date: string | 
   };
 }
 
+/** Shift a YYYY-MM-DD day key by whole days, used to pad the dedupe scan window. */
+function shiftDayKey(dayKey: string, days: number): string {
+  const shifted = new Date(`${dayKey}T00:00:00Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * Load the dedupe hashes that could collide with this upload.
+ *
+ * Sending the upload's own hashes back as bound parameters costs one D1 read per ~45
+ * rows (D1 caps bound parameters near 90, and each row carries a current plus a legacy
+ * hash), which exhausted the Worker subrequest budget around 30k rows. Scanning the
+ * Facebook comments already stored inside the upload's date window costs a handful of
+ * paged reads instead, bounded by overlapping history rather than by file size.
+ *
+ * Both hash formats live in the same `dedupe_hash` column, so the scan covers legacy
+ * rows too. `created_at` is NULL when the date column could not be parsed and cannot be
+ * filtered by range, so those rows are always included. The window is padded a day on
+ * each side because CSV rows are stored as Bangkok local time while the Graph API ingest
+ * stores UTC.
+ */
+export async function loadExistingCsvHashes(
+  db: Env["DB"],
+  range: { data_start_date: string | null; data_end_date: string | null }
+): Promise<Set<string>> {
+  const sourcePlaceholders = FACEBOOK_CSV_SOURCE_TYPES.map(() => "?").join(",");
+  const params: unknown[] = [...FACEBOOK_CSV_SOURCE_TYPES];
+  let where = `source_type IN (${sourcePlaceholders})`;
+
+  if (range.data_start_date && range.data_end_date) {
+    where += ` AND (created_at IS NULL OR (created_at >= ? AND created_at < ?))`;
+    params.push(`${shiftDayKey(range.data_start_date, -1)}T00:00:00`, `${shiftDayKey(range.data_end_date, 2)}T00:00:00`);
+  }
+
+  const existing = new Set<string>();
+  let afterId = 0;
+  for (;;) {
+    const res = await db
+      .prepare(
+        `SELECT id, dedupe_hash FROM comments WHERE ${where} AND id > ? ORDER BY id LIMIT ${CSV_DEDUPE_SCAN_PAGE_SIZE}`
+      )
+      .bind(...params, afterId)
+      .all<{ id: number; dedupe_hash: string }>();
+    const rows = res.results || [];
+    for (const row of rows) existing.add(row.dedupe_hash);
+    if (rows.length < CSV_DEDUPE_SCAN_PAGE_SIZE) break;
+    afterId = rows[rows.length - 1].id;
+  }
+  return existing;
+}
+
+/**
+ * Load every post this ingest could reuse, keyed as `sourceType|externalId`.
+ *
+ * Same reasoning as loadExistingCsvHashes: looking posts up by `external_id IN (...)`
+ * costs one read per 90 candidates, which scales with the file. CSV post ids are
+ * deterministic and prefixed, so the whole set can be paged in regardless of file size —
+ * and there are only ever as many CSV posts as distinct post texts ever uploaded.
+ */
+export async function loadCsvPostIds(db: Env["DB"]): Promise<Map<string, number>> {
+  const cache = new Map<string, number>();
+  let afterId = 0;
+  for (;;) {
+    const res = await db
+      .prepare(
+        `SELECT id, source_type, external_id FROM posts
+         WHERE source_type IN (?,?)
+           AND (external_id LIKE 'fanpage_csv:%' OR external_id LIKE 'group_csv:%')
+           AND id > ?
+         ORDER BY id LIMIT ${CSV_DEDUPE_SCAN_PAGE_SIZE}`
+      )
+      .bind(...FACEBOOK_CSV_SOURCE_TYPES, afterId)
+      .all<{ id: number; source_type: string; external_id: string }>();
+    const rows = res.results || [];
+    for (const row of rows) cache.set(`${row.source_type}|${row.external_id}`, row.id);
+    if (rows.length < CSV_DEDUPE_SCAN_PAGE_SIZE) break;
+    afterId = rows[rows.length - 1].id;
+  }
+  return cache;
+}
+
 async function hashText(value: string): Promise<string> {
   const key = value.trim();
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
@@ -319,28 +419,25 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     const rows = filterFacebookCsvRows(allRows);
     rowsCount = rows.length;
     validateFacebookCsvImport({ totalRows: allRows.length, importableRows: rows.length, freshRows: rows.length });
+    validateFacebookCsvSize(rows.length);
 
     // Resolve dedupe hashes for Fanpage/Group CSV rows only. Columns after E are deliberately ignored;
     // LLM analysis remains the source of truth for topic/sentiment labels.
-    const withHash = await Promise.all(
-      rows.map(async (r) => ({
-        row: r,
-        hash: await hashText(buildFacebookCsvDedupeKey(r)),
-        legacyHash: await legacyDedupeHash(sourceTypeForCsvRow(r) === "fb_group_csv" ? "Group" : "Fanpage", r.createdDate, r.commentMessage || ""),
-      }))
-    );
-
-    // Fetch existing hashes once instead of one SELECT per row.
-    const existing = new Set<string>();
-    for (const c of chunk(withHash, getCsvDedupeLookupChunkSize())) {
-      const hashes = c.flatMap((x) => [x.hash, x.legacyHash]);
-      const placeholders = hashes.map(() => "?").join(",");
-      const res = await db
-        .prepare(`SELECT dedupe_hash FROM comments WHERE dedupe_hash IN (${placeholders})`)
-        .bind(...hashes)
-        .all<{ dedupe_hash: string }>();
-      for (const row of res.results) existing.add(row.dedupe_hash);
+    const withHash: { row: ParsedRow; hash: string; legacyHash: string }[] = [];
+    for (const part of chunk(rows, CSV_HASH_CHUNK_SIZE)) {
+      const hashed = await Promise.all(
+        part.map(async (r) => ({
+          row: r,
+          hash: await hashText(buildFacebookCsvDedupeKey(r)),
+          legacyHash: await legacyDedupeHash(sourceTypeForCsvRow(r) === "fb_group_csv" ? "Group" : "Fanpage", r.createdDate, r.commentMessage || ""),
+        }))
+      );
+      for (const item of hashed) withHash.push(item);
     }
+
+    // Read the hashes already stored in this upload's date window, instead of asking D1
+    // about each row's hashes — see loadExistingCsvHashes for why.
+    const existing = await loadExistingCsvHashes(db, getCsvDateRange(rows));
 
     const seen = new Set<string>(existing);
     const fresh = [];
@@ -371,7 +468,7 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
 
     // Resolve/create posts. CSV rows have no Facebook post ID, so use a stable
     // source-local external_id from columns B/C and reuse it across uploads.
-    const postCache = new Map<string, number>();
+    const postCache = await loadCsvPostIds(db);
     const postRows = new Map<string, { externalId: string; sourceType: "fb_page" | "fb_group_csv"; publishedAt: string | null; message: string }>();
     for (const { row } of fresh) {
       const pmsg = (row.postMessage || "").trim();
@@ -387,15 +484,6 @@ export async function ingestCsv(env: Env, raw: ArrayBuffer, filename = ""): Prom
     }
 
     const postCandidates = [...postRows.values()];
-    for (const c of chunk(postCandidates, 90)) {
-      const placeholders = c.map(() => "?").join(",");
-      const res = await db
-        .prepare(`SELECT id, source_type, external_id FROM posts WHERE external_id IN (${placeholders})`)
-        .bind(...c.map((p) => p.externalId))
-        .all<{ id: number; source_type: string; external_id: string }>();
-      for (const row of res.results) postCache.set(`${row.source_type}|${row.external_id}`, row.id);
-    }
-
     const postsToInsert = postCandidates.filter((p) => !postCache.has(`${p.sourceType}|${p.externalId}`));
     for (const c of chunk(postsToInsert, getCsvPostInsertChunkSize())) {
       const stmts = c.map((p) =>
