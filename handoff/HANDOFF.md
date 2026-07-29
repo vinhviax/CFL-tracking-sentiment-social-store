@@ -20,17 +20,27 @@ Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligenc
 
 Trong lúc chạy, **phát hiện thêm 1 bug quan trọng và đã fix** (mục G): cơ chế "force re-chạy" bị mắc kẹt vĩnh viễn vì `started_at` của job không bao giờ reset khi re-force — đã fix + deploy (commit `2f497e3`), viết test, verify trên production.
 
-**Việc phát sinh còn đang chạy khi viết handoff này**: phát hiện **22.783 comment** có summary tiếng Việt thật (mới, sau khi phân tích lại) nhưng bản dịch summary zh-CN vẫn RỖNG — vì bản dịch cũ được tạo từ lúc summary tiếng Việt còn rỗng (trước khi có phân tích LLM thật), và việc "Phân tích lại" xong không tự động kéo theo dịch lại summary. Đã kích hoạt dịch lại đúng 22.783 ID này (chia 6 lô, dùng `comment_ids` cụ thể để không tốn công dịch lại phần đã đúng), đang chạy vòng lặp drain nền. Khi bạn vào lại:
+## ⚠️ VIỆC CÒN DANG DỞ: dịch lại 22.783 summary zh-CN — ĐANG BỊ CHẶN BỞI RATE LIMIT
 
-1. Kiểm tra còn bao nhiêu comment còn summary zh-CN rỗng (dù đã có summary tiếng Việt):
+Phát hiện thêm: **22.783 comment** có summary tiếng Việt thật (mới, sau khi phân tích lại) nhưng bản dịch summary zh-CN vẫn RỖNG — vì bản dịch cũ được tạo từ lúc summary tiếng Việt còn rỗng (trước khi có phân tích LLM thật), và việc "Phân tích lại" xong không tự động kéo theo dịch lại summary. Đây **không phải lỗi nghiêm trọng** — dữ liệu phân tích (chủ đề/sentiment/urgency) đã đúng 100%, chỉ có cột hiển thị tiếng Trung của riêng phần summary là chưa cập nhật.
+
+Đã kích hoạt dịch lại đúng 22.783 ID này (chia 6 lô theo `comment_ids`, tránh đụng phần đã đúng). Tiến độ: 22.783 → 18.103 (giảm 4.680) rồi **đứng yên hoàn toàn** — không phải bug code, mà là **rate limit thật từ proxy `antigravity/gemini-3-flash-agent`** (hạ tầng đứng sau `gemini_viax`): mọi batch đều trả về lỗi `HTTP 403 "reset after Ns"` (N dao động 19–44 giây tùy lần thử). Đã thử:
+- Chờ 90s → vẫn lỗi.
+- Hạ `LLM_BATCH_CONCURRENCY` từ 5 xuống 2 (commit `0b8af57`, deploy `a53cceef`) + chờ 240s hoàn toàn không gửi request nào → **vẫn lỗi**, dù số giây "reset after" giảm dần qua các lần thử (44s→37s→19s), gợi ý đây có thể là quota theo phút của proxy, không đơn thuần là số request đồng thời.
+
+**Đã DỪNG chủ động retry dồn dập** để tránh làm nặng thêm — đang để cron 5 phút (giờ chạy với concurrency đã hạ) tự thử nhẹ nhàng theo thời gian. Khi bạn vào lại:
+
+1. Kiểm tra còn bao nhiêu comment còn summary zh-CN rỗng:
    ```sql
    SELECT COUNT(*) FROM comments c JOIN analyses a ON a.comment_id=c.id
    JOIN comment_translations t ON t.comment_id=c.id AND t.locale='zh-CN'
    WHERE c.skipped_analysis=0 AND TRIM(COALESCE(a.summary,''))!='' AND TRIM(COALESCE(t.summary_translated,''))='';
    ```
-   Nếu số này đã về 0 hoặc gần 0, việc dịch lại summary đã xong — không cần làm gì thêm.
-2. Nếu còn nhiều, dùng vòng lặp drain đồng bộ (xem "Lệnh nhanh").
-3. **Giờ mới nên sửa lỗi hiển thị UI ghi ở mục F bên dưới** — data đã ổn định, không còn lý do phải hoãn.
+   Mốc cuối đo được: **18.103**.
+2. Nếu số này đã giảm (dù chỉ vài trăm), nghĩa là rate limit đã tự hồi phục qua đêm — cron đang xử lý tiếp, cứ để nó chạy hoặc chạy thêm vòng lặp drain nếu muốn nhanh hơn.
+3. Nếu vẫn đứng yên y hệt 18.103, rate limit chưa hồi phục — kiểm tra log thật bằng `npx wrangler tail` để xem còn lỗi 403 không. Nếu còn, đây là vấn đề phía nhà cung cấp proxy `agent-shop`/`antigravity`, không phải bug trong code — có thể cần liên hệ người quản lý proxy đó, hoặc đợi lâu hơn nữa, hoặc cân nhắc đổi tạm slot "Đơn giản" sang provider khác (xem UI Cấu hình LLM Agent) cho riêng đợt dịch lại này.
+4. Việc này **không khẩn** — dữ liệu phân tích chính đã hoàn thiện 100%, đây chỉ là hoàn thiện thêm phần hiển thị tiếng Trung.
+5. **Có thể sửa lỗi hiển thị UI ghi ở mục F bên dưới bất cứ lúc nào** — không cần chờ việc dịch lại summary xong, hai việc độc lập nhau.
 
 **Danh sách 33 run đã kích hoạt ban đầu** (analysis + translation, force=true), ID:
 ```
