@@ -1,112 +1,124 @@
-# HANDOFF 2026-07-29 (phien 2 — refactor LLM provider + fix pipeline)
+# HANDOFF 2026-07-29 (phiên 2 — refactor LLM provider + fix pipeline)
 
-Ban giao cho agent/session tiep theo cua project **CFL Feedback Intelligence**.
-(Phien truoc trong cung ngay — token metering + fix upload CSV — nam trong muc lich su ben duoi. Cac session cu hon nam sau cung.)
+Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligence**.
+(Phiên trước trong cùng ngày — token metering + fix upload CSV — nằm trong mục lịch sử bên dưới. Các session cũ hơn nằm sau cùng.)
 
-## ⚠️ VIEC DANG CHAY — DOC TRUOC KHI LAM GI KHAC
+## ⚠️ VIỆC ĐANG CHẠY — ĐỌC TRƯỚC KHI LÀM GÌ KHÁC
 
-**33 run dang duoc phan tich lai + dich lai tren production**, kich hoat cuoi phien nay (`force:true`). Cron 5 phut (`*/5 * * * *`) se tu drain queue qua dem, khong can may tinh nao mo. Khi ban vao lai:
+**33 run đang được phân tích lại + dịch lại trên production**, kích hoạt cuối phiên trước (`force:true`). Cron 5 phút (`*/5 * * * *`) sẽ tự drain queue qua đêm, không cần máy tính nào mở. Khi bạn vào lại:
 
-1. Kiem tra con bao nhieu comment con la fallback tu khoa — query D1 truc tiep (xem "Lenh nhanh" ben duoi):
+1. Kiểm tra còn bao nhiêu comment còn là fallback từ khóa — query D1 trực tiếp (xem "Lệnh nhanh" bên dưới):
    `SELECT COUNT(*) FROM analyses WHERE (summary IS NULL OR TRIM(summary)='') AND confidence=0.35`.
-   Moc do duoc trong phien nay: **58.718** (dau phien, truoc khi kich hoat) → **58.500** (sau khi kich hoat 33 run) → **58.180** (sau ~10 phut chay vong lap drain nen). Toc do quan sat duoc: **~1 comment/giay** khi chay drain lien tuc (~300/lan drain, drain ~5 phut/lan do gioi han 115s + queue concurrency). Voi toc do nay, **58.180 comment con lai can khoang 16 gio chay lien tuc** — cron 5 phut mot minh se cham hon nhieu vi moi lan chi 1 chu ky claim, nen **nen tiep tuc chay vong lap drain thu cong** (xem "Lenh nhanh") thay vi chi cho cron.
-   - Mot **vong lap drain 60 lan (~115s/lan) da duoc khoi dong o cuoi phien nay va con dang chay ngam** luc handoff duoc viet — kiem tra tien do truoc, co the no da lam giam duoc kha nhieu roi.
-2. Neu con nhieu (queue chua chay het qua dem), **dung vong lap drain dong bo** thay vi cho cron — cron chi chay 1 lan/5 phut nen rat cham cho khoi luong lon nay. Xem muc "Lenh nhanh" — vong lap `POST /api/processing/drain`.
-3. Neu da xong het (con_keyword ~0), kiem tra chat luong bang cach doc vai dong `summary` that va bao cho user.
+   Mốc đo được: **58.718** (đầu phiên, trước khi kích hoạt) → 58.500 → 58.180 → 57.920 → 54.898 → 53.898 → **53.535** (mốc cuối cùng đo được trước khi kết thúc phiên). Tốc độ quan sát được: **~1 comment/giây** khi chạy drain liên tục. Với tốc độ này, phần còn lại cần nhiều giờ chạy liên tục — cron 5 phút một mình sẽ chậm hơn nhiều vì mỗi lần chỉ 1 chu kỳ claim.
+2. Nếu còn nhiều (queue chưa chạy hết qua đêm), **dùng vòng lặp drain đồng bộ** thay vì chờ cron — xem mục "Lệnh nhanh" — vòng lặp `POST /api/processing/drain`. Cuối phiên trước đã khởi động một vòng lặp nền 200 lần drain (~115s/lần) — kiểm tra xem nó đã chạy xong chưa và số liệu đã giảm tới đâu trước khi khởi động vòng lặp mới.
+3. Nếu đã xong hết (con_keyword ~0), kiểm tra chất lượng bằng cách đọc vài dòng `summary` thật và báo cho user.
+4. **Sau khi TẤT CẢ run đã chạy xong** (con_keyword ~0 hoặc rất thấp, chỉ còn vài dòng thật sự không phân loại được), **sửa lỗi hiển thị UI đã ghi ở mục F bên dưới** — user đã yêu cầu để lỗi đó lại, ưu tiên chạy xong data trước.
 
-**Danh sach 33 run da kich hoat** (analysis + translation, force=true), ID:
+**Danh sách 33 run đã kích hoạt** (analysis + translation, force=true), ID:
 ```
 47 51 53 54 55 56 57 58 59 61 62 63 64 65 67 69 70 71 72 73
 75 77 79 81 82 83 85 86 87 89 91 95 99
 ```
-3 run lon nhat: **#99** (27.478 comment), **#47** (14.482), **#53** (8.988) — cong lai la 87% khoi luong. Run **#93** va **#97** da xong tu truoc (session nay).
+3 run lớn nhất: **#99** (27.478 comment), **#47** (14.482), **#53** (8.988) — cộng lại là 87% khối lượng. Run **#93** và **#97** đã xong từ trước (session này).
 
-## Trang thai hien tai
+## Trạng thái hiện tại
 
 - Workspace canonical (git repo): `J:\My Drive\CFL\Agent\Tracking Store Social` (branch `main`)
 - Repo GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
-- Commit moi nhat da push: `032c0ff Make "Phân tích lại" and "Dịch lại" actually redo the work`
+- Commit mới nhất đã push: `032c0ff Make "Phân tích lại" and "Dịch lại" actually redo the work`
 - Worker production: `https://cfl-feedback-worker.vinhviax.workers.dev` — **Version ID `9af79891-6d89-4613-8cf5-7e7e73f6f330`**
 - Pages production: `https://cfl-feedback.pages.dev` — deployment `f5b42091`
 - Test: worker 210/210, frontend 74/74, `tsc --noEmit` exit 0.
-- Working tree J: sach, local va `origin/main` da dong bo.
+- Working tree J: sạch, local và `origin/main` đã đồng bộ.
 
-> Xem canh bao ve nhieu ban clone (`G:` local vs Drive, workspace `C:\Temp\...`) o cuoi file — khong doi trong phien nay, van dung.
+> Xem cảnh báo về nhiều bản clone (`G:` local vs Drive, workspace `C:\Temp\...`) ở cuối file — không đổi trong phiên này, vẫn đúng.
 
-## Phien nay lam gi (theo thu tu)
+## Phiên trước đã làm gì (theo thứ tự)
 
-### A. Refactor toan bo he thong chon Provider LLM
+### A. Refactor toàn bộ hệ thống chọn Provider LLM
 
-**Ly do**: user thay UI cu (4 provider option + checkbox "Bat override") kho hieu va de bam nham.
+**Lý do**: user thấy UI cũ (4 provider option + checkbox "Bật override") khó hiểu và dễ bấm nhầm.
 
-**6 provider co dinh** (`worker/src/services/llmCatalog.ts`, khong con enum tu do):
-1. `gemini_viax` — Gemini by Viax, endpoint `rpi7jss.abc-tunnel.us/v1`, chi 1 model `ag/gemini-3-flash-agent`
-2. `openai_viax` — OpenAI by Viax, endpoint `agent-shop.clawd.io.vn/v1`, 2 model `gpt-5.6-terra` / `gpt-5.6-luna` (**KHONG co prefix `codex-lb/`** — xem muc B)
-3. `anthropic_direct`, `gemini_direct`, `openai_direct` — "chinh chu", dung endpoint studio that, user tu nhap model + API key
-4. `custom` — user tu nhap ca endpoint + model + API key
+**6 provider cố định** (`worker/src/services/llmCatalog.ts`, không còn enum tự do):
+1. `gemini_viax` — Gemini by Viax, endpoint `rpi7jss.abc-tunnel.us/v1`, chỉ 1 model `ag/gemini-3-flash-agent`
+2. `openai_viax` — OpenAI by Viax, endpoint `agent-shop.clawd.io.vn/v1`, 2 model `gpt-5.6-terra` / `gpt-5.6-luna` (**KHÔNG có prefix `codex-lb/`** — xem mục B)
+3. `anthropic_direct`, `gemini_direct`, `openai_direct` — "chính chủ", dùng endpoint studio thật, user tự nhập model + API key
+4. `custom` — user tự nhập cả endpoint + model + API key
 
-**Default**: Suy luan = `openai_viax`/`gpt-5.6-terra`; Don gian = `gemini_viax`/`ag/gemini-3-flash-agent`.
+**Mặc định**: Suy luận = `openai_viax`/`gpt-5.6-terra`; Đơn giản = `gemini_viax`/`ag/gemini-3-flash-agent`.
 
-**Override da xoa hoan toan.** Chon slot gio chi la chon 1 trong 6 provider + model.
+**Override đã xóa hoàn toàn.** Chọn slot giờ chỉ là chọn 1 trong 6 provider + model.
 
-**Provider tu nhap key (3 "chinh chu" + Custom) KHONG LUU LEN SERVER**:
-- Song trong `sessionStorage` cua browser (`frontend/src/utils/llmSession.js`) — F5 cung tab con giu, mo tab moi hoac Ctrl+F5 thi mat.
-- Gui theo header `X-CFL-LLM-Config` cho MOI request co the goi LLM (ca GET polling, vi do la cai drain queue) — khong dung query string vi chua API key.
-- Neu tab dong hoac request khong mang header nay (vd cron), pipeline **tu dong dung provider da luu cua slot** — day la danh doi co chu y cua viec khong luu key.
+**Provider tự nhập key (3 "chính chủ" + Custom) KHÔNG LƯU LÊN SERVER**:
+- Sống trong `sessionStorage` của browser (`frontend/src/utils/llmSession.js`) — F5 cùng tab còn giữ, mở tab mới hoặc Ctrl+F5 thì mất.
+- Gửi theo header `X-CFL-LLM-Config` cho MỌI request có thể gọi LLM (cả GET polling, vì đó là cái drain queue) — không dùng query string vì chứa API key.
+- Nếu tab đóng hoặc request không mang header này (vd cron), pipeline **tự động dùng provider đã lưu của slot** — đây là đánh đổi có chủ ý của việc không lưu key.
 
-**Endpoint/API key KHONG BAO GIO tra ve client** — `/api/llm-config` chi tra ten provider + model rut gon (vd `gpt-5.6-terra`, khong con prefix).
+**Endpoint/API key KHÔNG BAO GIỜ trả về client** — `/api/llm-config` chỉ trả tên provider + model rút gọn (vd `gpt-5.6-terra`, không còn prefix).
 
-**Migration**: `0012_llm_provider_catalog.sql` tao bang `llm_provider_secrets` (endpoint+key cho cac provider "by Viax"), copy key cu tu `llm_agent_configs` (khong bao gio doc ra ngoai), roi rebuild `llm_agent_configs` chi con `(slot, provider, model)`.
+**Migration**: `0012_llm_provider_catalog.sql` tạo bảng `llm_provider_secrets` (endpoint+key cho các provider "by Viax"), copy key cũ từ `llm_agent_configs` (không bao giờ đọc ra ngoài), rồi rebuild `llm_agent_configs` chỉ còn `(slot, provider, model)`.
 
-**5 cho goi LLM da doi de dung chung 1 co che resolve** (`resolveLlmProviderChain`) — truoc day chi 2/5 cho (`analysis.ts`, `taxonomyMemory.ts`) di qua slot config, con **Insight/Report, dich zh-CN, va game-mode verify goi thang bien moi truong `wrangler.jsonc`, bo qua hoan toan config UI**. Gio ca 5 deu qua slot.
+**5 chỗ gọi LLM đã đổi để dùng chung 1 cơ chế resolve** (`resolveLlmProviderChain`) — trước đây chỉ 2/5 chỗ (`analysis.ts`, `taxonomyMemory.ts`) đi qua slot config, còn **Insight/Report, dịch zh-CN, và game-mode verify gọi thẳng biến môi trường `wrangler.jsonc`, bỏ qua hoàn toàn config UI**. Giờ cả 5 đều qua slot.
 
-### B. 3 bug production phat hien trong luc refactor (khong phai do refactor gay ra)
+### B. 3 bug production phát hiện trong lúc refactor (không phải do refactor gây ra)
 
-**B1. Sai ten model.** `agent-shop.clawd.io.vn` can ten model **tran** (`gpt-5.6-terra`), khong phai `codex-lb/gpt-5.6-terra` (prefix `codex-lb/` la cach proxy `rpi7jss` dinh tuyen, dung sai endpoint la 403). Da fix trong catalog + migration `0013_fix_openai_viax_model_names.sql`.
+**B1. Sai tên model.** `agent-shop.clawd.io.vn` cần tên model **trần** (`gpt-5.6-terra`), không phải `codex-lb/gpt-5.6-terra` (prefix `codex-lb/` là cách proxy `rpi7jss` định tuyến, dùng sai endpoint là 403). Đã fix trong catalog + migration `0013_fix_openai_viax_model_names.sql`.
 
-**B2. Thieu chu "json" trong prompt.** `agent-shop` dich Chat Completions sang Responses API va **tu choi thang** `response_format: json_object` neu khong co message nao chua chu "json": `"Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'"`. Fix o tang transport (`ensureMentionsJson` trong `worker/src/services/llm/providers.ts`) — tu dong them cau nhac nho neu prompt chua co, khong sua tung prompt rieng le (tranh tai phat sinh khi ai do sua prompt sau nay).
+**B2. Thiếu chữ "json" trong prompt.** `agent-shop` dịch Chat Completions sang Responses API và **từ chối thẳng** `response_format: json_object` nếu không có message nào chứa chữ "json": `"Response input messages must contain the word 'json' in some form to use 'text.format' of type 'json_object'"`. Fix ở tầng transport (`ensureMentionsJson` trong `worker/src/services/llm/providers.ts`) — tự động thêm câu nhắc nhở nếu prompt chưa có, không sửa từng prompt riêng lẻ (tránh tái phát sinh khi ai đó sửa prompt sau này).
 
-**B3. LLM CHUA TUNG phan tich duoc comment nao — 59.034 dong deu la keyword fallback.** Phat hien khi kiem tra: **100% analyses co `confidence=0.35` chinh xac va `summary` rong**, tu 07/07 den 29/07. Nguyen nhan la B1 (chon sai model → 403 → catch → fallback tu khoa), nhung **an di 12+ ngay** vi code ghi `model = model_da_cau_hinh` bat ke LLM hay fallback tao ra dong do — nhin DB tuong van chay tot. Da fix: `analysis.ts` gio ghi `provider='fallback', model=NULL` khi that su fallback, va ghi `level='error'` vao processing_logs de nhin thay ngay tren UI. **Day la ly do chinh phai chay lai phan tich cho toan bo du lieu cu — xem muc "VIEC DANG CHAY" o dau file.**
+**B3. LLM CHƯA TỪNG phân tích được comment nào — 59.034 dòng đều là keyword fallback.** Phát hiện khi kiểm tra: **100% analyses có `confidence=0.35` chính xác và `summary` rỗng**, từ 07/07 đến 29/07. Nguyên nhân là B1 (chọn sai model → 403 → catch → fallback từ khóa), nhưng **ẩn đi 12+ ngày** vì code ghi `model = model_đã_cấu_hình` bất kể LLM hay fallback tạo ra dòng đó — nhìn DB tưởng vẫn chạy tốt. Đã fix: `analysis.ts` giờ ghi `provider='fallback', model=NULL` khi thật sự fallback, và ghi `level='error'` vào processing_logs để nhìn thấy ngay trên UI. **Đây là lý do chính phải chạy lại phân tích cho toàn bộ dữ liệu cũ — xem mục "VIỆC ĐANG CHẠY" ở đầu file.**
 
-### C. Them rule fallback 2 tang (theo yeu cau user)
+### C. Thêm rule fallback 2 tầng (theo yêu cầu user)
 
-Neu provider chinh loi → **tu dong thu lai qua Gemini by Viax** → chi khi Gemini cung loi moi roi ve keyword fallback. Code moi: `worker/src/services/llm/chain.ts` (`completeJsonWithFallback`/`completeTextWithFallback`). Da verify that tren production bang log:
+Nếu provider chính lỗi → **tự động thử lại qua Gemini by Viax** → chỉ khi Gemini cũng lỗi mới rơi về keyword fallback. Code mới: `worker/src/services/llm/chain.ts` (`completeJsonWithFallback`/`completeTextWithFallback`). Đã verify thật trên production bằng log:
 ```
 insight openai_viax/codex-lb/gpt-5.6-terra failed (403 model_not_allowed); retried via gemini_viax
 ```
 
-### D. Co che tu chua khi batch/queue bi dung (theo yeu cau user)
+### D. Cơ chế tự chữa khi batch/queue bị đứng (theo yêu cầu user)
 
-User bao "lau lau batch dang chay bi loi 502 hay gi do lam dung lai". Tim ra **3 lo hong doc lap**:
-1. 1 batch loi → `Promise.all` trong `mapWithConcurrency` reject → HUY LUON cac batch song song dang chay, mat het viec da xong. **Fix**: batch loi gio duoc ghi nhan va bo qua, khong throw; job tra `complete:false` de requeue, lan sau chi chon lai comment CHUA co analysis (idempotent).
-2. Job loi lan dau la bi mark `failed` vinh vien, khong retry. **Fix**: them cot `attempts` (migration `0014`), retry toi da 200 lan (guard, khong phai budget thuc — moi lan la tien do that vi chi chon comment con thieu).
-3. Drain chay trong `ctx.waitUntil` cua request POLLING NGAN — Cloudflare cat `waitUntil` sau ~30s, batch LLM chay lau hon bi giet giua chung, job ket lai `running` mai mai cho den khi stale-recovery (10 phut → rut xuong **3 phut**, do lieness bang log moi nhat chu khong phai `started_at`).
+User báo "lâu lâu batch đang chạy bị lỗi 502 hay gì đó làm đứng lại". Tìm ra **3 lỗ hổng độc lập**:
+1. 1 batch lỗi → `Promise.all` trong `mapWithConcurrency` reject → HỦY LUÔN các batch song song đang chạy, mất hết việc đã xong. **Fix**: batch lỗi giờ được ghi nhận và bỏ qua, không throw; job trả `complete:false` để requeue, lần sau chỉ chọn lại comment CHƯA có analysis (idempotent).
+2. Job lỗi lần đầu là bị mark `failed` vĩnh viễn, không retry. **Fix**: thêm cột `attempts` (migration `0014`), retry tối đa 200 lần (guard, không phải budget thực — mỗi lần là tiến độ thật vì chỉ chọn comment còn thiếu).
+3. Drain chạy trong `ctx.waitUntil` của request POLLING NGẮN — Cloudflare cắt `waitUntil` sau ~30s, batch LLM chạy lâu hơn bị giết giữa chừng, job kẹt lại `running` mãi mãi cho đến khi stale-recovery (10 phút → rút xuống **3 phút**, đo liveness bằng log mới nhất chứ không phải `started_at`).
 
-Them **cron 5 phut** (`*/5 * * * *` trong `wrangler.jsonc`) chi de sweep + drain — khong phu thuoc browser mo tab nua. Them **endpoint dong bo** `POST /api/processing/drain` — await drain ngay trong request (khong qua `waitUntil`) de dung trong vong lap thu cong khi can day nhanh khoi luong lon (xem "Lenh nhanh").
+Thêm **cron 5 phút** (`*/5 * * * *` trong `wrangler.jsonc`) chỉ để sweep + drain — không phụ thuộc browser mở tab nữa. Thêm **endpoint đồng bộ** `POST /api/processing/drain` — await drain ngay trong request (không qua `waitUntil`) để dùng trong vòng lặp thủ công khi cần đẩy nhanh khối lượng lớn (xem "Lệnh nhanh").
 
-**Batch size cung la nguyen nhan lam run dung im**: 50 comment/batch vuot ngan sach 1 invocation → moi batch chi kip log "started", khong bao gio "completed". Da giam **`CLASSIFY_BATCH_SIZE`/`ANALYSIS_BATCH_SIZE`/`TRANSLATION_BATCH_SIZE` tu 50→20**, tang `LLM_BATCH_CONCURRENCY` 3→5, `PROCESSING_JOB_MAX_BATCHES` 3→5. Kiem chung: run #93 tu `done:0` nhay len `done:150/178` chi sau 1 lan drain sau khi doi config.
+**Batch size cũng là nguyên nhân làm run đứng im**: 50 comment/batch vượt ngân sách 1 invocation → mỗi batch chỉ kịp log "started", không bao giờ "completed". Đã giảm **`CLASSIFY_BATCH_SIZE`/`ANALYSIS_BATCH_SIZE`/`TRANSLATION_BATCH_SIZE` từ 50→20**, tăng `LLM_BATCH_CONCURRENCY` 3→5, `PROCESSING_JOB_MAX_BATCHES` 3→5. Kiểm chứng: run #93 từ `done:0` nhảy lên `done:150/178` chỉ sau 1 lần drain sau khi đổi config.
 
-### E. Fix 2 nut "Phan tich lai" / "Dich lai" — TRUOC DAY LA NO-OP HOAN TOAN
+### E. Fix 2 nút "Phân tích lại" / "Dịch lại" — TRƯỚC ĐÂY LÀ NO-OP HOÀN TOÀN
 
-Phat hien khi user hoi "nut phan tich lai dang sai cho nao". Ca 2 nut bam xong khong lam gi ca tren run da chay:
-- **Phan tich lai**: frontend gui `only_unanalyzed: true` — backend **khong doc tham so nay bao gio**. Backend luon loc `prompt_version != 'v4'`; ma dong fallback van ghi dung `v4` nen bi coi la "da xong" → tra `0/0`.
-- **Dich lai**: frontend **khong gui `force`**; `pendingTranslations` doi `t.comment_id IS NULL` nen comment da co ban dich (moi comment deu co) bi bo qua het.
+Phát hiện khi user hỏi "nút phân tích lại đang sai chỗ nào". Cả 2 nút bấm xong không làm gì cả trên run đã chạy:
+- **Phân tích lại**: frontend gửi `only_unanalyzed: true` — backend **không đọc tham số này bao giờ**. Backend luôn lọc `prompt_version != 'v4'`; mà dòng fallback vẫn ghi đúng `v4` nên bị coi là "đã xong" → trả `0/0`.
+- **Dịch lại**: frontend **không gửi `force`**; `pendingTranslations` đòi `t.comment_id IS NULL` nên comment đã có bản dịch (mọi comment đều có) bị bỏ qua hết.
 
-**Fix**: `runAnalyze`/`runTranslate` o frontend gui `force: run.analysis_status === "done"` (tuc chi force khi nhan da doi thanh "lai"). Backend `pendingComments` nhan `force` + `forceSince` (moc thoi gian job duoc claim lan dau, dung de retry hoi tu chu khong lap lai tu dau vinh vien).
+**Fix**: `runAnalyze`/`runTranslate` ở frontend gửi `force: run.analysis_status === "done"` (tức chỉ force khi nhãn đã đổi thành "lại"). Backend `pendingComments` nhận `force` + `forceSince` (mốc thời gian job được claim lần đầu, dùng để retry hội tụ chứ không lặp lại từ đầu vĩnh viễn).
 
-## Cau hoi con treo: co can dich lai summary khong?
+### F. Lỗi hiển thị UI — CHƯA SỬA, để sau khi chạy xong 33 run
 
-User hoi rieng cau nay. Tra loi: **ban dich COMMENT thi khong can** (0/58.718 rong, noi dung khong doi). Nhung **ban dich SUMMARY thi co** — vi luc dich, summary tieng Viet dang RONG (truoc khi co phan tich LLM that), nen `summary_translated` hoac rong (24.948 dong) hoac dich tu chuoi rong (khong khop gi voi summary moi sau khi phan tich lai). Hien **chua co che do "chi dich lai summary"** — bam "Dich lai" se dich lai CA comment lan summary, ton them token vo ich cho phan comment (da dung roi). Neu muon toi uu, co the them mode rieng — chua lam trong phien nay, hoi user truoc khi lam vi la thay doi hanh vi API.
+User báo "sao tôi chả thấy gì" khi nhìn danh sách "Hàng đợi xử lý" trong Ingest Settings: nhiều run hiện **"Đang chờ phân tích ... 0/0 comment"** và **"Chưa có log LLM cho task này"**, trông như bị treo.
 
-## Lenh nhanh
+**Đã xác nhận đây KHÔNG phải bug chạy sai — chỉ là cách hiển thị gây hiểu lầm.** Queue giới hạn `PROCESSING_QUEUE_CONCURRENCY=3` job chạy song song cùng lúc. Với 33 run được kích hoạt cùng lúc, 2 run khổng lồ (#47 14.482 comment, #53 8.988 comment) liên tục tự requeue rồi tự claim lại ngay (vì FIFO luôn chọn ID nhỏ nhất trong hàng `queued`, và job đó lại chính là ID nhỏ nhất sau khi tự đưa mình về `queued`) → chiếm gần như vĩnh viễn 2/3 slot. Slot còn lại xoay vòng phục vụ các run nhỏ theo đúng thứ tự kích hoạt. Job nào chưa từng được claim thì `GET /api/analyze/progress/:key` trả về `{"status":"queued","done":0,"total":0}` — đúng sự thật, chỉ là **chưa tới lượt**, không phải lỗi.
 
-**Kiem tra con bao nhieu comment con fallback:**
+**Việc cần sửa sau này** (đã hoãn theo yêu cầu user, ưu tiên chạy xong data trước):
+- UI nên phân biệt rõ "queued nhưng chưa từng được claim" (trạng thái thật, `total` chưa biết) với "đang chạy" và "bị treo thật sự" — hiện cả 3 trạng thái đều na ná nhau trên UI, gây hiểu lầm là hỏng.
+- Cân nhắc hiển thị vị trí trong hàng đợi (vd "Đang chờ, còn N job phía trước") để user không tưởng là bug.
+- Cân nhắc: 2 run siêu lớn (#47, #53) có nên tách thành job kích thước giới hạn hơn (theo comment_ids con thay vì cả run) để không chiếm slot liên tục, cho các run nhỏ chạy song song thay vì xếp hàng dài? Đây là thay đổi kiến trúc, cần bàn với user trước khi làm.
+- File liên quan: `frontend/src/pages/IngestSettings.jsx` (component hiển thị "Hàng đợi xử lý" / tracked jobs), `worker/src/services/processingQueue.ts` (logic FIFO + concurrency).
+
+## Câu hỏi còn treo: có cần dịch lại summary không?
+
+User hỏi riêng câu này. Trả lời: **bản dịch COMMENT thì không cần** (0/58.718 rỗng, nội dung không đổi). Nhưng **bản dịch SUMMARY thì có** — vì lúc dịch, summary tiếng Việt đang RỖNG (trước khi có phân tích LLM thật), nên `summary_translated` hoặc rỗng (24.948 dòng) hoặc dịch từ chuỗi rỗng (không khớp gì với summary mới sau khi phân tích lại). Hiện **chưa có chế độ "chỉ dịch lại summary"** — bấm "Dịch lại" sẽ dịch lại CẢ comment lẫn summary, tốn thêm token vô ích cho phần comment (đã đúng rồi). Nếu muốn tối ưu, có thể thêm mode riêng — chưa làm trong phiên này, hỏi user trước khi làm vì là thay đổi hành vi API.
+
+## Lệnh nhanh
+
+**Kiểm tra còn bao nhiêu comment còn fallback:**
 ```powershell
 cd "C:\Temp\cfl-export-20260720-1442\worker"
 npx wrangler d1 execute cfl-feedback --remote --json --command "SELECT COUNT(*) AS con_keyword FROM analyses WHERE (summary IS NULL OR TRIM(summary)='') AND confidence=0.35"
 ```
 
-**Vong lap drain dong bo** (dung khi can day nhanh, moi lan xu ly toi da 3 job song song x 5 batch x 20 comment ~ 300 comment/lan, gioi han 115s/lan vi edge timeout 100s):
+**Vòng lặp drain đồng bộ** (dùng khi cần đẩy nhanh, mỗi lần xử lý tối đa 3 job song song x 5 batch x 20 comment ~ 300 comment/lần, giới hạn 115s/lần vì edge timeout 100s):
 ```powershell
 $B = "https://cfl-feedback-worker.vinhviax.workers.dev"
 for ($i=0; $i -lt 60; $i++) {
@@ -114,54 +126,60 @@ for ($i=0; $i -lt 60; $i++) {
 }
 ```
 
-**Xem run nao con can chay** (danh sach 33 ID da liet ke o dau file; kiem tra tung run):
+**Xem run nào con cần chạy** (danh sách 33 ID đã liệt kê ở đầu file; kiểm tra từng run):
 ```powershell
 Invoke-RestMethod "$B/api/analyze/progress/run-99"
 ```
 
-**Health / cau hinh LLM hien tai:**
+**Xem trạng thái toàn bộ hàng đợi** (đếm theo job_type + status, hữu ích để biết run nào đang thật sự chạy vs xếp hàng):
+```powershell
+npx wrangler d1 execute cfl-feedback --remote --json --command "SELECT job_type, status, COUNT(*) AS n FROM processing_queue WHERE progress_key LIKE 'run-%' OR progress_key LIKE 'translate-run-%' GROUP BY job_type, status"
+```
+
+**Health / cấu hình LLM hiện tại:**
 ```powershell
 Invoke-RestMethod "$B/api/health"
 Invoke-RestMethod "$B/api/llm-config"
 ```
 
-**Xem log worker that** (huu ich neu batch loi lai):
+**Xem log worker thật** (hữu ích nếu batch lỗi lại):
 ```powershell
 cd "C:\Temp\cfl-export-20260720-1442\worker"; npx wrangler tail cfl-feedback-worker --format pretty
 ```
 
-## Gotcha quan trong (con hieu luc, cong them phien nay)
+## Gotcha quan trọng (còn hiệu lực, cộng thêm phiên này)
 
-- **Nut "Phan tich lai"/"Dich lai" phai gui `force`** — neu sau nay sua code frontend, dung vo tinh bo mat tham so nay, no se quay lai thanh no-op im lang y het bug vua fix.
-- **`prompt_version` KHONG phai bang chung LLM da chay** — no chi la version cua PROMPT, khong phai cua "provider da tao ra dong nay". Muon biet co that su la LLM hay fallback, kiem tra `summary` rong + `confidence=0.35` dong thoi (chu ky cua `classifyFallback`).
-- **Batch size 20 la ket qua do luong that, dung tang lai 50** neu chua co ly do ro rang — se lam run dung im (moi batch "started" khong bao gio "completed").
-- **`STALE_RUNNING_MS` = 3 phut, do bang log moi nhat cua job** (khong phai `started_at`/`updated_at` don thuan) — dung sua ve cach do cu, se lam job "con song" gia tao keo dai maimai.
-- **Endpoint drain dong bo `POST /api/processing/drain` co "takeover window" 20s** — no co the chiem lai job dang `running` neu khong co log moi trong 20s, de tranh deadlock voi drain qua `waitUntil` (drain chet giua chung van kip ghi log "started" truoc, lam job trong "con song" voi cua so stale 3 phut cu).
-- **`llm_provider_secrets` la bang MOI, chua migration `0012`** — endpoint/key cua `openai_viax` nam o day, khong con o `llm_agent_configs`. Neu can doi key `agent-shop`, sua bang nay.
-- Cac gotcha cu (Drive/G:/C:\Temp, Pages cache, D1 bound param 90, xlsx CVE, git tren Drive) van dung nguyen — xem lich su ben duoi.
+- **Nút "Phân tích lại"/"Dịch lại" phải gửi `force`** — nếu sau này sửa code frontend, đừng vô tình bỏ mất tham số này, nó sẽ quay lại thành no-op im lặng y hệt bug vừa fix.
+- **`prompt_version` KHÔNG phải bằng chứng LLM đã chạy** — nó chỉ là version của PROMPT, không phải của "provider đã tạo ra dòng này". Muốn biết có thật sự là LLM hay fallback, kiểm tra `summary` rỗng + `confidence=0.35` đồng thời (chữ ký của `classifyFallback`).
+- **Batch size 20 là kết quả đo lường thật, đừng tăng lại 50** nếu chưa có lý do rõ ràng — sẽ làm run đứng im (mỗi batch "started" không bao giờ "completed").
+- **`STALE_RUNNING_MS` = 3 phút, đo bằng log mới nhất của job** (không phải `started_at`/`updated_at` đơn thuần) — đừng sửa về cách đo cũ, sẽ làm job "còn sống" giả tạo kéo dài mãi mãi.
+- **Endpoint drain đồng bộ `POST /api/processing/drain` có "takeover window" 20s** — nó có thể chiếm lại job đang `running` nếu không có log mới trong 20s, để tránh deadlock với drain qua `waitUntil` (drain chết giữa chừng vẫn kịp ghi log "started" trước, làm job trông "còn sống" với cửa sổ stale 3 phút cũ).
+- **`llm_provider_secrets` là bảng MỚI, của migration `0012`** — endpoint/key của `openai_viax` nằm ở đây, không còn ở `llm_agent_configs`. Nếu cần đổi key `agent-shop`, sửa bảng này.
+- **Lỗi hiển thị "0/0 comment" trên UI cho job đang xếp hàng chưa được claim** — xem mục F ở trên. Không phải bug chạy sai, chỉ là hiển thị gây hiểu lầm. Chưa sửa, đợi 33 run chạy xong.
+- Các gotcha cũ (Drive/G:/C:\Temp, Pages cache, D1 bound param 90, xlsx CVE, git trên Drive) vẫn đúng nguyên — xem lịch sử bên dưới.
 
-## Cau hinh LLM (sau refactor)
+## Cấu hình LLM (sau refactor)
 
-- Suy luan (phan tich comment, taxonomy discovery, game-mode verify, Insight/Report): mac dinh `openai_viax` / `gpt-5.6-terra`.
-- Don gian (dich zh-CN): mac dinh `gemini_viax` / `ag/gemini-3-flash-agent`.
-- Fallback tu dong: bat ky provider nao loi → thu `gemini_viax` → moi that bai het moi ve keyword/copy-nguyen-van.
-- Sua qua UI: nut "Cau hinh LLM Agent" trong Ingest Settings, hoac `PUT /api/llm-config/:slot {provider, model}` (chi nhan 2 provider "by Viax", provider "chinh chu"/"custom" tu choi luu — loi ro rang neu thu).
+- Suy luận (phân tích comment, taxonomy discovery, game-mode verify, Insight/Report): mặc định `openai_viax` / `gpt-5.6-terra`.
+- Đơn giản (dịch zh-CN): mặc định `gemini_viax` / `ag/gemini-3-flash-agent`.
+- Fallback tự động: bất kỳ provider nào lỗi → thử `gemini_viax` → mọi thất bại hết mới về keyword/copy-nguyên-văn.
+- Sửa qua UI: nút "Cấu hình LLM Agent" trong Ingest Settings, hoặc `PUT /api/llm-config/:slot {provider, model}` (chỉ nhận 2 provider "by Viax", provider "chính chủ"/"custom" từ chối lưu — lỗi rõ ràng nếu thử).
 
 ---
 
-## LICH SU cac session/phien truoc
+## LỊCH SỬ các session/phiên trước
 
-### Phien 1, cung ngay 2026-07-29: Token metering + fix upload CSV 2 lan
+### Phiên 1, cùng ngày 2026-07-29: Token metering + fix upload CSV 2 lần
 
-- Fix upload CSV Facebook lon bi vuot 1000 subrequest/invocation (commit `c32e9ed`) — dedupe/post lookup chuyen tu chunk `IN(...)` sang quet DB theo khoang ngay/prefix.
-- Bat token usage tracking: provider tra `{content, usage}` thay vi string thuan (`e0a5a57`), aggregate theo run + theo khoang ngay (`e8e36e3`), hien thi UI trong Lich su Ingest (`f0eb349`).
-- Bo upload CSV 2 lan: preview parse ngay tren browser thay vi goi API preview roi goi API upload (`5313260`).
-- Phat hien "G:" tren may nay la o local, khong phai Google Drive — da ghi vao MEMORY va handoff.
+- Fix upload CSV Facebook lớn bị vượt 1000 subrequest/invocation (commit `c32e9ed`) — dedupe/post lookup chuyển từ chunk `IN(...)` sang quét DB theo khoảng ngày/prefix.
+- Bật token usage tracking: provider trả `{content, usage}` thay vì string thuần (`e0a5a57`), aggregate theo run + theo khoảng ngày (`e8e36e3`), hiển thị UI trong Lịch sử Ingest (`f0eb349`).
+- Bỏ upload CSV 2 lần: preview parse ngay trên browser thay vì gọi API preview rồi gọi API upload (`5313260`).
+- Phát hiện "G:" trên máy này là ổ local, không phải Google Drive — đã ghi vào MEMORY và handoff.
 
-### Session 2026-07-23: taxonomy game-mode + UI lich su ingest
+### Session 2026-07-23: taxonomy game-mode + UI lịch sử ingest
 
-9 mode curated duoi `gameplay_mode_map`. Route `POST /api/game-modes/tag`, idempotent, 2 buoc keyword + LLM verify. Da chay full tren production 2026-06-29→2026-07-23 (811 tag). UI loc nguon + phan trang trong Lich su Ingest.
+9 mode curated dưới `gameplay_mode_map`. Route `POST /api/game-modes/tag`, idempotent, 2 bước keyword + LLM verify. Đã chạy full trên production 2026-06-29→2026-07-23 (811 tag). UI lọc nguồn + phân trang trong Lịch sử Ingest.
 
-### Session 2026-07-20: tinh nang Xuat Excel comment
+### Session 2026-07-20: tính năng Xuất Excel comment
 
-Xuat comment ra Excel theo nguon + khoang thoi gian + chu de. Backend `commentFilters.ts`, frontend `ExcelExportDialog`.
+Xuất comment ra Excel theo nguồn + khoảng thời gian + chủ đề. Backend `commentFilters.ts`, frontend `ExcelExportDialog`.
