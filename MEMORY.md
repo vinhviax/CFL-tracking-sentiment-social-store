@@ -26,7 +26,7 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 - GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
 - Branch lam viec hien tai: `main`
 - Workspace dang lam: `J:\My Drive\CFL\Agent\Tracking Store Social`
-- Checkout verify/deploy can nam ngoai Google Drive; session 2026-07-16 da verify o `C:\Temp\cfl-feedback-worker-20e9c35-20260716\worker`.
+- Checkout verify/deploy can nam ngoai Google Drive. Ban dung hien tai: **`C:\Temp\cfl-export-20260720-1442`** (co ca `worker/` va `frontend/`, da `npm ci`; kiem tra 2026-07-29: `worker/src`, `frontend/src`, `wrangler.jsonc` khop J:). Truoc khi build/deploy luon `diff -rq` voi J: — **ban copy cu chua code cu van chay duoc, nen deploy tu ban sai se am tham day code lac hau len production**. (Ban cu `C:\Temp\cfl-feedback-worker-20e9c35-20260716` da xoa 2026-07-29 vi dung chinh cai bay nay.)
 - Workspace chinh hien tai: `J:\My Drive\CFL\Agent\Tracking Store Social`
 - Workspace cu: `G:\CFM\Research\Crossfire Legends Sea`
 
