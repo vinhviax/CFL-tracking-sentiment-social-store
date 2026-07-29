@@ -44,15 +44,16 @@ Worker config nam o `worker/wrangler.jsonc`.
 - Insight/Report model: `codex-lb/gpt-5.6-terra`
 - LLM base URL: `https://rpi7jss.abc-tunnel.us/v1`
 
-## Trang thai LLM va deploy moi nhat (2026-07-16)
+## Trang thai LLM va deploy moi nhat (2026-07-29)
 
-- Commit da push len `main`: `20e9c35 fix: typecheck worker config regression test` (bao gom `2a59626 feat: upgrade default insight model to GPT-5.6 Terra`).
-- Worker production version: `eaa2cd6d-d449-4181-8f8c-524dd95737dd`.
+- Commit da push len `main`: `31092bc Correct the stale CSV chunking note in MEMORY.md` (commit chinh: `c32e9ed Fix large Facebook CSV upload hitting Worker subrequest limit`).
+- Worker production version: `66566f6e-3d41-499d-b137-7ee28ecc8e43`. Pages van la deployment `dae607a4` (khong doi frontend tu 2026-07-23).
+- `wrangler.jsonc` co `limits.cpu_ms = 60000` (mac dinh 30s khong du de decode + hash CSV lon).
 - Override D1 slot `reasoning`: provider `custom`, endpoint `https://agent-shop.clawd.io.vn/v1`, model `codex-lb/gpt-5.6-terra`, `enabled=true`.
 - Override D1 slot `simple`: provider `custom`, cung endpoint, model `codex-lb/gpt-5.6-luna`, `enabled=false`. Vi slot tat, dich thuc te van dung model mac dinh Gemini Flash Agent.
 - Insight/Report khong dung hai slot override; `generateSummary` dung truc tiep `LLM_INSIGHT_MODEL`.
 - Da smoke test `POST /api/insights/generate` khong luu archive: response tra `provider=llm_viax`, `model=codex-lb/gpt-5.6-terra`.
-- Worker tests: `30/30` files, `126/126` tests pass; typecheck pass. Frontend/Pages khong deploy trong session nay.
+- Worker tests: `33/33` files, `154/154` tests pass; typecheck pass.
 - `/api/llm-config` chi expose default `reasoning` va `simple`, khong co field Insight. Muon kiem tra Insight runtime, dung `POST /api/insights/generate` va doc field `model` trong response.
 
 ## Secrets
@@ -77,7 +78,7 @@ npx wrangler secret put FB_ACCESS_TOKEN
 
 ## Chuc nang da co
 
-- Ingest CSV Facebook Group co preview day du 5 cot A-E: Source, Post Published Date, Post Message, Created Date, Comment Message; chi nhap dong co Source = `Group`, bo qua dong khac.
+- Ingest CSV Facebook co preview day du 5 cot A-E: Source, Post Published Date, Post Message, Created Date, Comment Message. Nhap **ca dong Source = `Fanpage` (→ `fb_page`) va `Group` (→ `fb_group_csv`)**, bo qua dong khac (vd `Store`). Cot sau E bi bo qua co y — LLM analysis moi la nguon su that cho topic/sentiment. Gioi han **60.000 dong/lan nap**, vuot thi bao user chia file (nap trung lap an toan vi dedupe theo `dedupe_hash`).
 - Ingest Fanpage qua Graph API.
 - Ingest Sensor Tower Store VN, Google Play `gp`, App Store `ios`.
 - Cron Sensor Tower incremental theo cursor, chi keo ngay tiep theo den hom qua GMT+7.
@@ -149,7 +150,7 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - CSV Facebook file lon tung gap 2 gioi han nguoc chieu nhau: dedupe lookup `IN (...)` phai chunk nho (bound parameter limit ~90) nhung nhu vay so subrequest lai tang theo so dong, va ~30k dong da vuot 1000 subrequest/invocation. Da fix (commit `c32e9ed`): khong con gui hash cua file vao `IN (...)` nua — dedupe quet `comments` trong khoang ngay cua file (phan trang 5000/lan), post quet theo prefix `fanpage_csv:`/`group_csv:`, nen chi phi lookup khong con ti le voi so dong file. Insert batch 100 -> 250 (gioi han 100 bound param la MOI STATEMENT, khong phai moi batch). **Dung quay lai kieu chunk `IN (...)` theo hash cua file.** Gioi han cung hien tai: 60.000 dong/lan nap (`CSV_MAX_IMPORTABLE_ROWS`), vuot thi bao nguoi dung chia file; qua nguong nay Worker het memory 128MB khi decode file chu khong phai het subrequest.
 - Facebook pagination khong duoc keo vo han; giu limit de tranh Too many subrequests.
 - Worker background job dung `ctx.waitUntil`; progress khong luu in-memory ma luu D1.
-- CSV Facebook Group chi nhap dong co cot A/source = `Group`; dong Fanpage trong file CSV bi bo qua. Neu file khong co dong Group moi hoac toan duplicate, upload bi tu choi truoc khi tao ingest run.
+- CSV Facebook nhap ca dong `Fanpage` va `Group` o cot A (ghi chu cu "chi nhap dong Group" da lac hau). Neu file khong co dong Fanpage/Group hop le, hoac toan bo la duplicate, upload bi tu choi **truoc khi tao ingest run** (khong de lai run rac).
 - Store Sensor Tower ngay hien thi co fix de uu tien requested range va parse ngay nguon khong bi lech timezone. Run cu da import truoc fix co the van mang data date cu trong D1 neu khong xoa/keo lai.
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.
 - `node_modules` trong Google Drive co the loi/hang khi chay Vitest/TypeScript. Copy Worker dung commit can verify ra thu muc local (vi du `C:\Temp\...\worker`), chay `npm ci`, roi chay test/typecheck/deploy tu do.
