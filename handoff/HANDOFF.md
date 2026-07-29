@@ -23,15 +23,19 @@ Working tree J: sach, local va `origin/main` da dong bo.
 > - `G:\CFM\Research\Crossfire Legends Sea` = clone CU, branch `codex/sensortower-zh-workspace`, HEAD `fb9fc9e` (06/07), ref `origin/main` cua no cung cu tu hom do. **CHUA co game-modes / taxonomy moi va CHUA co fix CSV.** ĐUNG dung lam nguon.
 > - `C:\Temp\cfl-export-20260720-1442` = ban copy local (khong-git) da `npm ci`, dung de build/test/deploy (vi node_modules tren Drive treo vitest). Da sync khop J: sau session nay (`diff -rq` sach).
 >
-> **`G:` KHONG phai Google Drive** (da kiem tra 2026-07-29). Tren may cong ty, `G:` la o du lieu local 4.6 TB volume label "**Work**", khong co thu muc `My Drive`; va trong Drive account `vinhvnn@vng.com.vn` **khong ton tai thu muc `CFM` hay `Crossfire Legends Sea`** (da search bang Drive API, khong chi liet ke o dia). Nen `G:\CFM\...` la ban local-only, khong bao gio tu dong nhan thay doi.
+> ⚠️ **Chu o dia `G:` co nghia KHAC NHAU tuy may** — day la nguon nham lan chinh, user da xac nhan 2026-07-29:
+> - **May cong ty (may dang chay session)**: `J:` = My Drive (volume label "Google Drive", 232 GB, root chi co `My Drive`). `G:` = o du lieu **local 4.6 TB** volume label "**Work**", khong co thu muc `My Drive`.
+> - **May o nha**: `G:` = My Drive.
 >
-> User tung hieu la "G: la may o nha, J: la may cong ty, ca hai deu la My Drive" — **khong dung**. Day la 2 ban doc lap. Kenh dong bo that giua nha va cong ty la **GitHub**, khong phai Drive. O ban clone nao dang lac hau, chay:
+> Nen cung chuoi duong dan `G:\CFM\Research\Crossfire Legends Sea` tro toi **2 kho khac nhau tuy may**: o nha la Drive, o cong ty la o local. Drive o nha gan nhu chac chan la **account Google khac** — da search Drive API cua `vinhvnn@vng.com.vn` va **khong co thu muc `CFM` hay `Crossfire Legends Sea`** nao.
+>
+> ⇒ **Khong ban nao tu sync voi ban nao**: `G:` o cong ty la local, `G:` o nha nam trong Drive khac, `J:` nam trong Drive cong ty. **Chi GitHub noi chung lai.** O ban clone nao dang lac hau, chay:
 >
 > ```bash
 > git fetch origin && git checkout main && git pull
 > ```
 >
-> (Neu o nha Drive dang nhap bang account Google KHAC thi `G:\CFM\...` o nha co the la Drive cua account do — khong kiem tra duoc tu day — nhung van la storage khac voi `J:\My Drive\CFL\...`, ket luan khong doi.)
+> Luu y: vi ban `G:` o nha NAM TRONG Drive, cac gotcha ve Drive cung ap dung o do — `node_modules` treo vitest, `git fsck` bao `bad sha1 file`. Xem muc "Gotcha quan trong".
 
 ## Session nay lam gi
 
