@@ -13,7 +13,6 @@ import {
   listProcessingJobLogs,
   listProcessingJobs,
   listRuns,
-  previewCsv,
   runAnalyze,
   saveLlmAgentConfig,
   runTranslate,
@@ -21,6 +20,7 @@ import {
 } from "../api/client.js";
 import DateTextInput from "../components/DateTextInput.jsx";
 import { formatTokens, shortModelName, tokenUsageState, totalTokens, usageModelLabel } from "./IngestSettings.helpers.js";
+import { previewCsvFile } from "../utils/facebookCsv.js";
 import { StatusPill } from "../components/Badges.jsx";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
 
@@ -731,9 +731,12 @@ export default function IngestSettings() {
     if (!selectedFile) return;
     setFile(selectedFile);
     setUploadError(null);
-    previewCsv(selectedFile)
+    // Parsed in the browser rather than posted to /api/ingest/preview-csv: the
+    // confirm step uploads the same file anyway, and sending a large export twice
+    // doubled the wait and the Worker's peak memory for no benefit.
+    previewCsvFile(selectedFile)
       .then(setPreview)
-      .catch((e) => setUploadError(e?.response?.data?.detail || e.message));
+      .catch((e) => setUploadError(`Không đọc được file CSV: ${e.message}`));
   };
 
   const confirmUpload = () => {
