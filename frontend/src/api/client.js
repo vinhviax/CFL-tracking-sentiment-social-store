@@ -1,7 +1,18 @@
 import axios from "axios";
+import { BYO_HEADER, byoHeaderValue } from "../utils/llmSession.js";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || "http://localhost:8000",
+});
+
+// A bring-your-own-key provider is chosen in the browser and never stored server
+// side, so every request that might reach an LLM has to carry it. Attaching it in
+// one interceptor keeps that out of each call site — including the polling GETs,
+// which are what drain the processing queue.
+api.interceptors.request.use((config) => {
+  const value = byoHeaderValue(config.url);
+  if (value) config.headers[BYO_HEADER] = value;
+  return config;
 });
 
 export const getHealth = () => api.get("/api/health").then((r) => r.data);

@@ -4,7 +4,6 @@ import {
   buildTranslationLimit,
   buildTranslationUserPrompt,
   getTranslationBatchSize,
-  getTranslationModel,
   parseTranslationResults,
 } from "./translation";
 
@@ -57,12 +56,6 @@ describe("parseTranslationResults", () => {
       { id: 1, message_zh: "一", summary_zh: "甲" },
       { id: 2, message_zh: "二", summary_zh: "乙" },
     ]);
-  });
-
-  test("uses a dedicated translation model when configured", () => {
-    expect(getTranslationModel({ LLM_TRANSLATE_MODEL: "ag/gemini-3-flash-agent", LLM_INSIGHT_MODEL: "codex-lb/gpt-5.4" } as any))
-      .toBe("ag/gemini-3-flash-agent");
-    expect(getTranslationModel({ LLM_INSIGHT_MODEL: "codex-lb/gpt-5.4" } as any)).toBe("codex-lb/gpt-5.4");
   });
 
   test("does not cap run-specific translation when no explicit limit is provided", () => {

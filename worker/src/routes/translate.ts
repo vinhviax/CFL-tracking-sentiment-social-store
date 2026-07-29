@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { DEFAULT_TRANSLATION_LOCALE, getTranslationProgress } from "../services/translation";
 import { drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
+import { BYO_HEADER, parseByoHeader } from "../services/llmCatalog";
 
 export const translateRoute = new Hono<{ Bindings: Env }>();
 
 translateRoute.post("/run", async (c) => {
   const body = await c.req.json().catch(() => ({}));
+  const byo = parseByoHeader(c.req.header(BYO_HEADER));
   const runId: number | undefined = body.run_id;
   const commentIds: number[] | undefined = body.comment_ids;
   const locale = body.locale || DEFAULT_TRANSLATION_LOCALE;
@@ -25,7 +27,7 @@ translateRoute.post("/run", async (c) => {
   ]);
 
   c.executionCtx.waitUntil(
-    drainProcessingQueue(c.env)
+    drainProcessingQueue(c.env, undefined, undefined, { byo })
       .catch((e) => console.error(`translation queue failed for ${progressKey}`, e))
   );
 
@@ -33,11 +35,12 @@ translateRoute.post("/run", async (c) => {
 });
 
 translateRoute.get("/progress/:key", async (c) => {
+  const byo = parseByoHeader(c.req.header(BYO_HEADER));
   const progress = await getTranslationProgress(c.env, c.req.param("key"));
   const status = (progress as any)?.status;
   if (!["done", "failed", "cancelled"].includes(status)) {
     c.executionCtx.waitUntil(
-      drainProcessingQueue(c.env)
+      drainProcessingQueue(c.env, undefined, undefined, { byo })
         .catch((e) => console.error(`translation queue failed while polling ${c.req.param("key")}`, e))
     );
   }

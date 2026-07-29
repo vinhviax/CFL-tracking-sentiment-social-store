@@ -64,7 +64,7 @@ describe("translateRoute queueing", () => {
     ]);
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 
   test("progress polling kicks the queue drainer", async () => {
@@ -77,6 +77,6 @@ describe("translateRoute queueing", () => {
     expect(mocks.getTranslationProgress).toHaveBeenCalledWith(env, "translate-run-22-zh-CN");
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 });

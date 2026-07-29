@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { getProgress } from "../services/analysis";
 import { drainProcessingQueue, enqueueProcessingJobs } from "../services/processingQueue";
+import { BYO_HEADER, parseByoHeader } from "../services/llmCatalog";
 
 export const analyzeRoute = new Hono<{ Bindings: Env }>();
 
 analyzeRoute.post("/run", async (c) => {
   const body = await c.req.json().catch(() => ({}));
+  const byo = parseByoHeader(c.req.header(BYO_HEADER));
   const commentIds: number[] | undefined = body.comment_ids;
   const runId: number | undefined = body.run_id;
 
@@ -22,7 +24,7 @@ analyzeRoute.post("/run", async (c) => {
   ]);
 
   c.executionCtx.waitUntil(
-    drainProcessingQueue(c.env)
+    drainProcessingQueue(c.env, undefined, undefined, { byo })
       .catch((e) => console.error(`analysis queue failed for ${progressKey}`, e))
   );
 
@@ -30,11 +32,12 @@ analyzeRoute.post("/run", async (c) => {
 });
 
 analyzeRoute.get("/progress/:key", async (c) => {
+  const byo = parseByoHeader(c.req.header(BYO_HEADER));
   const progress = await getProgress(c.env, c.req.param("key"));
   const status = (progress as any)?.status;
   if (!["done", "failed", "cancelled"].includes(status)) {
     c.executionCtx.waitUntil(
-      drainProcessingQueue(c.env)
+      drainProcessingQueue(c.env, undefined, undefined, { byo })
         .catch((e) => console.error(`analysis queue failed while polling ${c.req.param("key")}`, e))
     );
   }

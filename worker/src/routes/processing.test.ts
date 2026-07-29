@@ -55,7 +55,7 @@ describe("processingRoute", () => {
     expect(mocks.listProcessingJobs).toHaveBeenCalledWith(env, { limit: 5 });
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 
   test("cancels a queued or running processing job and kicks the queue drainer", async () => {
@@ -69,7 +69,7 @@ describe("processingRoute", () => {
     expect(mocks.cancelProcessingJob).toHaveBeenCalledWith(env, 7);
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 
   test("returns 404 when the processing job cannot be cancelled", async () => {

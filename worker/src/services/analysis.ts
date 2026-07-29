@@ -7,7 +7,7 @@ import type { Env } from "../types";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
 import { CommentInput } from "./llm/base";
 import { ClassifierService, type HumanCorrectionExample } from "./llm/classifier";
-import { resolveLlmProvider } from "./llmAgentConfig";
+import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
@@ -115,10 +115,12 @@ export async function runAnalysis(
     progressKey: string;
     maxBatches?: number;
     shouldContinue?: () => Promise<void> | void;
+    /** Caller's own provider, used in memory only and never persisted. */
+    byo?: ByoOverride | null;
   }
 ) {
-  const provider = await resolveLlmProvider(env, "reasoning");
-  const svc = new ClassifierService(env, provider);
+  const chain = await resolveLlmProviderChain(env, "reasoning", opts.byo);
+  const svc = new ClassifierService(env, chain);
   await opts.shouldContinue?.();
   const comments = await pendingComments(env, { commentIds: opts.commentIds, runId: opts.runId });
   const humanExamples = await loadHumanCorrectionExamples(env);
@@ -213,7 +215,13 @@ export async function runAnalysis(
            prompt_version=excluded.prompt_version, status=excluded.status, analyzed_at=excluded.analyzed_at`
       ).bind(
         r.id, r.topic_main, JSON.stringify(r.topics_sub), r.sentiment, r.urgency, r.summary,
-        r.other_suggested, r.confidence, svc.providerName, svc.model, PROMPT_VERSION, "ok", analyzedAt
+        r.other_suggested, r.confidence,
+        // Record what produced this row, not what was configured. Writing the
+        // configured model even when every LLM call 403'd is what made a 12-day
+        // outage invisible in the analyses table.
+        batch.fellBack ? "fallback" : batch.servedBy?.provider || svc.providerName,
+        batch.fellBack ? null : batch.servedBy?.model || svc.model,
+        PROMPT_VERSION, "ok", analyzedAt
       )
     );
     await env.DB.batch(stmts);
@@ -225,9 +233,15 @@ export async function runAnalysis(
         processing_job_id: opts.jobId,
         progress_key: opts.progressKey,
         job_type: "analysis",
-        level: "success",
+        // A batch the LLM could not classify is logged as an error even though the
+        // keyword fallback filled it in, so the queue view shows the problem instead
+        // of a green "completed" that hides it.
+        level: batch.fellBack ? "error" : "success",
         phase: "llm_batch",
-        message: `Analysis batch ${batchIndex}/${groups.length} completed`,
+        error: batch.fellBack ? batch.error || "LLM không phân loại được, đã dùng fallback từ khóa" : null,
+        message: batch.fellBack
+          ? `Analysis batch ${batchIndex}/${groups.length} dùng fallback từ khóa (${batch.llmClassified}/${group.length} qua LLM)`
+          : `Analysis batch ${batchIndex}/${groups.length} completed`,
         batch_index: batchIndex,
         batch_total: groups.length,
         item_count: group.length,

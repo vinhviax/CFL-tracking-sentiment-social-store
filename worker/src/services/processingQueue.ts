@@ -4,6 +4,7 @@ import { discoverAndStoreRunMemory } from "./taxonomyMemory";
 import { DEFAULT_TRANSLATION_LOCALE, runTranslation } from "./translation";
 import { setProgress } from "./progressJobs";
 import { parseBoundedInt } from "./concurrency";
+import type { ByoOverride } from "./llmAgentConfig";
 
 export type ProcessingJobType = "analysis" | "translation";
 
@@ -304,7 +305,7 @@ export async function drainProcessingQueue(
   env: Env,
   deps: QueueDeps = defaultDeps,
   store: QueueStore = d1QueueStore,
-  opts: { maxConcurrentJobs?: number } = {}
+  opts: { maxConcurrentJobs?: number; byo?: ByoOverride | null } = {}
 ) {
   const maxRunning = parseBoundedInt(
     opts.maxConcurrentJobs ?? env.PROCESSING_QUEUE_CONCURRENCY,
@@ -328,6 +329,9 @@ export async function drainProcessingQueue(
           progressKey: job.progress_key,
           maxBatches: getProcessingJobMaxBatches(env),
           shouldContinue: ensureNotCancelled,
+          // In-memory only: a BYO provider belongs to the request that carried it,
+          // so a later drain (cron, or after the tab closed) uses the slot default.
+          byo: opts.byo,
         });
         if ((result as any)?.complete === false) {
           await store.requeue(env, job.id);
@@ -346,6 +350,7 @@ export async function drainProcessingQueue(
           limit: job.limit,
           maxBatches: job.force ? undefined : getProcessingJobMaxBatches(env),
           shouldContinue: ensureNotCancelled,
+          byo: opts.byo,
         });
         if ((result as any)?.complete === false) {
           await store.requeue(env, job.id);

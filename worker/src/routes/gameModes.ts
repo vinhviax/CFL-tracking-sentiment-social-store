@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { GAME_MODES } from "../services/gameModes";
 import { tagGameModes } from "../services/gameModeTagging";
+import { BYO_HEADER, parseByoHeader } from "../services/llmCatalog";
 
 export const gameModesRoute = new Hono<{ Bindings: Env }>();
 
@@ -20,6 +21,7 @@ gameModesRoute.get("/", (c) =>
 gameModesRoute.post("/tag", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const result = await tagGameModes(c.env, {
+    byo: parseByoHeader(c.req.header(BYO_HEADER)),
     from: body.from,
     to: body.to,
     verify: body.verify,

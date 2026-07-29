@@ -56,7 +56,7 @@ describe("analyzeRoute queueing", () => {
     ]);
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 
   test("progress polling kicks the queue drainer", async () => {
@@ -69,6 +69,6 @@ describe("analyzeRoute queueing", () => {
     expect(mocks.getProgress).toHaveBeenCalledWith(env, "run-22");
     expect(ctx.scheduled).toHaveLength(1);
     await Promise.all(ctx.scheduled);
-    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env);
+    expect(mocks.drainProcessingQueue).toHaveBeenCalledWith(env, undefined, undefined, { byo: null });
   });
 });

@@ -21,34 +21,53 @@ import {
 import DateTextInput from "../components/DateTextInput.jsx";
 import { formatTokens, shortModelName, tokenUsageState, totalTokens, usageModelLabel } from "./IngestSettings.helpers.js";
 import { previewCsvFile } from "../utils/facebookCsv.js";
+import { getByoConfig, setByoConfig } from "../utils/llmSession.js";
 import { StatusPill } from "../components/Badges.jsx";
 import { formatDisplayDate, formatDisplayDateTime } from "../utils/dateFormat.js";
-
-const providerOptions = [
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "gemini", label: "Gemini" },
-  { value: "custom", label: "Custom" },
-];
 
 const slotLabels = {
   reasoning: "Suy luận",
   simple: "Đơn giản",
 };
 
+/** What this tab already holds for a BYO provider, so F5 does not wipe the form. */
+function sessionDraft(slot, providerId) {
+  const stored = getByoConfig(slot);
+  if (!stored || stored.provider !== providerId) return { model: "", api_key: "", endpoint_url: "" };
+  return {
+    model: stored.model || "",
+    api_key: stored.api_key || "",
+    endpoint_url: stored.endpoint_url || "",
+  };
+}
+
+/**
+ * Opening state for a slot's form.
+ *
+ * A BYO config from this tab's sessionStorage wins, because it is what requests are
+ * currently carrying. Otherwise the saved server-side selection, otherwise the
+ * default. Nothing here ever holds a real endpoint for a non-Custom provider — the
+ * server does not send one.
+ */
 function defaultSlotState(slot, llmConfig) {
+  const session = getByoConfig(slot);
+  if (session?.provider) {
+    return {
+      provider: session.provider,
+      model: session.model || "",
+      api_key: session.api_key || "",
+      endpoint_url: session.endpoint_url || "",
+      provider_label: "",
+    };
+  }
   const saved = llmConfig?.configs?.find((item) => item.slot === slot);
   const fallback = llmConfig?.defaults?.[slot] || {};
   return {
-    enabled: saved?.enabled || false,
-    provider: saved?.provider || "custom",
-    endpoint_url: saved?.endpoint_url || "",
+    provider: saved?.provider || fallback.provider || "openai_viax",
     model: saved?.model || fallback.model || "",
     api_key: "",
-    api_key_masked: saved?.api_key_masked || "",
-    has_api_key: saved?.has_api_key || false,
-    fallback_provider: fallback.provider || "",
-    fallback_model: fallback.model || "",
+    endpoint_url: "",
+    provider_label: saved?.provider_label || fallback.provider_label || "",
   };
 }
 
@@ -338,11 +357,6 @@ function formatConfigModelName(model) {
   return parts.at(-1) || String(model);
 }
 
-function maskLlmEndpoint(endpointUrl, provider) {
-  if (endpointUrl || provider === "custom") return "LLM của Viax";
-  return "Mặc định provider";
-}
-
 function ProcessingLogList({ logs }) {
   if (!logs?.length) {
     return <div className="llm-log-empty">Chưa có log LLM cho task này.</div>;
@@ -451,88 +465,135 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
   );
 }
 
-function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave }) {
+function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSession }) {
   const [form, setForm] = useState(() => defaultSlotState(slot, llmConfig));
 
   useEffect(() => {
     setForm(defaultSlotState(slot, llmConfig));
   }, [slot, llmConfig]);
 
+  const providers = llmConfig?.providers || [];
+  const spec = providers.find((p) => p.id === form.provider) || null;
+  const fallback = llmConfig?.defaults?.[slot];
+
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const selectProvider = (providerId) => {
+    const next = providers.find((p) => p.id === providerId);
+    setForm((current) => ({
+      ...current,
+      provider: providerId,
+      // Move to a model the new provider actually offers rather than carrying over
+      // one that belongs to a different provider — the old form's main trap.
+      model: next?.models?.length ? next.models[0] : sessionDraft(slot, providerId).model,
+      endpoint_url: providerId === "custom" ? sessionDraft(slot, providerId).endpoint_url : "",
+      api_key: next?.byo ? sessionDraft(slot, providerId).api_key : "",
+    }));
+  };
 
   const submit = (event) => {
     event.preventDefault();
-    onSave(slot, {
-      enabled: form.enabled,
-      provider: form.provider,
-      endpoint_url: form.endpoint_url,
-      model: form.model,
-      ...(form.api_key.trim() ? { api_key: form.api_key.trim() } : {}),
-    });
+    if (spec?.byo) {
+      onSaveSession(slot, {
+        provider: form.provider,
+        model: form.model.trim(),
+        api_key: form.api_key.trim(),
+        endpoint_url: form.endpoint_url.trim(),
+      });
+      return;
+    }
+    onSave(slot, { provider: form.provider, model: form.model });
   };
+
+  const byoReady = !spec?.byo
+    || (form.model.trim() && form.api_key.trim() && (form.provider !== "custom" || form.endpoint_url.trim()));
 
   return (
     <form className="llm-config-slot" onSubmit={submit}>
       <div className="llm-config-slot-head">
         <div>
           <h4>{slotLabels[slot]}</h4>
-          <small>Default: {form.fallback_provider || "worker"} · {form.fallback_model || "—"}</small>
+          <small>
+            Mặc định: {fallback?.provider_label || "—"} · {fallback?.model_label || "—"}
+          </small>
         </div>
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(event) => update("enabled", event.target.checked)}
-          />
-          <span>Bật override</span>
-        </label>
+        {spec?.byo && (
+          <span className="llm-session-tag" title="Key của bạn chỉ nằm trong tab này, không lưu lên hệ thống">
+            Chỉ trong tab này
+          </span>
+        )}
       </div>
 
       <div className="llm-config-grid">
         <label>
           <span>Provider</span>
-          <select value={form.provider} onChange={(event) => update("provider", event.target.value)}>
-            {providerOptions.map((option) => (
-              <option value={option.value} key={option.value}>{option.label}</option>
+          <select value={form.provider} onChange={(event) => selectProvider(event.target.value)}>
+            {providers.map((option) => (
+              <option value={option.id} key={option.id}>{option.label}</option>
             ))}
           </select>
         </label>
+
         <label>
           <span>Model</span>
-          <input value={formatConfigModelName(form.model)} readOnly aria-label="Model hiển thị" />
+          {spec?.models?.length ? (
+            <select value={form.model} onChange={(event) => update("model", event.target.value)}>
+              {spec.model_options.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={form.model}
+              onChange={(event) => update("model", event.target.value)}
+              placeholder="Tên model của bạn"
+              autoComplete="off"
+            />
+          )}
         </label>
-        <label>
-          <span>Endpoint</span>
-          <input
-            value={maskLlmEndpoint(form.endpoint_url, form.provider)}
-            readOnly
-            aria-label="Endpoint đã ẩn"
-          />
-        </label>
-        <label>
-          <span>API key</span>
-          <input
-            type="password"
-            value={form.api_key}
-            onChange={(event) => update("api_key", event.target.value)}
-            placeholder={form.api_key_masked || "Giữ trống để không đổi"}
-            autoComplete="off"
-          />
-        </label>
+
+        {spec?.needs_endpoint && (
+          <label>
+            <span>Endpoint</span>
+            <input
+              value={form.endpoint_url}
+              onChange={(event) => update("endpoint_url", event.target.value)}
+              placeholder="https://..."
+              autoComplete="off"
+            />
+          </label>
+        )}
+
+        {spec?.needs_api_key && (
+          <label>
+            <span>API key</span>
+            <input
+              type="password"
+              value={form.api_key}
+              onChange={(event) => update("api_key", event.target.value)}
+              placeholder="Key của bạn, chỉ giữ trong tab này"
+              autoComplete="off"
+            />
+          </label>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
       <div className="llm-config-actions">
-        <span>{form.has_api_key ? `Đã lưu key ${form.api_key_masked}` : "Chưa có key riêng"}</span>
-        <button className="btn btn-secondary" disabled={saving} type="submit">
-          {saving ? "Đang lưu..." : `Lưu ${slotLabels[slot]}`}
+        <span>
+          {spec?.byo
+            ? "Không lưu lên hệ thống. F5 vẫn còn; mở tab mới thì mất."
+            : `Đang dùng: ${form.provider_label || spec?.label || "—"} · ${formatConfigModelName(form.model)}`}
+        </span>
+        <button className="btn btn-secondary" disabled={saving || !byoReady} type="submit">
+          {saving ? "Đang lưu..." : `Áp dụng ${slotLabels[slot]}`}
         </button>
       </div>
     </form>
   );
 }
 
-function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onClose, onSave }) {
+function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onClose, onSave, onSaveSession }) {
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation">
@@ -540,7 +601,10 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
         <div className="modal-header">
           <div>
             <h3>Cấu hình LLM Agent</h3>
-            <p>Phân tích dùng Suy luận; dịch zh-CN dùng Đơn giản.</p>
+            <p>
+              Phân tích dùng Suy luận; dịch zh-CN dùng Đơn giản. Provider tự nhập key chỉ
+              áp dụng cho tab này — việc chạy nền và cron vẫn dùng provider đã lưu.
+            </p>
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
         </div>
@@ -554,6 +618,7 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
               saving={savingSlot === "reasoning"}
               error={error?.slot === "reasoning" ? error.message : null}
               onSave={onSave}
+              onSaveSession={onSaveSession}
             />
             <LlmAgentSlotForm
               slot="simple"
@@ -561,6 +626,7 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
               saving={savingSlot === "simple"}
               error={error?.slot === "simple" ? error.message : null}
               onSave={onSave}
+              onSaveSession={onSaveSession}
             />
           </div>
         )}
@@ -673,10 +739,20 @@ export default function IngestSettings() {
   function saveLlmConfigSlot(slot, payload) {
     setLlmSavingSlot(slot);
     setLlmConfigError(null);
+    // Choosing a stored provider clears any BYO config this tab was carrying,
+    // otherwise the header would keep overriding the selection just saved.
+    setByoConfig(slot, null);
     saveLlmAgentConfig(slot, payload)
       .then(() => loadLlmConfig())
       .catch((e) => setLlmConfigError({ slot, message: e?.response?.data?.detail || e.message }))
       .finally(() => setLlmSavingSlot(null));
+  }
+
+  /** Apply a bring-your-own-key provider for this tab only; nothing is sent to the server. */
+  function saveLlmSessionSlot(slot, config) {
+    setLlmConfigError(null);
+    setByoConfig(slot, config);
+    loadLlmConfig();
   }
 
   function enqueueTrackedJobs(jobs) {
@@ -1135,6 +1211,7 @@ export default function IngestSettings() {
         error={llmConfigError}
         onClose={() => setLlmConfigOpen(false)}
         onSave={saveLlmConfigSlot}
+        onSaveSession={saveLlmSessionSlot}
       />
     </>
   );

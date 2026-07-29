@@ -1845,6 +1845,18 @@ tbody tr {
   color: var(--text-dim);
 }
 
+/* Marks a slot whose provider only lives in this tab, so the scope is obvious. */
+.llm-session-tag {
+  align-self: flex-start;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--urgent-medium) 40%, var(--border));
+  border-radius: 999px;
+  color: var(--urgent-medium);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 /* Ingest history toolbar: source pills on the left, token totals on the right. */
 .run-toolbar {
   display: flex;

@@ -1,7 +1,8 @@
 // Ported from backend/app/services/insights.py.
 import type { Env } from "../types";
 import type { LLMUsage } from "./llm/base";
-import { buildProvider } from "./llm/providers";
+import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
+import { completeTextWithFallback } from "./llm/chain";
 import { addTopicFilter } from "./topicScope";
 
 export const INSIGHT_PROMPT_KEY = "insight_summary_prompt";
@@ -210,17 +211,23 @@ export async function saveInsightPrompt(env: Env, prompt: string): Promise<void>
   ).bind(INSIGHT_PROMPT_KEY, prompt, new Date().toISOString()).run();
 }
 
-export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string, locale: InsightLanguage = "vi"): Promise<{ summary: string; provider: string; model: string | null; usage?: LLMUsage }> {
-  const provider = buildProvider(env.LLM_PROVIDER, env.LLM_INSIGHT_MODEL, {
-    anthropicKey: env.ANTHROPIC_API_KEY, openaiKey: env.OPENAI_API_KEY, baseUrl: env.LLM_BASE_URL,
-    llmViaxKey: env.LLM_VIAX_API_KEY, llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-  });
-  if (!provider) return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
+export async function generateSummary(env: Env, overview: any, samples: SentimentSamples, systemPrompt?: string, locale: InsightLanguage = "vi", byo?: ByoOverride | null): Promise<{ summary: string; provider: string; model: string | null; usage?: LLMUsage }> {
+  // Insight used to bypass slot configuration entirely and read LLM_INSIGHT_MODEL
+  // directly, so changing the model in the UI had no effect here. It now uses the
+  // reasoning slot like the rest of the analytical work.
+  const chain = await resolveLlmProviderChain(env, "reasoning", byo);
+  if (!chain.length) return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   try {
     const [system, user] = buildInsightMessages(systemPrompt || await getInsightPrompt(env), overview, samples, locale);
-    const { content, usage } = await provider.completeText(system, user);
-    return { summary: content.trim(), provider: provider.name, model: provider.model, usage };
-  } catch {
+    const outcome = await completeTextWithFallback(chain, system, user);
+    for (const f of outcome.failures) {
+      console.warn(`insight ${f.provider}/${f.model} failed (${f.error}); retried via ${outcome.provider.name}`);
+    }
+    return { summary: outcome.content.trim(), provider: outcome.provider.name, model: outcome.provider.model, usage: outcome.usage };
+  } catch (e: any) {
+    // Falling back silently made an LLM outage indistinguishable from a working
+    // template summary; log the reason so `wrangler tail` can show it.
+    console.warn("insight generation fell back to template:", e?.message || e);
     return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   }
 }

@@ -2,10 +2,8 @@ export interface Env {
   DB: D1Database;
 
   // vars (wrangler.jsonc "vars")
-  LLM_PROVIDER: string;
-  LLM_CLASSIFY_MODEL: string;
-  LLM_INSIGHT_MODEL: string;
-  LLM_TRANSLATE_MODEL?: string;
+  // Provider/model selection is not here: see services/llmCatalog.ts and the
+  // llm_agent_configs table.
   CLASSIFY_BATCH_SIZE: string;
   ANALYSIS_BATCH_SIZE?: string;
   TRANSLATION_BATCH_SIZE?: string;
@@ -18,8 +16,7 @@ export interface Env {
   SENSORTOWER_API_KEY?: string;
   FB_PAGE_ID?: string;
   FB_ACCESS_TOKEN?: string;
-  ANTHROPIC_API_KEY?: string;
-  OPENAI_API_KEY?: string;
-  LLM_BASE_URL?: string;
-  LLM_VIAX_API_KEY?: string; // custom OpenAI-compatible provider ("LLM Viax")
+  // Credential for the Viax proxy. Other providers get theirs from
+  // llm_provider_secrets, or from the caller for the bring-your-own-key ones.
+  LLM_VIAX_API_KEY?: string;
 }

@@ -1,4 +1,5 @@
 import type { LLMProvider, LLMResult, LLMUsage } from "./base";
+import { getLlmProvider } from "../llmCatalog";
 
 /** Read an OpenAI-shaped `usage` object. Returns undefined unless both counts are present. */
 function readOpenAIUsage(usage: any): LLMUsage | undefined {
@@ -191,26 +192,37 @@ export class OpenAIProvider implements LLMProvider {
   }
 }
 
+/**
+ * Build a provider for one catalog entry.
+ *
+ * Which class to use follows the entry's transport, and the endpoint/key come from
+ * the caller — resolveLlmProvider reads them from llm_provider_secrets for the Viax
+ * entries and from the request for a BYO one. Returns null when a credential the
+ * transport needs is missing, so callers fall back rather than issue a doomed call.
+ */
 export function buildProvider(
-  provider: string,
+  providerId: string,
   model: string,
-  opts: {
-    anthropicKey?: string;
-    openaiKey?: string;
-    baseUrl?: string;
-    llmViaxKey?: string;
-    llmViaxBaseUrl?: string;
-  }
+  creds: { apiKey?: string | null; endpoint?: string | null }
 ): LLMProvider | null {
-  const p = (provider || "").toLowerCase();
-  if (p === "anthropic" && opts.anthropicKey) return new AnthropicProvider(model, opts.anthropicKey, opts.baseUrl);
-  if (p === "gemini" && opts.openaiKey) return new GeminiProvider(model, opts.openaiKey, opts.baseUrl);
-  if (p === "openai" && opts.openaiKey) return new OpenAIProvider(model, opts.openaiKey);
-  if ((p === "openai_compatible" || p === "custom") && (opts.openaiKey || opts.baseUrl)) {
-    return new OpenAIProvider(model, opts.openaiKey || "", opts.baseUrl, p === "custom" ? "custom" : undefined);
+  const spec = getLlmProvider(providerId);
+  if (!spec) return null;
+
+  const apiKey = creds.apiKey || "";
+  const endpoint = creds.endpoint || spec.endpoint || undefined;
+  if (!model) return null;
+
+  switch (spec.transport) {
+    case "anthropic":
+      return apiKey ? new AnthropicProvider(model, apiKey, endpoint) : null;
+    case "gemini":
+      return apiKey ? new GeminiProvider(model, apiKey, endpoint) : null;
+    case "openai":
+      // An OpenAI-compatible proxy may sit behind an endpoint that needs no key,
+      // so an endpoint alone is enough here.
+      if (!apiKey && !endpoint) return null;
+      return new OpenAIProvider(model, apiKey, endpoint, spec.id);
+    default:
+      return null;
   }
-  if (p === "llm_viax" && (opts.llmViaxKey || opts.llmViaxBaseUrl)) {
-    return new OpenAIProvider(model, opts.llmViaxKey || "", opts.llmViaxBaseUrl, "llm_viax");
-  }
-  return null;
 }

@@ -2,8 +2,8 @@ import { PROMPT_VERSION, TOPICS } from "../../taxonomy";
 import type { Env } from "../../types";
 import { TOPIC_KEYWORD_HINTS } from "../topicKeywords";
 import { addUsage, Classification, CommentInput, validateClassification } from "./base";
+import { type ChainOutcome, completeJsonWithFallback } from "./chain";
 import { classifyFallback } from "./fallback";
-import { buildProvider } from "./providers";
 import type { LLMProvider, LLMUsage } from "./base";
 
 export interface HumanCorrectionExample {
@@ -16,6 +16,16 @@ export interface ClassifyResult {
   classifications: Classification[];
   /** Undefined when the provider reported no usage (or the fallback classifier ran). */
   usage?: LLMUsage;
+  /** How many items the LLM classified; the rest came from the keyword fallback. */
+  llmClassified: number;
+  /** True when at least one item had to fall back. */
+  fellBack: boolean;
+  /** First LLM error of the batch, for the processing log. */
+  error?: string | null;
+  /** Provider/model that actually answered, which may be the safety net rather than the first choice. */
+  servedBy?: { provider: string; model: string } | null;
+  /** True when the first-choice provider errored and another in the chain answered. */
+  usedSafetyNet?: boolean;
 }
 
 export const CLASSIFIER_SYSTEM_PROMPT = `Bạn là senior liveops analyst cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Mục tiêu là đọc hiểu phản hồi người chơi để team vận hành/game ops biết vấn đề cần xử lý, không chỉ gắn nhãn theo từ khóa.
@@ -103,39 +113,36 @@ export class ClassifierService {
   providerName: string;
   model: string | null;
   promptVersion = PROMPT_VERSION;
-  private provider;
+  private chain: LLMProvider[];
   private batchSize: number;
 
-  constructor(env: Env, providerOverride?: LLMProvider | null) {
-    this.provider = providerOverride === undefined
-      ? buildProvider(env.LLM_PROVIDER, env.LLM_CLASSIFY_MODEL, {
-        anthropicKey: env.ANTHROPIC_API_KEY,
-        openaiKey: env.OPENAI_API_KEY,
-        baseUrl: env.LLM_BASE_URL,
-        llmViaxKey: env.LLM_VIAX_API_KEY,
-        llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-      })
-      : providerOverride;
-    this.providerName = this.provider?.name ?? "fallback";
-    this.model = this.provider?.model ?? null;
+  /**
+   * The provider chain is resolved by the caller (resolveLlmProviderChain) and passed
+   * in, so the classifier has no second path to provider configuration that could
+   * disagree with the slot the user picked. An empty chain means keyword classification.
+   */
+  constructor(env: Env, chain: LLMProvider[]) {
+    this.chain = chain;
+    this.providerName = chain[0]?.name ?? "fallback";
+    this.model = chain[0]?.model ?? null;
     this.batchSize = Number(env.CLASSIFY_BATCH_SIZE) || 30;
   }
 
   private async classifyBatchLlm(
     items: CommentInput[],
     humanExamples: HumanCorrectionExample[] = []
-  ): Promise<{ classifications: Map<number, Classification>; usage?: LLMUsage }> {
+  ): Promise<{ classifications: Map<number, Classification>; usage?: LLMUsage; outcome: ChainOutcome }> {
     const out = new Map<number, Classification>();
-    if (!this.provider) return { classifications: out };
-    const { content, usage } = await this.provider.completeJson(
+    const outcome = await completeJsonWithFallback(
+      this.chain,
       CLASSIFIER_SYSTEM_PROMPT,
       buildClassifierUserPrompt(items, humanExamples)
     );
-    for (const rec of parseResults(content)) {
+    for (const rec of parseResults(outcome.content)) {
       const c = validateClassification(rec);
       if (c) out.set(c.id, c);
     }
-    return { classifications: out, usage };
+    return { classifications: out, usage: outcome.usage, outcome };
   }
 
   async classify(
@@ -147,22 +154,51 @@ export class ClassifierService {
     // reported usage, so "unknown" never collapses into a misleading zero.
     let usage: LLMUsage | undefined;
 
-    if (this.provider) {
+    const errors: string[] = [];
+    // Who actually answered. May differ from the first choice when the safety net
+    // provider took over, and the caller records this rather than the configured one.
+    let servedBy: { provider: string; model: string } | null = null;
+    let usedSafetyNet = false;
+
+    if (this.chain.length) {
       for (let i = 0; i < items.length; i += this.batchSize) {
         const batch = items.slice(i, i + this.batchSize);
         try {
           const got = await this.classifyBatchLlm(batch, humanExamples);
           got.classifications.forEach((v, k) => results.set(k, v));
           usage = addUsage(usage, got.usage);
-        } catch (e) {
-          console.warn(`LLM batch failed (${e}), using fallback for ${batch.length} items`);
+          servedBy = { provider: got.outcome.provider.name, model: got.outcome.provider.model };
+          if (got.outcome.failures.length) {
+            usedSafetyNet = true;
+            for (const f of got.outcome.failures) {
+              console.warn(`LLM ${f.provider}/${f.model} failed (${f.error}); retried via ${got.outcome.provider.name}`);
+              errors.push(`${f.provider}/${f.model}: ${f.error}`);
+            }
+          }
+        } catch (e: any) {
+          const message = e?.message || String(e);
+          console.warn(`every LLM provider failed (${message}), using keyword fallback for ${batch.length} items`);
+          errors.push(message);
         }
       }
     }
 
+    // How many items the LLM actually classified. Reported so the caller can record
+    // the truth: a misconfigured model returns 403 on every batch, and recording the
+    // configured model regardless is what hid exactly that for 31,322 comments.
+    const llmClassified = results.size;
+
     for (const it of items) {
       if (!results.has(it.id)) results.set(it.id, classifyFallback(it));
     }
-    return { classifications: items.map((it) => results.get(it.id)!), usage };
+    return {
+      classifications: items.map((it) => results.get(it.id)!),
+      usage,
+      llmClassified,
+      fellBack: llmClassified < items.length,
+      error: errors[0] || null,
+      servedBy,
+      usedSafetyNet,
+    };
   }
 }

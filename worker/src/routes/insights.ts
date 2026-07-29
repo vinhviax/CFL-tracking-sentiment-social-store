@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
 import { DEFAULT_INSIGHT_SYSTEM_PROMPT, generateSummary, getInsightPrompt, normalizeInsightFilters, sampleBySentiment, saveInsightPrompt } from "../services/insights";
+import { BYO_HEADER, parseByoHeader } from "../services/llmCatalog";
 import { computeOverview } from "./stats";
 
 export const insightsRoute = new Hono<{ Bindings: Env }>();
@@ -24,7 +25,7 @@ insightsRoute.post("/generate", async (c) => {
   const overview = await computeOverview(c.env.DB, q);
   const samples = await sampleBySentiment(c.env, q);
   const locale = body.lang === "zh-CN" || q.lang === "zh-CN" ? "zh-CN" : "vi";
-  const result = await generateSummary(c.env, overview, samples, body.prompt, locale);
+  const result = await generateSummary(c.env, overview, samples, body.prompt, locale, parseByoHeader(c.req.header(BYO_HEADER)));
   return c.json({ ...result, based_on: overview, filters: q });
 });
 

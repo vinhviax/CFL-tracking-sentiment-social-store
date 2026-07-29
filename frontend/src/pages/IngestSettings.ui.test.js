@@ -125,21 +125,60 @@ test("Ingest Settings exposes LLM Agent configuration for reasoning and simple s
   assert.match(source, /Cấu hình LLM Agent/);
   assert.match(source, /reasoning/);
   assert.match(source, /simple/);
-  assert.match(source, /providerOptions/);
-  assert.match(source, /api_key/);
-  assert.match(source, /endpoint_url/);
 });
 
-test("LLM Agent configuration masks endpoint and shortens model display values", () => {
-  assert.match(source, /function maskLlmEndpoint\(endpointUrl, provider\)/);
+test("the provider list comes from the server catalog rather than a hardcoded array", () => {
+  // A local list would drift from what the worker will accept, and the old one held
+  // provider ids the worker no longer knows.
+  assert.doesNotMatch(source, /providerOptions/);
+  assert.match(source, /const providers = llmConfig\?\.providers \|\| \[\]/);
+  assert.match(source, /providers\.map\(\(option\) => \(/);
+  assert.match(source, /providers\.find\(\(p\) => p\.id === form\.provider\)/);
+});
+
+test("the override toggle is gone; a slot is just a provider plus a model", () => {
+  assert.doesNotMatch(source, /Bật override/);
+  assert.doesNotMatch(source, /form\.enabled/);
+  assert.doesNotMatch(source, /enabled: form\.enabled/);
+});
+
+test("changing provider moves the model to one that provider actually offers", () => {
+  // The old form left the previous model in place, so saving after switching
+  // provider stored a combination that could not work.
+  assert.match(source, /const selectProvider = \(providerId\) =>/);
+  assert.match(source, /model: next\?\.models\?\.length \? next\.models\[0\]/);
+  assert.match(source, /onChange=\{\(event\) => selectProvider\(event\.target\.value\)\}/);
+});
+
+test("model is a dropdown for catalog providers and free text only for own-key ones", () => {
+  assert.match(source, /spec\?\.models\?\.length \? \(/);
+  assert.match(source, /spec\.model_options\.map/);
+  assert.match(source, /placeholder="Tên model của bạn"/);
+});
+
+test("endpoint and API key inputs appear only for the providers that need them", () => {
+  assert.match(source, /spec\?\.needs_endpoint && \(/);
+  assert.match(source, /spec\?\.needs_api_key && \(/);
+  // No endpoint is ever rendered for a stock provider — the server does not send one.
+  assert.doesNotMatch(source, /maskLlmEndpoint/);
+});
+
+test("model names are shown without their namespace", () => {
   assert.match(source, /function formatConfigModelName\(model\)/);
-  assert.match(source, /value=\{formatConfigModelName\(form\.model\)\}/);
-  assert.match(source, /value=\{maskLlmEndpoint\(form\.endpoint_url, form\.provider\)\}/);
-  assert.match(source, /readOnly/);
-  assert.match(source, /endpoint_url: form\.endpoint_url/);
-  assert.match(source, /model: form\.model/);
-  assert.doesNotMatch(source, /value=\{form\.endpoint_url\}/);
-  assert.doesNotMatch(source, /value=\{form\.model\} onChange=\{\(event\) => update\("model"/);
+  assert.match(source, /formatConfigModelName\(form\.model\)/);
+  assert.match(source, /model_label/);
+});
+
+test("own-key providers are held in sessionStorage and never saved to the server", () => {
+  assert.match(source, /getByoConfig, setByoConfig/);
+  assert.match(source, /function saveLlmSessionSlot\(slot, config\)/);
+  assert.match(source, /setByoConfig\(slot, config\)/);
+  // Picking a stored provider must drop the tab's own-key config, or the request
+  // header would keep overriding the selection just saved.
+  assert.match(source, /setByoConfig\(slot, null\)/);
+  assert.match(source, /Không lưu lên hệ thống/);
+  assert.match(source, /Chỉ trong tab này/);
+  assert.ok(source.indexOf("if (spec?.byo) {") < source.indexOf("onSave(slot, { provider: form.provider, model: form.model })"));
 });
 
 test("manual run translation does not cap large ingest runs", () => {
@@ -211,5 +250,5 @@ test("ingest history has a date-filtered token total broken down by model", () =
   assert.match(source, /className="run-toolbar"/);
   assert.ok(source.indexOf("RUN_SOURCE_FILTERS.map") < source.indexOf("<TokenUsagePanel"));
   // reprocessing a run refreshes the totals too
-  assert.match(source, /loadTokenUsage\(\);\n\s*\}, \[loadRuns, loadIngestStatus, loadTokenUsage\]\)/);
+  assert.match(source, /loadTokenUsage\(\);\s*\}, \[loadRuns, loadIngestStatus, loadTokenUsage\]\)/);
 });

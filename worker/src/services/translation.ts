@@ -1,7 +1,8 @@
 import type { Env } from "../types";
 import type { LLMUsage } from "./llm/base";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
-import { resolveLlmProvider } from "./llmAgentConfig";
+import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
+import { completeJsonWithFallback } from "./llm/chain";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
@@ -73,10 +74,6 @@ async function pendingTranslations(
 export function buildTranslationLimit(opts: { runId?: number; limit?: number }) {
   if (opts.limit != null) return parseBoundedInt(opts.limit, 1, 5000, 1000);
   return opts.runId == null ? 1000 : null;
-}
-
-export function getTranslationModel(env: Env) {
-  return env.LLM_TRANSLATE_MODEL || env.LLM_INSIGHT_MODEL;
 }
 
 export function getTranslationBatchSize(env: Env) {
@@ -234,12 +231,14 @@ export async function runTranslation(
     limit?: number;
     maxBatches?: number;
     shouldContinue?: () => Promise<void> | void;
+    /** Caller's own provider, used in memory only and never persisted. */
+    byo?: ByoOverride | null;
   }
 ) {
   const locale = opts.locale || DEFAULT_TRANSLATION_LOCALE;
-  const provider = await resolveLlmProvider(env, "simple");
-  const providerName = provider?.name ?? "unavailable";
-  const model = provider?.model ?? null;
+  const chain = await resolveLlmProviderChain(env, "simple", opts.byo);
+  const providerName = chain[0]?.name ?? "unavailable";
+  const model = chain[0]?.model ?? null;
 
   await opts.shouldContinue?.();
   const comments = await pendingTranslations(env, { ...opts, locale });
@@ -253,7 +252,7 @@ export async function runTranslation(
     return { translated: 0, total: 0, provider: providerName };
   }
 
-  if (!provider) {
+  if (!chain.length) {
     const error = "LLM provider chưa sẵn sàng để dịch zh-CN";
     await setProgress(env, opts.progressKey, { status: "failed", error });
     throw new Error(error);
@@ -289,9 +288,13 @@ export async function runTranslation(
       let raw: string;
       let batchUsage: LLMUsage | undefined;
       try {
-        const completion = await provider.completeJson(TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
+        // Retries through Gemini by Viax before giving up on the LLM entirely.
+        const completion = await completeJsonWithFallback(chain, TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
         raw = completion.content;
         batchUsage = completion.usage;
+        for (const f of completion.failures) {
+          console.warn(`translation ${f.provider}/${f.model} failed (${f.error}); retried via ${completion.provider.name}`);
+        }
       } catch (e: any) {
         if (opts.jobId != null) {
           await safeAddProcessingLog(env, {

@@ -4,7 +4,8 @@ import {
   GAME_MODES,
   matchGameModes,
 } from "./gameModes";
-import { buildProvider } from "./llm/providers";
+import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
+import { completeJsonWithFallback } from "./llm/chain";
 
 export interface TagGameModesOptions {
   from?: string;
@@ -13,6 +14,8 @@ export interface TagGameModesOptions {
   verifyBatchSize?: number;
   maxLlmBatches?: number;
   debug?: boolean;
+  /** Caller-supplied provider, used in memory only and never persisted. */
+  byo?: ByoOverride | null;
 }
 
 export interface TagGameModesResult {
@@ -178,26 +181,20 @@ export async function tagGameModes(env: Env, options: TagGameModesOptions = {}):
     }
   }
 
-  const provider = verify
-    ? buildProvider(env.LLM_PROVIDER, env.LLM_CLASSIFY_MODEL, {
-        anthropicKey: env.ANTHROPIC_API_KEY,
-        openaiKey: env.OPENAI_API_KEY,
-        baseUrl: env.LLM_BASE_URL,
-        llmViaxKey: env.LLM_VIAX_API_KEY,
-        llmViaxBaseUrl: env.LLM_VIAX_BASE_URL,
-      })
-    : null;
+  // Verification is a classification judgement, so it uses the reasoning slot
+  // rather than reading LLM_CLASSIFY_MODEL past the slot configuration.
+  const chain = verify ? await resolveLlmProviderChain(env, "reasoning", options.byo) : [];
 
   let llmConfirmed = 0;
   let llmBatches = 0;
   const debugSamples: Array<{ raw: string; parsed_ids: number[] }> = [];
-  if (provider && ambiguousItems.length) {
+  if (chain.length && ambiguousItems.length) {
     for (let start = 0; start < ambiguousItems.length; start += verifyBatchSize) {
       if (llmBatches >= maxLlmBatches) break;
       const batch = ambiguousItems.slice(start, start + verifyBatchSize);
       llmBatches += 1;
       try {
-        const { content: raw } = await provider.completeJson(buildVerifySystem(), buildVerifyUser(batch));
+        const { content: raw } = await completeJsonWithFallback(chain, buildVerifySystem(), buildVerifyUser(batch));
         const results = parseVerifyResults(raw);
         if (options.debug && debugSamples.length < 2) {
           debugSamples.push({ raw: String(raw).slice(0, 1500), parsed_ids: [...results.keys()] });
@@ -265,7 +262,7 @@ export async function tagGameModes(env: Env, options: TagGameModesOptions = {}):
     ambiguous_candidates: ambiguousCandidates,
     llm_confirmed: llmConfirmed,
     llm_batches: llmBatches,
-    llm_provider: provider?.name || "none",
+    llm_provider: chain[0]?.name || "none",
     tags_written: finalTags.length,
     per_mode: perMode,
     ...(options.debug ? { debug_samples: debugSamples } : {}),

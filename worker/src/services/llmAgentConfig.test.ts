@@ -1,102 +1,227 @@
 import { describe, expect, test } from "vitest";
 import {
-  buildDefaultLlmAgentConfig,
-  maskApiKey,
-  sanitizeLlmAgentConfig,
+  getSlotSelection,
+  listLlmAgentConfigs,
+  llmCatalogPayload,
   resolveLlmProvider,
+  saveLlmAgentConfig,
 } from "./llmAgentConfig";
+import { LLM_SLOT_DEFAULTS, normalizeByoOverride, parseByoHeader } from "./llmCatalog";
 
-function dbWithRows(rows: any[]) {
-  return {
-    prepare(_sql: string) {
+/**
+ * Stubs D1 by matching on the table each statement touches, so a test can supply a
+ * slot row and a provider secret independently.
+ */
+function fakeEnv(opts: { slotRow?: any; secretRow?: any; missingTables?: boolean; env?: Record<string, unknown> } = {}) {
+  const writes: unknown[][] = [];
+  const DB = {
+    prepare(sql: string) {
       return {
-        bind(..._args: unknown[]) {
-          return this;
-        },
-        async first() {
-          return rows[0] || null;
-        },
-        async all() {
-          return { results: rows };
-        },
-        async run() {
-          return {};
+        bind(...args: unknown[]) {
+          return {
+            async first() {
+              if (opts.missingTables) throw new Error("D1_ERROR: no such table: llm_agent_configs");
+              if (sql.includes("llm_provider_secrets")) return opts.secretRow ?? null;
+              return opts.slotRow ?? null;
+            },
+            async run() {
+              writes.push(args);
+              return {};
+            },
+          };
         },
       };
     },
   };
+  return {
+    env: {
+      DB,
+      LLM_VIAX_BASE_URL: "https://viax.example/v1",
+      LLM_VIAX_API_KEY: "viax-key",
+      ...opts.env,
+    } as any,
+    writes,
+  };
 }
 
-describe("llm agent config", () => {
-  test("masks API keys before returning config to the UI", () => {
-    expect(maskApiKey("sk-1234567890abcdef")).toBe("sk-1...cdef");
-    expect(sanitizeLlmAgentConfig({
+describe("provider catalog exposed to the client", () => {
+  test("offers exactly the six providers", () => {
+    expect(llmCatalogPayload().map((p) => p.id)).toEqual([
+      "gemini_viax",
+      "openai_viax",
+      "anthropic_direct",
+      "gemini_direct",
+      "openai_direct",
+      "custom",
+    ]);
+  });
+
+  test("never leaks an endpoint, for stock providers as much as user-made ones", () => {
+    const serialized = JSON.stringify(llmCatalogPayload());
+    expect(serialized).not.toContain("rpi7jss");
+    expect(serialized).not.toContain("agent-shop");
+    expect(serialized).not.toContain("api.anthropic.com");
+    expect(serialized).not.toContain("googleapis.com");
+    expect(serialized).not.toContain("api.openai.com");
+    for (const provider of llmCatalogPayload()) expect(provider).not.toHaveProperty("endpoint");
+  });
+
+  test("only the Viax providers pin a model list; BYO ones are free-form", () => {
+    const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
+    expect(byId.gemini_viax.models).toEqual(["ag/gemini-3-flash-agent"]);
+    expect(byId.openai_viax.models).toEqual(["gpt-5.6-terra", "gpt-5.6-luna"]);
+    expect(byId.anthropic_direct.models).toEqual([]);
+    expect(byId.custom.models).toEqual([]);
+  });
+
+  test("model options carry the short name for display", () => {
+    const openaiViax = llmCatalogPayload().find((p) => p.id === "openai_viax")!;
+    expect(openaiViax.model_options).toEqual([
+      { value: "gpt-5.6-terra", label: "gpt-5.6-terra" },
+      { value: "gpt-5.6-luna", label: "gpt-5.6-luna" },
+    ]);
+  });
+
+  test("only Custom asks for an endpoint, and only BYO providers ask for a key", () => {
+    const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
+    expect(byId.custom.needs_endpoint).toBe(true);
+    expect(byId.anthropic_direct.needs_endpoint).toBe(false);
+    expect(byId.gemini_viax.needs_api_key).toBe(false);
+    expect(byId.openai_direct.needs_api_key).toBe(true);
+  });
+});
+
+describe("slot defaults", () => {
+  test("reasoning defaults to OpenAI by Viax on terra, simple to Gemini by Viax", () => {
+    expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "openai_viax", model: "gpt-5.6-terra" });
+    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
+  });
+
+  test("an absent row falls back to the default", async () => {
+    const { env } = fakeEnv();
+    expect(await getSlotSelection(env, "reasoning")).toEqual(LLM_SLOT_DEFAULTS.reasoning);
+  });
+
+  test("a missing table does not strand the slot", async () => {
+    const { env } = fakeEnv({ missingTables: true });
+    expect(await getSlotSelection(env, "simple")).toEqual(LLM_SLOT_DEFAULTS.simple);
+  });
+
+  test("a row naming a provider the catalog dropped falls back instead of failing", async () => {
+    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "llm_viax", model: "gone" } });
+    expect(await getSlotSelection(env, "reasoning")).toEqual(LLM_SLOT_DEFAULTS.reasoning);
+  });
+
+  test("a stored row wins when its provider is still valid", async () => {
+    const { env } = fakeEnv({ slotRow: { slot: "simple", provider: "openai_viax", model: "gpt-5.6-luna" } });
+    expect(await getSlotSelection(env, "simple")).toEqual({ provider: "openai_viax", model: "gpt-5.6-luna" });
+  });
+});
+
+describe("saving a slot", () => {
+  test("stores a valid Viax provider and model", async () => {
+    const { env, writes } = fakeEnv();
+    await saveLlmAgentConfig(env, "reasoning", { provider: "openai_viax", model: "gpt-5.6-luna" });
+    expect(writes[0].slice(0, 3)).toEqual(["reasoning", "openai_viax", "gpt-5.6-luna"]);
+  });
+
+  test("refuses a BYO provider, since its key is never written down", async () => {
+    const { env, writes } = fakeEnv();
+    await expect(saveLlmAgentConfig(env, "reasoning", { provider: "custom", model: "whatever" }))
+      .rejects.toThrow(/không lưu được/i);
+    await expect(saveLlmAgentConfig(env, "simple", { provider: "anthropic_direct", model: "claude-x" }))
+      .rejects.toThrow(/không lưu được/i);
+    expect(writes).toHaveLength(0);
+  });
+
+  test("refuses a model that does not belong to the chosen provider", async () => {
+    const { env } = fakeEnv();
+    await expect(saveLlmAgentConfig(env, "simple", { provider: "gemini_viax", model: "gpt-5.6-terra" }))
+      .rejects.toThrow(/không thuộc/i);
+  });
+
+  test("refuses an unknown provider", async () => {
+    const { env } = fakeEnv();
+    await expect(saveLlmAgentConfig(env, "simple", { provider: "llm_viax", model: "x" }))
+      .rejects.toThrow(/không hợp lệ/i);
+  });
+});
+
+describe("what the UI receives", () => {
+  test("carries provider label and short model name, and no secrets", async () => {
+    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" } });
+    const configs = await listLlmAgentConfigs(env);
+    const serialized = JSON.stringify(configs);
+
+    expect(configs[0]).toMatchObject({
       slot: "reasoning",
-      enabled: 1,
-      provider: "openai",
-      endpoint_url: null,
-      model: "gpt-5.1",
-      api_key: "sk-secret-value",
-      updated_at: "2026-07-07T00:00:00Z",
-    })).toMatchObject({
-      slot: "reasoning",
-      provider: "openai",
-      model: "gpt-5.1",
-      has_api_key: true,
-      api_key_masked: "sk-s...alue",
+      provider: "openai_viax",
+      provider_label: "OpenAI by Viax",
+      model_label: "gpt-5.6-terra",
     });
+    expect(serialized).not.toContain("viax-key");
+    expect(serialized).not.toContain("https://");
+    for (const row of configs) {
+      expect(row).not.toHaveProperty("api_key");
+      expect(row).not.toHaveProperty("endpoint_url");
+    }
+  });
+});
+
+describe("per-request BYO provider", () => {
+  test("a complete BYO config is used ahead of the stored slot", async () => {
+    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" } });
+    const provider = await resolveLlmProvider(env, "reasoning", {
+      provider: "anthropic_direct",
+      model: "claude-sonnet-4-5",
+      api_key: "user-key",
+      endpoint_url: "https://api.anthropic.com/v1",
+    });
+    expect(provider?.name).toBe("anthropic");
+    expect(provider?.model).toBe("claude-sonnet-4-5");
   });
 
-  test("builds default slots from Worker env", () => {
-    const defaults = buildDefaultLlmAgentConfig({
-      LLM_PROVIDER: "llm_viax",
-      LLM_CLASSIFY_MODEL: "advanced-model",
-      LLM_TRANSLATE_MODEL: "cheap-model",
-      LLM_INSIGHT_MODEL: "insight-model",
-    } as any);
-
-    expect(defaults.reasoning).toMatchObject({ provider: "llm_viax", model: "advanced-model" });
-    expect(defaults.simple).toMatchObject({ provider: "llm_viax", model: "cheap-model" });
+  test("no BYO config falls back to the stored slot — this is what cron does", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+    });
+    const provider = await resolveLlmProvider(env, "simple", null);
+    expect(provider?.name).toBe("gemini_viax");
+    expect(provider?.model).toBe("ag/gemini-3-flash-agent");
   });
 
-  test("resolves enabled custom config before Worker defaults", async () => {
-    const env = {
-      DB: dbWithRows([
-        {
-          slot: "simple",
-          enabled: 1,
-          provider: "custom",
-          endpoint_url: "https://gateway.example/v1",
-          api_key: "custom-key",
-          model: "fast-model",
-          updated_at: "2026-07-07T00:00:00Z",
-        },
-      ]),
-      LLM_PROVIDER: "llm_viax",
-      LLM_TRANSLATE_MODEL: "worker-fast",
-      LLM_INSIGHT_MODEL: "worker-insight",
-      LLM_VIAX_BASE_URL: "https://worker.example/v1",
-      LLM_VIAX_API_KEY: "worker-key",
-    } as any;
-
-    const provider = await resolveLlmProvider(env, "simple");
-
-    expect(provider?.name).toBe("custom");
-    expect(provider?.model).toBe("fast-model");
-  });
-
-  test("falls back to Worker defaults when the slot is disabled", async () => {
-    const env = {
-      DB: dbWithRows([{ slot: "reasoning", enabled: 0, provider: "openai", model: "gpt-5.1", api_key: "sk", endpoint_url: null }]),
-      LLM_PROVIDER: "llm_viax",
-      LLM_CLASSIFY_MODEL: "worker-reasoning",
-      LLM_VIAX_BASE_URL: "https://worker.example/v1",
-      LLM_VIAX_API_KEY: "worker-key",
-    } as any;
-
+  test("openai_viax uses its own stored credential rather than the shared proxy", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      secretRow: { provider: "openai_viax", endpoint_url: "https://agent-shop.example/v1", api_key: "shop-key" },
+    });
     const provider = await resolveLlmProvider(env, "reasoning");
+    expect(provider?.name).toBe("openai_viax");
+  });
 
-    expect(provider?.name).toBe("llm_viax");
-    expect(provider?.model).toBe("worker-reasoning");
+  test("an incomplete BYO config is ignored rather than half-applied", () => {
+    expect(normalizeByoOverride({ provider: "custom", model: "m", api_key: "k" })).toBeNull(); // custom needs an endpoint
+    expect(normalizeByoOverride({ provider: "anthropic_direct", model: "m" })).toBeNull(); // no key
+    expect(normalizeByoOverride({ provider: "anthropic_direct", api_key: "k" })).toBeNull(); // no model
+    expect(normalizeByoOverride({ provider: "openai_viax", model: "m", api_key: "k" })).toBeNull(); // not a BYO provider
+    expect(normalizeByoOverride(null)).toBeNull();
+  });
+
+  test("a BYO provider other than Custom uses the studio endpoint, not one from the client", () => {
+    const byo = normalizeByoOverride({
+      provider: "gemini_direct",
+      model: "gemini-3-pro",
+      api_key: "k",
+      endpoint_url: "https://attacker.example/v1",
+    });
+    expect(byo?.endpoint_url).toBe("https://generativelanguage.googleapis.com/v1beta");
+  });
+
+  test("the header parses valid JSON and shrugs off anything else", () => {
+    const value = JSON.stringify({ provider: "custom", model: "m", api_key: "k", endpoint_url: "https://x.example/v1" });
+    expect(parseByoHeader(value)).toMatchObject({ provider: "custom", model: "m" });
+    expect(parseByoHeader("not json")).toBeNull();
+    expect(parseByoHeader("")).toBeNull();
+    expect(parseByoHeader(undefined)).toBeNull();
   });
 });

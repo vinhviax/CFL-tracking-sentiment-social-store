@@ -1,18 +1,25 @@
 import { Hono } from "hono";
 import type { Env } from "../types";
 import {
-  buildDefaultLlmAgentConfig,
   isLlmAgentSlot,
   listLlmAgentConfigs,
-  upsertLlmAgentConfig,
+  llmCatalogPayload,
+  llmConfigPayloadDefaults,
+  saveLlmAgentConfig,
 } from "../services/llmAgentConfig";
 
 export const llmConfigRoute = new Hono<{ Bindings: Env }>();
 
+/**
+ * Catalog plus the current per-slot selection. Carries no endpoint and no API key:
+ * the UI shows provider names and short model names only.
+ */
 llmConfigRoute.get("/", async (c) => {
-  const defaults = buildDefaultLlmAgentConfig(c.env);
-  const configs = await listLlmAgentConfigs(c.env);
-  return c.json({ defaults, configs });
+  return c.json({
+    providers: llmCatalogPayload(),
+    defaults: llmConfigPayloadDefaults(),
+    configs: await listLlmAgentConfigs(c.env),
+  });
 });
 
 llmConfigRoute.put("/:slot", async (c) => {
@@ -21,15 +28,9 @@ llmConfigRoute.put("/:slot", async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   try {
-    const saved = await upsertLlmAgentConfig(c.env, slot, {
-      enabled: body.enabled,
-      provider: body.provider,
-      endpoint_url: body.endpoint_url,
-      api_key: body.api_key,
-      clear_api_key: body.clear_api_key,
-      model: body.model,
-    });
-    return c.json(saved);
+    // Only the non-BYO providers reach here; a BYO choice lives in the browser for
+    // the session and is sent per request instead of being saved.
+    return c.json(await saveLlmAgentConfig(c.env, slot, { provider: body.provider, model: body.model }));
   } catch (e: any) {
     return c.json({ detail: e?.message || "Không lưu được cấu hình LLM" }, 400);
   }

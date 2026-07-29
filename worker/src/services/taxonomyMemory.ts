@@ -1,6 +1,7 @@
 import { isTopic, TOPIC_LABELS_VI, type Topic } from "../taxonomy";
 import type { Env } from "../types";
-import { resolveLlmProvider } from "./llmAgentConfig";
+import { resolveLlmProviderChain } from "./llmAgentConfig";
+import { completeJsonWithFallback } from "./llm/chain";
 import { getSemanticSubtopic } from "./subtopicSemantics";
 import { isGenericMajorTopicKeyword, normalizeTopicText } from "./topicKeywords";
 
@@ -290,19 +291,20 @@ async function loadExistingSubtopics(env: Env, parentTopics: string[]): Promise<
 async function discoverCandidates(env: Env, comments: RunCommentForMemory[]): Promise<{ candidates: SubtopicCandidate[]; provider: string; model: string | null }> {
   const parentTopics = [...new Set(comments.map((c) => c.topic_main).filter(isTopic))];
   const existing = await loadExistingSubtopics(env, parentTopics);
-  const provider = await resolveLlmProvider(env, "reasoning");
+  const chain = await resolveLlmProviderChain(env, "reasoning");
 
-  if (!provider) return { candidates: fallbackCandidates(comments), provider: "fallback", model: null };
+  if (!chain.length) return { candidates: fallbackCandidates(comments), provider: "fallback", model: null };
 
   try {
-    const { content: raw } = await provider.completeJson(buildDiscoverySystem(), buildDiscoveryUser(comments, existing));
+    const outcome = await completeJsonWithFallback(chain, buildDiscoverySystem(), buildDiscoveryUser(comments, existing));
+    const raw = outcome.content;
     const parsed = parseSubtopicDiscoveryResults(raw);
     return {
       candidates: mergeSubtopicCandidates(parsed.length
         ? [...parsed, ...extractRepeatedSubtopicCandidates(comments)]
         : fallbackCandidates(comments)),
-      provider: provider.name,
-      model: provider.model,
+      provider: outcome.provider.name,
+      model: outcome.provider.model,
     };
   } catch (e) {
     console.warn(`taxonomy memory discovery failed (${e}), using fallback`);

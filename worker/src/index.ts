@@ -14,7 +14,8 @@ import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { translateRoute } from "./routes/translate";
 import { ingestFacebook } from "./services/facebook";
-import { buildProvider } from "./services/llm/providers";
+import { describeSlotResolution } from "./services/llmAgentConfig";
+import { BYO_HEADER } from "./services/llmCatalog";
 import { buildRunProcessingJobs, drainProcessingQueue, enqueueProcessingJobs } from "./services/processingQueue";
 import { ingestSensorTower } from "./services/sensortower";
 import {
@@ -37,17 +38,26 @@ import type { Env } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use("*", cors());
+// Pages is a different origin, so the browser's own-provider header has to be
+// allow-listed explicitly — the default allowed set does not include it.
+app.use("*", cors({ origin: "*", allowHeaders: ["Content-Type", BYO_HEADER] }));
 
-app.get("/api/health", (c) => {
-  const provider = buildProvider(c.env.LLM_PROVIDER, c.env.LLM_CLASSIFY_MODEL, {
-    anthropicKey: c.env.ANTHROPIC_API_KEY,
-    openaiKey: c.env.OPENAI_API_KEY,
-    baseUrl: c.env.LLM_BASE_URL,
-    llmViaxKey: c.env.LLM_VIAX_API_KEY,
-    llmViaxBaseUrl: c.env.LLM_VIAX_BASE_URL,
+app.get("/api/health", async (c) => {
+  // Reports both slots, which is what the pipeline actually uses, instead of the
+  // raw LLM_PROVIDER var it used to read. Booleans only — no endpoint, no key.
+  const [reasoning, simple] = await Promise.all([
+    describeSlotResolution(c.env, "reasoning"),
+    describeSlotResolution(c.env, "simple"),
+  ]);
+  return c.json({
+    status: "ok",
+    llm_provider: reasoning.provider,
+    llm_provider_label: reasoning.provider_label,
+    llm_model: reasoning.model,
+    llm_ready: reasoning.ready,
+    llm_slots: { reasoning, simple },
+    prompt_version: PROMPT_VERSION,
   });
-  return c.json({ status: "ok", llm_provider: c.env.LLM_PROVIDER, llm_ready: provider !== null, prompt_version: PROMPT_VERSION });
 });
 
 app.get("/api/meta", (c) =>
