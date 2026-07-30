@@ -1,7 +1,55 @@
-# HANDOFF 2026-07-29 (phiên 2 — refactor LLM provider + fix pipeline)
+# HANDOFF 2026-07-30 (phiên 3 — sửa hiển thị hàng đợi xử lý)
 
 Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligence**.
-(Phiên trước trong cùng ngày — token metering + fix upload CSV — nằm trong mục lịch sử bên dưới. Các session cũ hơn nằm sau cùng.)
+(Các phiên trước nằm trong mục lịch sử bên dưới, cũ dần từ trên xuống.)
+
+## Phiên 30/07 đã làm gì
+
+**1. Đã sửa xong lỗi hiển thị UI ở mục F (trước đây bị hoãn).** Commit `7b44bdf` + `7e0da14`, đã push, đã deploy:
+- Worker Version ID **`dfa9a7cd-32fc-44fb-9259-c87500b07787`**
+- Pages deployment **`8a0178fd`** (Production, branch `main`)
+- Test: worker **217/217**, frontend **81/81**, `tsc --noEmit` exit 0, `vite build` OK.
+
+`GET /api/analyze|translate/progress/:key` giờ kèm `queue_status`, `queue_started_at`, `queue_ahead` (số job active có id nhỏ hơn) — lấy từ join `processing_queue`. Nhờ đó UI phân biệt được 3 trạng thái vốn trông y hệt nhau:
+- **Chưa từng được claim** → "Đang xếp hàng, chưa tới lượt… · Chưa bắt đầu · còn N task phía trước" (thay cho "Đang chờ… 0/0 comment" gây tưởng treo), log rỗng ghi rõ "Chưa chạy nên chưa có log".
+- **Đã claim rồi tự requeue giữa lượt** → "Tạm dừng giữa lượt, sẽ tự chạy tiếp", hiện done/total thật.
+- **Đã claim nhưng im quá 3 phút** (bằng `STALE_RUNNING_MS`) → "chưa có tiến triển mới", kèm ghi chú hệ thống sẽ tự thu hồi.
+
+Đã verify thật trên `cfl-feedback.pages.dev`: 3 job đang chạy hiện đúng số liệu, job #323 hiện "Chưa bắt đầu · còn 3 task phía trước".
+
+Sửa kèm: job chạy theo `comment_ids` (không thuộc run nào) trước đây hiện "Run #null · Không rõ nguồn · Ngày kéo: —", giờ là "Task lẻ theo danh sách comment".
+
+Logic phân loại nằm ở `frontend/src/pages/IngestSettings.helpers.js` (`processingJobPhase` / `processingJobCaption` / `processingJobNote`) để test được bằng unit test, không phải regex trên source.
+
+**2. Chưa làm (vẫn để ngỏ như mục F cũ)**: hiển thị vị trí hàng đợi dạng danh sách tổng quan, và việc tách 2 run siêu lớn thành job nhỏ hơn để không chiếm slot liên tục — cái sau là thay đổi kiến trúc, cần bàn với user trước.
+
+## ⚠️ Rate limit `gemini_viax` vẫn đang chặn phần dịch summary zh-CN
+
+Số comment còn thiếu summary zh-CN: **4.583** (giảm từ 18.103 lúc bàn giao phiên trước — cron đã tự xử lý được ~13.500 trong đêm khi proxy nới lỏng).
+
+Nhưng **hiện tại đang bị chặn lại**: mọi batch trả `403 "[antigravity/gemini-3-flash-agent] HTTP 403 (reset after ~1m10s–1m44s)"`. Đây là giới hạn phía proxy, **không phải bug code** — và lưu ý fallback 2 tầng không giúp được ở đây, vì slot "Đơn giản" chính là `gemini_viax`, nên fallback lại trỏ về đúng provider đang bị chặn.
+
+**Quyết định của user (30/07): để cron 5 phút tự chạy, KHÔNG can thiệp, KHÔNG đổi provider.** Việc này không khẩn — dữ liệu phân tích (chủ đề/sentiment/urgency) đã đúng 100%, đây chỉ là cột hiển thị tiếng Trung của riêng phần summary.
+
+Kiểm tra tiến độ bằng query ở mục "Lệnh nhanh". Nếu số 4.583 giảm dần theo giờ thì cron đang làm việc, cứ để yên.
+
+## 🚨 GOTCHA MỚI, RẤT QUAN TRỌNG: không chạy được test/tsc trong workspace J:
+
+`J:` là Google Drive, và `worker/node_modules/typescript/package.json` ở đó **bị lỗi sync** (`ERR_INVALID_PACKAGE_CONFIG`), còn `vitest` thì treo vô hạn (chạy >20 phút không ra output, trong khi bản local chạy 2,5 giây).
+
+**Cách làm đã dùng và có hiệu quả**: `C:\Temp\cfl-export-20260720-1442\` là bản mirror local (KHÔNG phải git repo, chỉ có `worker/` + `frontend/` + node_modules lành). Nó đang đồng bộ đúng với `J:` HEAD. Quy trình:
+1. Sửa code trong `J:` (canonical, có git).
+2. `Copy-Item` các file vừa sửa sang `C:\Temp\cfl-export-20260720-1442\` tương ứng.
+3. Chạy `npx vitest run`, `npx tsc --noEmit`, `node --test "src/**/*.test.js"`, `npx vite build`, `npx wrangler deploy`, `npx wrangler pages deploy dist` **từ `C:\Temp`**.
+4. Commit/push từ `J:`.
+
+Đừng cố chạy `npm test` hay `tsc` trực tiếp trong `J:` — sẽ treo hoặc lỗi package config, mất rất nhiều thời gian.
+
+**Gotcha kèm theo**: `cfl-feedback.pages.dev` cache `index.html` khá dai. Sau khi deploy Pages, mở bằng `?cb=<số>` để thấy bundle mới; kiểm chứng bằng cách so tên file `assets/index-*.js` giữa `dist/` và trang thật, đừng tin cảm giác "đã deploy mà không thấy đổi".
+
+---
+
+## Bối cảnh từ phiên 2 (2026-07-29 — refactor LLM provider + fix pipeline)
 
 ## ✅ ĐÃ HOÀN TẤT: 100% comment đã có phân tích LLM thật (đêm 29→30/07)
 
@@ -122,7 +170,7 @@ Phát hiện khi user hỏi "nút phân tích lại đang sai chỗ nào". Cả 
 
 **Fix**: `runAnalyze`/`runTranslate` ở frontend gửi `force: run.analysis_status === "done"` (tức chỉ force khi nhãn đã đổi thành "lại"). Backend `pendingComments` nhận `force` + `forceSince` (mốc thời gian job được claim lần đầu, dùng để retry hội tụ chứ không lặp lại từ đầu vĩnh viễn).
 
-### F. Lỗi hiển thị UI — CHƯA SỬA, để sau khi chạy xong 33 run
+### F. Lỗi hiển thị UI — ĐÃ SỬA ngày 30/07 (xem mục "Phiên 30/07 đã làm gì" ở đầu file)
 
 User báo "sao tôi chả thấy gì" khi nhìn danh sách "Hàng đợi xử lý" trong Ingest Settings: nhiều run hiện **"Đang chờ phân tích ... 0/0 comment"** và **"Chưa có log LLM cho task này"**, trông như bị treo.
 
