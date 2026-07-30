@@ -187,7 +187,9 @@ function runScope(run) {
 }
 
 function runTitle(run) {
-  if (!run) return "Chưa rõ run";
+  // A job started from an explicit comment list belongs to no run, which used to
+  // render as "Run #null · Không rõ nguồn".
+  if (!run?.id) return "Task lẻ theo danh sách comment";
   return `Run #${run.id} · ${sourceName(run.source_type)} · ${runScope(run)}`;
 }
 
@@ -715,7 +717,7 @@ export default function IngestSettings() {
           kind: job.job_type === "translation" ? "translation" : "analysis",
           progressKey: job.progress_key,
           status: job.status,
-          run: job.run || { id: job.run_id },
+          run: job.run,
         })));
       })
       .catch(() => {});

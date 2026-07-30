@@ -122,6 +122,11 @@ test("a queued job that has not been claimed says so instead of showing 0/0 comm
   assert.match(source, /task đang chờ tới lượt/);
 });
 
+test("a job started from a comment list is not labelled as run #null", () => {
+  assert.match(source, /if \(!run\?\.id\) return "Task lẻ theo danh sách comment";/);
+  assert.doesNotMatch(source, /run: job\.run \|\| \{ id: job\.run_id \}/);
+});
+
 test("completed tracked processing rows are removed from the queue view", () => {
   assert.match(source, /function hideCompletedTrackedJob\(job\)/);
   assert.match(source, /if \(progress\?\.status !== "done"\) return;/);
