@@ -37,24 +37,26 @@ Worker config nam o `worker/wrangler.jsonc`.
 - Worker name: `cfl-feedback-worker`
 - D1 binding: `DB`
 - D1 database_id: `3ec76280-4616-4e4b-b343-d95d0ec432cc`
-- Cron: `45 6 * * *` UTC = 13:45 GMT+7 moi ngay.
-- LLM provider: `llm_viax`
-- Classify model: `ag/gemini-3-flash-agent`
-- Translate model mac dinh: `ag/gemini-3-flash-agent`
-- Insight/Report model: `codex-lb/gpt-5.6-terra`
-- LLM base URL: `https://rpi7jss.abc-tunnel.us/v1`
+- Cron (3 cai, dispatch trong `scheduled()` bang cach so khop chuoi cron):
+  - `45 6 * * *` UTC = 13:45 GMT+7: daily ingest (`dailyJob`).
+  - `0 7 * * *` UTC = 14:00 GMT+7: reset trang thai leo thang LLM + enqueue lai phan con thieu (`dailySlotResetJob`).
+  - `*/5 * * * *`: sweep hang doi (`sweepProcessingQueue`) — chi thu hoi job treo/failed va drain, KHONG tao job moi.
+- LLM base URL cua proxy Viax: `https://rpi7jss.abc-tunnel.us/v1` (env `LLM_VIAX_BASE_URL`, secret `LLM_VIAX_API_KEY`).
+- Endpoint/key cua provider `openai_viax` (`agent-shop.clawd.io.vn`) nam trong bang D1 `llm_provider_secrets`, KHONG nam trong wrangler.jsonc/env.
+- `wrangler.jsonc` co `limits.cpu_ms = 60000`.
 
-## Trang thai LLM va deploy moi nhat (2026-07-29)
+## LLM: catalog provider + co che leo thang co trang thai (tu 2026-07-30)
 
-- Commit da push len `main`: `31092bc Correct the stale CSV chunking note in MEMORY.md` (commit chinh: `c32e9ed Fix large Facebook CSV upload hitting Worker subrequest limit`).
-- Worker production version: `66566f6e-3d41-499d-b137-7ee28ecc8e43`. Pages van la deployment `dae607a4` (khong doi frontend tu 2026-07-23).
-- `wrangler.jsonc` co `limits.cpu_ms = 60000` (mac dinh 30s khong du de decode + hash CSV lon).
-- Override D1 slot `reasoning`: provider `custom`, endpoint `https://agent-shop.clawd.io.vn/v1`, model `codex-lb/gpt-5.6-terra`, `enabled=true`.
-- Override D1 slot `simple`: provider `custom`, cung endpoint, model `codex-lb/gpt-5.6-luna`, `enabled=false`. Vi slot tat, dich thuc te van dung model mac dinh Gemini Flash Agent.
-- Insight/Report khong dung hai slot override; `generateSummary` dung truc tiep `LLM_INSIGHT_MODEL`.
-- Da smoke test `POST /api/insights/generate` khong luu archive: response tra `provider=llm_viax`, `model=codex-lb/gpt-5.6-terra`.
-- Worker tests: `33/33` files, `154/154` tests pass; typecheck pass.
-- `/api/llm-config` chi expose default `reasoning` va `simple`, khong co field Insight. Muon kiem tra Insight runtime, dung `POST /api/insights/generate` va doc field `model` trong response.
+Kien truc "custom provider override" cu (D1 slot override tro thang toi `agent-shop.clawd.io.vn` voi model prefix `codex-lb/`) **da bi thay the hoan toan**. Gio la 1 catalog co dinh 6 provider (`worker/src/services/llmCatalog.ts`), 2 slot co dinh:
+
+- `reasoning` (phan tich comment, xuat report HTML, Insight, gameplay-mode verify, taxonomy discovery): chinh = `openai_viax`/`gpt-5.6-terra`, phu = `gemini_viax`/`ag/gemini-3-flash-agent`.
+- `simple` (dich zh-CN): chinh = `gemini_viax`/`ag/gemini-3-flash-agent`, phu = `openai_viax`/`gpt-5.6-luna`.
+
+Moi slot co 1 dong trong bang `llm_slot_state` (migration `0015`) theo doi `tier` (`primary`/`secondary`/`exhausted`) va `consecutive_failures`. Luong: chinh -> 3 loi lien tiep -> phu -> 3 loi nua -> dung goi LLM het ngay (comment de nguyen trang thai chua xu ly, KHONG con fallback tu khoa/copy nguyen van nhu truoc). Cron `0 7 * * *` reset ca 2 slot ve primary. Slot `simple` co them backoff 120s giua cac lan thu lai SAU LOI (khong phai gioi han thong luong khi dang chay khoe). Module chinh: `worker/src/services/llmSlotState.ts`. Xem chi tiet thiet ke + cac diem de vo trong `handoff/HANDOFF.md` phien 2026-07-30.
+
+`resolveLlmProviderChain` (`worker/src/services/llmAgentConfig.ts`) gio tra ve toi da 1 provider (tier dang active), khong con tu dong noi `gemini_viax` lam safety net vao moi lan goi nhu truoc.
+
+BYO (nguoi dung tu nhap key qua header `x-cfl-llm-config`) van hoat dong nhu cu, doc lap hoan toan voi co che leo thang tren.
 
 ## Secrets
 
@@ -92,8 +94,9 @@ npx wrangler secret put FB_ACCESS_TOKEN
 - Ingest Settings hien ro run dang phan tich/dich gi, nguon nao, ngay nao, da xong bao nhieu.
 - Ingest Settings co nut xoa tung ingest run; backend xoa comments/analyses/translations/subtopics/memory/progress jobs lien quan truoc khi xoa run.
 - Ingest Settings co nut huy task dang cho/dang chay/bi loi; task da xong tu an khoi hang doi.
-- Co cau hinh LLM Agent cho provider mac dinh worker hoac custom OpenAI-compatible endpoint/key/model; phan tich dung model cao, dich dung model thap.
-- Log LLM hien theo batch trong hang doi xu ly, ten model duoc rut gon bo prefix provider/path.
+- Cau hinh LLM Agent qua UI (`/api/llm-config`): chon provider/model cho 2 slot `reasoning`/`simple` tu catalog 6 provider co dinh (2 "by Viax" luu duoc, 3 "chinh chu" + `custom` la BYO khong luu). UI cung hien trang thai leo thang moi slot (dang dung provider chinh/phu/da dung hom nay).
+- Log LLM hien theo batch trong hang doi xu ly, ten model duoc rut gon bo prefix provider/path. Bang "Token da dung" gop dong theo ten model rut gon de khong hien 2 dong trung ten do doi kien truc provider.
+- Hang doi xu ly (`processing_queue`) phan biet 3 trang thai o UI: dang xep hang chua toi luot / tam dung giua luot / treo that (co ghi vi tri hang doi).
 - Prompt LLM trong code hien tai da duoc nang theo huong liveops: classifier doc hieu nguyen nhan van hanh thay vi keyword-only, translation zh-CN giu dung thuat ngu CFL/CFM/SEA/China, taxonomy memory gom subtopic theo nghia thay vi theo text lap.
 
 ## Taxonomy hien tai
@@ -155,4 +158,7 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - PowerShell hien thi UTF-8 qua `ConvertTo-Json` co the mojibake tren console, khong dong nghia API loi encoding.
 - `node_modules` trong Google Drive co the loi/hang khi chay Vitest/TypeScript. Copy Worker dung commit can verify ra thu muc local (vi du `C:\Temp\...\worker`), chay `npm ci`, roi chay test/typecheck/deploy tu do.
 - `git fsck --no-dangling` tren checkout Google Drive session 2026-07-16 in nhieu dong `bad sha1 file` du exit code 0. Git status/log/push van hoat dong, nhung khong tu sua/xoa object trong `.git`; neu can kiem tra/repair Git nghiem ngat, clone repo ra o local drive truoc.
+- `worker/node_modules/typescript` tren `J:` (Google Drive) bi loi sync (`ERR_INVALID_PACKAGE_CONFIG`) va `vitest` treo vo han o do. Test/typecheck/build/deploy PHAI chay tu ban mirror local `C:\Temp\cfl-export-20260720-1442\` (khong phai git repo — chi copy file vua sua sang do roi chay). Xem chi tiet quy trinh o memory Claude Code (`cfl-run-tests-from-local-mirror`).
+- `enqueueJobs` (`processing_queue`, `ON CONFLICT DO UPDATE`) phai cap nhat CA `force`/`comment_ids_json`/`locale`/`limit_count` khi row o trang thai ket thuc, khong chi `status`/`attempts`/`started_at`. Neu quen, mot progress_key da tung force 1 lan se giu `force=1` vinh vien, khien lan bam "Phan tich"/"Dich" binh thuong sau do van quet lai ca run (da xay ra that voi run #73, sua ngay `1545046`).
+- `pendingTranslations` (`worker/src/services/translation.ts`) khong-force chi chon comment CHUA co dong nao trong `comment_translations` (`t.comment_id IS NULL`). Comment da co dong (vd `message_translated` xong nhung `summary_translated` rong — tinh trang nay xay ra khi phan tich lai sau khi dich da chay) se KHONG BAO GIO duoc chon lai neu khong `force`. Day la ly do can `force:true` thu cong cho cac dot "dich lai summary", va la viec can sua o dau phien sau (xem handoff 2026-07-30 phien 3).
 - Co 2 Demo Report cua user dang staged va khong duoc dua vao commit neu chua co yeu cau ro. Xem handoff moi nhat de lay dung ten file.

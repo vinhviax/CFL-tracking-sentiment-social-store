@@ -50,7 +50,7 @@ Khong them README/BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nh
 - Cloudflare Workers co gioi han subrequest, ingest Facebook/Sensor Tower phai gioi han page/range hop ly.
 - `xlsx` phai giu dependency tu `https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz`, khong cai `xlsx` thuong tu npm registry.
 - CSV Facebook Group co the la UTF-16 LE + tab-delimited; parser phai auto-detect.
-- Cron Cloudflare chay UTC. Cron hien tai `45 6 * * *` = 13:45 GMT+7.
+- Cron Cloudflare chay UTC. Danh sach cron hien tai xem trong `MEMORY.md` (muc Cloudflare config).
 
 ## Local workspace
 
