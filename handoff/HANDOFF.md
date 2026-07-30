@@ -1,9 +1,58 @@
-# HANDOFF 2026-07-30 (phiên 3 — sửa hiển thị hàng đợi xử lý)
+# HANDOFF 2026-07-30 (phiên 3 — leo thang LLM có trạng thái + sửa hiển thị)
 
 Bàn giao cho agent/session tiếp theo của project **CFL Feedback Intelligence**.
 (Các phiên trước nằm trong mục lịch sử bên dưới, cũ dần từ trên xuống.)
 
-## Phiên 30/07 đã làm gì
+## 🆕 QUAN TRỌNG NHẤT: cơ chế leo thang LLM có trạng thái (thay thế hoàn toàn fallback cũ)
+
+Commit `26476fd`. Worker Version **`aec28aba-235f-4cf4-b52e-11900da77126`**, Pages **`0699f666`**, migration **`0015_llm_slot_escalation_state.sql`** đã apply lên production.
+
+**Cái gì đã BỎ (đừng viết lại):**
+- ❌ `resolveLlmProviderChain` KHÔNG còn nối `gemini_viax` làm "safety net" vào mọi lời gọi. Giờ nó trả về **tối đa 1 provider** (tier đang active của slot), hoặc `[]` khi đang chờ/đã bỏ cuộc.
+- ❌ `classifyFallback` (fallback từ khóa) KHÔNG còn được `classifier.ts` gọi. File `llm/fallback.ts` vẫn còn nhưng là code chết — comment nào LLM không phân loại được thì **KHÔNG có dòng nào trong bảng `analyses`**, chờ lần chạy sau.
+- ❌ Dịch KHÔNG còn copy nguyên văn tiếng Việt vào `summary_translated`. Comment nào LLM không dịch được thì không ghi dòng nào.
+
+**Cái gì THAY THẾ** — bảng mới `llm_slot_state` (1 dòng/slot) + module `worker/src/services/llmSlotState.ts`:
+
+| Slot | Provider chính | Provider dự phòng | Khoảng chờ giữa các lần thử lại |
+|---|---|---|---|
+| `reasoning` (phân tích, insight, report HTML, game-mode, taxonomy) | `openai_viax`/`gpt-5.6-terra` | `gemini_viax`/`ag/gemini-3-flash-agent` | không có |
+| `simple` (dịch zh-CN) | `gemini_viax`/`ag/gemini-3-flash-agent` | `openai_viax`/`gpt-5.6-terra` | **120s** (chỉ khi đang có streak lỗi) |
+
+Luồng: `primary` → **3 lỗi liên tiếp** → `secondary` → **3 lỗi liên tiếp nữa** → `exhausted` (dừng gọi LLM hoàn toàn, để comment ở trạng thái chưa xử lý). Cron mới **`0 7 * * *`** (14:00 GMT+7) reset cả 2 slot về `primary` + enqueue lại phần còn thiếu.
+
+**⚠️ Các điểm dễ phá vỡ nếu sửa sau này:**
+1. **`claimSlotAttempt` là ĐỌC THUẦN TÚY, không ghi.** 120s là **backoff sau lỗi**, KHÔNG phải rate limit chung. Nếu ai đó biến nó thành "tối đa 1 request/120s" thì thông lượng dịch tụt xuống ~20 comment/2 phút dù mọi thứ đang khỏe — sai ý user.
+2. **`exhausted` chỉ được xóa bởi cron ngày hoặc `resetSlotEscalation`** (khi admin đổi provider qua UI). `claimSlotAttempt` KHÔNG tự "hết hạn" theo ngày — cố ý, để chỉ có 1 đường ra khỏi trạng thái này. Có test bảo vệ điều này.
+3. **Batch bị skip (chain rỗng) trả `complete:false` → `requeue()`, KHÔNG tốn `attempts`.** Đừng đổi thành `failAttempt()`, sẽ đốt hết 200 lượt thử trong lúc provider chết.
+4. **BYO (header `x-cfl-llm-config`) đi vòng qua toàn bộ cơ chế này** (`recordable: false`) — key của user không được làm bẩn bộ đếm của provider dùng chung. Đã verify thật trên production.
+5. **`translation.ts` dùng `isSlotConfigured()` cho check chặn cứng đầu hàm**, KHÔNG dùng `chain.length === 0`. Nếu đổi lại, "đang backoff 120s" sẽ bị hiểu thành "chưa cấu hình provider" và đánh `failed` cả job.
+6. **Cả 5 nơi gọi LLM phải đi qua `completeJsonForSlot`/`completeTextForSlot`**, đừng gọi thẳng `completeJsonWithFallback`/`completeTextWithFallback` (chỉ `llmSlotState.ts` được gọi trực tiếp) — nếu không, lỗi ở nơi đó không được đếm.
+
+**Đã verify thật trên production** (không phải chỉ test): slot `simple` tự đếm 3 lỗi 403 từ gemini → tự leo thang sang `openai_viax/gpt-5.6-terra`; log ghi `"Translation batch N/M chưa chạy: slot đơn giản đang không có provider khả dụng"` chứng minh backoff 120s chặn thật mà không tốn lời gọi LLM nào; UI hiện dòng "Đang tạm dùng provider dự phòng: OpenAI by Viax · gpt-5.6-terra (1 lỗi liên tiếp)".
+
+**Xem trạng thái nhanh:**
+```powershell
+Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/llm-config" | Select-Object -ExpandProperty configs | Format-Table slot, provider_label, tier, active_provider_label, consecutive_failures
+```
+
+## Còn lại: 4.522 comment thiếu summary zh-CN — giờ đã có cơ chế tự xử lý
+
+Con số này **không còn cần can thiệp thủ công**. Trước đây phải chạy vòng lặp drain thủ công vì gemini bị rate limit và không có đường thoát; giờ slot `simple` tự chuyển sang `openai_viax` khi gemini lỗi, nên cron 5 phút + cron ngày sẽ tự tiêu hoá dần. Cứ theo dõi con số, đừng tạo job `comment_ids` thủ công nữa.
+
+```powershell
+cd "C:\Temp\cfl-export-20260720-1442\worker"
+npx wrangler d1 execute cfl-feedback --remote --json --command "SELECT COUNT(*) AS n FROM comments c JOIN analyses a ON a.comment_id=c.id LEFT JOIN comment_translations t ON t.comment_id=c.id AND t.locale='zh-CN' WHERE c.skipped_analysis=0 AND TRIM(COALESCE(a.summary,''))!='' AND (t.comment_id IS NULL OR TRIM(COALESCE(t.summary_translated,''))='')"
+```
+
+**Lưu ý:** còn **19 dòng** trong `analyses` có `provider='fallback'` (di sản từ cơ chế cũ, đã bị bỏ). Muốn dọn thì xoá đúng 19 dòng đó để chúng được phân tích lại bằng LLM thật:
+`DELETE FROM analyses WHERE provider='fallback'` — chưa làm, để bạn quyết định.
+
+## Bug hiển thị "Chưa có dữ liệu" ở Feedback Workspace — đã sửa
+
+Commit `70d662a`. Khi đổi tab/filter, `loadData()` không xoá `overview`/`comments` cũ nên nếu dữ liệu cũ có `total_comments=0` thì hiện "Chưa có dữ liệu phù hợp bộ lọc" thay vì "Đang tải...". Đã sửa 2 việc: xoá state cũ trước khi fetch, và thêm `loadRequestId` chặn race (request của tab vừa rời không được ghi đè kết quả tab mới). Verify trên production: đổi tab chỉ còn thấy "Đang tải...".
+
+## Phiên 30/07 đã làm gì (phần hàng đợi xử lý)
 
 **1. Đã sửa xong lỗi hiển thị UI ở mục F (trước đây bị hoãn).** Commit `7b44bdf` + `7e0da14`, đã push, đã deploy:
 - Worker Version ID **`dfa9a7cd-32fc-44fb-9259-c87500b07787`**
