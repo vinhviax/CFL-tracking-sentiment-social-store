@@ -1,8 +1,8 @@
 import type { Env } from "../types";
 import type { LLMUsage } from "./llm/base";
 import { mapWithConcurrency, parseBoundedInt } from "./concurrency";
-import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
-import { completeJsonWithFallback } from "./llm/chain";
+import { type ByoOverride, isSlotConfigured, resolveLlmProviderChain } from "./llmAgentConfig";
+import { completeJsonForSlot } from "./llmSlotState";
 import { safeAddProcessingLog } from "./processingLogs";
 import { getProgressJob, setProgress } from "./progressJobs";
 
@@ -236,23 +236,26 @@ export async function runTranslation(
   }
 ) {
   const locale = opts.locale || DEFAULT_TRANSLATION_LOCALE;
-  const chain = await resolveLlmProviderChain(env, "simple", opts.byo);
-  const providerName = chain[0]?.name ?? "unavailable";
-  const model = chain[0]?.model ?? null;
+  // Resolved per batch inside the loop so a mid-run escalation or give-up applies to
+  // the next batch. This is only for the progress display.
+  const displayProvider = (await resolveLlmProviderChain(env, "simple", opts.byo))[0]?.name ?? "simple";
 
   await opts.shouldContinue?.();
   const comments = await pendingTranslations(env, { ...opts, locale });
   const previousProgress = await getProgressJob(env, opts.progressKey);
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
   const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
-  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: providerName });
+  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: displayProvider });
 
   if (!comments.length) {
     await setProgress(env, opts.progressKey, { status: "done" });
-    return { translated: 0, total: 0, provider: providerName };
+    return { translated: 0, total: 0, provider: displayProvider };
   }
 
-  if (!chain.length) {
+  // Only a genuinely unconfigured slot is a hard failure. "No active provider right
+  // now" (post-failure backoff, or given up for the day) must not fail the job — that
+  // would turn a temporary provider outage into a permanently failed run.
+  if (!(await isSlotConfigured(env, "simple", opts.byo))) {
     const error = "LLM provider chưa sẵn sàng để dịch zh-CN";
     await setProgress(env, opts.progressKey, { status: "failed", error });
     throw new Error(error);
@@ -272,6 +275,31 @@ export async function runTranslation(
       await opts.shouldContinue?.();
       const batchIndex = index + 1;
       const started = Date.now();
+
+      // The slot may have escalated or given up since the last batch. An empty chain
+      // means "do not call the LLM right now": leave these comments untranslated and
+      // let the job requeue, which costs no queue attempt.
+      const chain = await resolveLlmProviderChain(env, "simple", opts.byo);
+      if (!chain.length) {
+        if (opts.jobId != null) {
+          await safeAddProcessingLog(env, {
+            processing_job_id: opts.jobId,
+            progress_key: opts.progressKey,
+            job_type: "translation",
+            level: "info",
+            phase: "llm_batch",
+            message: `Translation batch ${batchIndex}/${groups.length} chưa chạy: slot đơn giản đang không có provider khả dụng`,
+            batch_index: batchIndex,
+            batch_total: groups.length,
+            item_count: group.length,
+          });
+        }
+        failedBatches += 1;
+        return;
+      }
+      const providerName = chain[0].name;
+      const model = chain[0].model;
+
       if (opts.jobId != null) {
         await safeAddProcessingLog(env, {
           processing_job_id: opts.jobId,
@@ -290,13 +318,12 @@ export async function runTranslation(
       let raw: string;
       let batchUsage: LLMUsage | undefined;
       try {
-        // Retries through Gemini by Viax before giving up on the LLM entirely.
-        const completion = await completeJsonWithFallback(chain, TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group));
+        const completion = await completeJsonForSlot(
+          env, "simple", chain, TRANSLATION_SYSTEM_PROMPT, buildTranslationUserPrompt(group),
+          { recordable: opts.byo == null }
+        );
         raw = completion.content;
         batchUsage = completion.usage;
-        for (const f of completion.failures) {
-          console.warn(`translation ${f.provider}/${f.model} failed (${f.error}); retried via ${completion.provider.name}`);
-        }
       } catch (e: any) {
         if (opts.jobId != null) {
           await safeAddProcessingLog(env, {
@@ -325,8 +352,12 @@ export async function runTranslation(
       const byId = new Map<number, TranslationResult>();
       for (const t of parseTranslationResults(raw)) byId.set(t.id, t);
 
-      const stmts = group.map((comment) => {
-        const translated = byId.get(comment.id);
+      // Only comments the LLM actually translated get a row. Copying the original
+      // Vietnamese text into summary_translated (what this used to do) produced rows
+      // that looked translated but were not, and were never retried.
+      const translatedComments = group.filter((comment) => byId.has(comment.id));
+      const stmts = translatedComments.map((comment) => {
+        const translated = byId.get(comment.id)!;
         return env.DB.prepare(
           `INSERT INTO comment_translations
              (comment_id, locale, message_translated, summary_translated, provider, model, translated_at)
@@ -340,24 +371,30 @@ export async function runTranslation(
         ).bind(
           comment.id,
           locale,
-          translated?.message_zh || comment.message,
-          translated?.summary_zh || comment.summary || "",
+          translated.message_zh,
+          translated.summary_zh,
           providerName,
           model,
           translatedAt
         );
       });
-      await env.DB.batch(stmts);
-      done += group.length;
+      if (stmts.length) await env.DB.batch(stmts);
+      done += translatedComments.length;
+      const untranslated = group.length - translatedComments.length;
+      // Comments the LLM skipped stay pending, so the job must not report itself done.
+      if (untranslated > 0) failedBatches += 1;
       await setProgress(env, opts.progressKey, { done: alreadyDone + done });
       if (opts.jobId != null) {
         await safeAddProcessingLog(env, {
           processing_job_id: opts.jobId,
           progress_key: opts.progressKey,
           job_type: "translation",
-          level: "success",
+          level: untranslated > 0 ? "error" : "success",
           phase: "llm_batch",
-          message: `Translation batch ${batchIndex}/${groups.length} completed`,
+          error: untranslated > 0 ? `${untranslated} comment chưa dịch được, sẽ thử lại` : null,
+          message: untranslated > 0
+            ? `Translation batch ${batchIndex}/${groups.length}: ${translatedComments.length}/${group.length} dịch được, ${untranslated} còn chờ`
+            : `Translation batch ${batchIndex}/${groups.length} completed`,
           batch_index: batchIndex,
           batch_total: groups.length,
           item_count: group.length,
@@ -378,9 +415,9 @@ export async function runTranslation(
 
   if (done < comments.length || failedBatches > 0) {
     await setProgress(env, opts.progressKey, { status: "queued" });
-    return { translated: done, total, provider: providerName, complete: false, failedBatches };
+    return { translated: done, total, provider: displayProvider, complete: false, failedBatches };
   }
 
   await setProgress(env, opts.progressKey, { status: "done" });
-  return { translated: done, total, provider: providerName, complete: true };
+  return { translated: done, total, provider: displayProvider, complete: true };
 }

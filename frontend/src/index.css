@@ -1857,6 +1857,14 @@ tbody tr {
   white-space: nowrap;
 }
 
+/* Says which provider a slot is actually calling when that is not the configured one. */
+.llm-escalation-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--urgent-medium);
+  font-weight: 700;
+}
+
 /* Ingest history toolbar: source pills on the left, token totals on the right. */
 .run-toolbar {
   display: flex;

@@ -25,6 +25,7 @@ import {
   processingJobNote,
   processingJobPhase,
   shortModelName,
+  slotEscalationNote,
   tokenUsageState,
   totalTokens,
   usageModelLabel,
@@ -530,6 +531,7 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSessio
 
   const byoReady = !spec?.byo
     || (form.model.trim() && form.api_key.trim() && (form.provider !== "custom" || form.endpoint_url.trim()));
+  const escalationNote = slotEscalationNote(llmConfig?.configs?.find((item) => item.slot === slot));
 
   return (
     <form className="llm-config-slot" onSubmit={submit}>
@@ -539,6 +541,7 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSessio
           <small>
             Mặc định: {fallback?.provider_label || "—"} · {fallback?.model_label || "—"}
           </small>
+          {escalationNote && <small className="llm-escalation-note">{escalationNote}</small>}
         </div>
         {spec?.byo && (
           <span className="llm-session-tag" title="Key của bạn chỉ nằm trong tab này, không lưu lên hệ thống">

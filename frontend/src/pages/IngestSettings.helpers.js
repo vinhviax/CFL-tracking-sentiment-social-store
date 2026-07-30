@@ -40,6 +40,29 @@ export function usageModelLabel(usage) {
   return (usage?.by_model || []).map((m) => shortModelName(m.model)).join(", ");
 }
 
+/**
+ * One line describing which provider a slot is really calling right now.
+ *
+ * A slot silently escalated to its backup provider, or stopped for the day after both
+ * failed, otherwise looks identical in the UI to one running normally on the provider
+ * you configured — which is exactly the confusion that let a dead provider go
+ * unnoticed. Returns null while running normally on the configured primary.
+ */
+export function slotEscalationNote(config) {
+  if (!config) return null;
+  const failures = Number(config.consecutive_failures) || 0;
+  if (config.tier === "exhausted") {
+    return "Đã dừng gọi LLM cho hôm nay (cả 2 provider đều lỗi) — cron sẽ thử lại vào ngày mai.";
+  }
+  if (config.tier === "secondary") {
+    const active = [config.active_provider_label, config.active_model_label].filter(Boolean).join(" · ");
+    const suffix = failures > 0 ? ` (${failures} lỗi liên tiếp)` : "";
+    return `Đang tạm dùng provider dự phòng: ${active || "—"}${suffix}`;
+  }
+  if (failures > 0) return `${failures} lỗi liên tiếp trên provider chính, 3 lỗi sẽ chuyển sang dự phòng.`;
+  return null;
+}
+
 /** Matches STALE_RUNNING_MS in the worker: past this with no new log, recovery reclaims the job. */
 export const STALE_LOG_MS = 3 * 60 * 1000;
 

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { loadRunTokenUsage, loadTokenUsageByRange, resolveUtcDayRange, sumTokenUsage } from "./tokenUsage";
+import {
+  loadRunTokenUsage,
+  loadTokenUsageByRange,
+  mergeGroupsByShortModel,
+  resolveUtcDayRange,
+  sumTokenUsage,
+} from "./tokenUsage";
 
 /** Records the SQL/params it was asked to run and replays one canned result set. */
 function fakeEnv(results: any[]) {
@@ -128,5 +134,41 @@ describe("loadTokenUsageByRange", () => {
     const { env, calls } = fakeEnv([]);
     await loadTokenUsageByRange(env, { from: "2026-07-01", to: "2026-07-02" });
     expect(calls[0].sql).not.toContain("processing_queue");
+  });
+});
+
+describe("mergeGroupsByShortModel", () => {
+  test("collapses the same model logged under different routing prefixes into one row", () => {
+    // Real production data: the provider refactor moved off the "codex-lb/" prefix, so
+    // the same model exists under two ids. Displayed prefix-stripped, they rendered as
+    // two identical "gpt-5.6-terra" rows in the token table.
+    const merged = mergeGroupsByShortModel([
+      { job_type: "analysis", model: "gpt-5.6-terra", input_tokens: 15026259, output_tokens: 4987214, batches: 3042, batches_with_usage: 3042 },
+      { job_type: "analysis", model: "codex-lb/gpt-5.6-terra", input_tokens: 0, output_tokens: 0, batches: 671, batches_with_usage: 0 },
+    ]);
+    expect(merged).toEqual([
+      { job_type: "analysis", model: "gpt-5.6-terra", input_tokens: 15026259, output_tokens: 4987214, batches: 3713, batches_with_usage: 3042 },
+    ]);
+  });
+
+  test("keeps genuinely different models apart, and does not merge across job types", () => {
+    const merged = mergeGroupsByShortModel([
+      { job_type: "analysis", model: "codex-lb/gpt-5.4", input_tokens: 0, output_tokens: 0, batches: 603, batches_with_usage: 0 },
+      { job_type: "analysis", model: "gpt-5.6-terra", input_tokens: 10, output_tokens: 5, batches: 1, batches_with_usage: 1 },
+      { job_type: "translation", model: "gpt-5.6-terra", input_tokens: 7, output_tokens: 3, batches: 1, batches_with_usage: 1 },
+    ]);
+    expect(merged.map((g) => `${g.job_type}|${g.model}`).sort()).toEqual([
+      "analysis|gpt-5.4",
+      "analysis|gpt-5.6-terra",
+      "translation|gpt-5.6-terra",
+    ]);
+  });
+
+  test("orders the merged rows by total spend, biggest first", () => {
+    const merged = mergeGroupsByShortModel([
+      { job_type: "translation", model: "a/small", input_tokens: 1, output_tokens: 1, batches: 1, batches_with_usage: 1 },
+      { job_type: "analysis", model: "b/big", input_tokens: 100, output_tokens: 100, batches: 1, batches_with_usage: 1 },
+    ]);
+    expect(merged[0].model).toBe("big");
   });
 });

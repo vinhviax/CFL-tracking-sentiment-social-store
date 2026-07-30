@@ -5,7 +5,7 @@ import {
   matchGameModes,
 } from "./gameModes";
 import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
-import { completeJsonWithFallback } from "./llm/chain";
+import { completeJsonForSlot } from "./llmSlotState";
 
 export interface TagGameModesOptions {
   from?: string;
@@ -194,7 +194,10 @@ export async function tagGameModes(env: Env, options: TagGameModesOptions = {}):
       const batch = ambiguousItems.slice(start, start + verifyBatchSize);
       llmBatches += 1;
       try {
-        const { content: raw } = await completeJsonWithFallback(chain, buildVerifySystem(), buildVerifyUser(batch));
+        const { content: raw } = await completeJsonForSlot(
+          env, "reasoning", chain, buildVerifySystem(), buildVerifyUser(batch),
+          { recordable: options.byo == null }
+        );
         const results = parseVerifyResults(raw);
         if (options.debug && debugSamples.length < 2) {
           debugSamples.push({ raw: String(raw).slice(0, 1500), parsed_ids: [...results.keys()] });

@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { shortModelName } from "./llmCatalog";
 
 /** Bangkok is the reporting timezone; token spend is bucketed by local day, not UTC day. */
 const REPORTING_UTC_OFFSET = "+07:00";
@@ -49,6 +50,35 @@ function mapGroupRow(row: any): TokenUsageGroup {
     batches: Number(row.batches || 0),
     batches_with_usage: Number(row.batches_with_usage || 0),
   };
+}
+
+/**
+ * Collapse rows whose models differ only by routing prefix.
+ *
+ * The same model has been logged under more than one id over time — the provider
+ * refactor moved off "codex-lb/gpt-5.6-terra" (the rpi7jss proxy's routing name) to
+ * the bare "gpt-5.6-terra" that agent-shop wants. Both are the same model, and since
+ * the UI strips the prefix for display, leaving them as separate rows renders as two
+ * identical "gpt-5.6-terra" lines.
+ */
+export function mergeGroupsByShortModel(groups: TokenUsageGroup[]): TokenUsageGroup[] {
+  const merged = new Map<string, TokenUsageGroup>();
+  for (const group of groups) {
+    const model = shortModelName(group.model);
+    const key = `${group.job_type}|${model ?? ""}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...group, model });
+      continue;
+    }
+    existing.input_tokens += group.input_tokens;
+    existing.output_tokens += group.output_tokens;
+    existing.batches += group.batches;
+    existing.batches_with_usage += group.batches_with_usage;
+  }
+  return [...merged.values()].sort(
+    (a, b) => b.input_tokens + b.output_tokens - (a.input_tokens + a.output_tokens)
+  );
 }
 
 export function sumTokenUsage(groups: TokenUsageGroup[]): TokenUsageTotals {
@@ -117,6 +147,7 @@ export async function loadRunTokenUsage(env: Env, runIds: number[]): Promise<Map
       byRun.set(runId, list);
     }
   }
+  for (const [runId, list] of byRun) byRun.set(runId, mergeGroupsByShortModel(list));
   return byRun;
 }
 
@@ -155,7 +186,7 @@ export async function loadTokenUsageByRange(
     .bind(...params)
     .all<any>();
 
-  const by_model = (res.results || []).map(mapGroupRow);
+  const by_model = mergeGroupsByShortModel((res.results || []).map(mapGroupRow));
   return {
     by_model,
     total: sumTokenUsage(by_model),

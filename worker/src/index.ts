@@ -16,6 +16,7 @@ import { translateRoute } from "./routes/translate";
 import { ingestFacebook } from "./services/facebook";
 import { describeSlotResolution } from "./services/llmAgentConfig";
 import { BYO_HEADER } from "./services/llmCatalog";
+import { resetAllSlotsForNewDay } from "./services/llmSlotState";
 import {
   buildRunProcessingJobs,
   drainProcessingQueue,
@@ -95,13 +96,47 @@ export default {
   fetch: app.fetch,
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    // Two schedules share this handler: the daily ingest, and a five-minute sweep that
-    // only keeps the processing queue moving. The sweep must not re-run the ingest.
-    ctx.waitUntil(event.cron === DAILY_INGEST_CRON ? dailyJob(env) : sweepProcessingQueue(env));
+    // Three schedules share this handler, dispatched by exact cron string: the daily
+    // ingest, the daily LLM slot reset, and a five-minute sweep that only keeps the
+    // processing queue moving. The sweep must not re-run either daily job.
+    if (event.cron === DAILY_INGEST_CRON) {
+      ctx.waitUntil(dailyJob(env));
+      return;
+    }
+    if (event.cron === DAILY_SLOT_RESET_CRON) {
+      ctx.waitUntil(dailySlotResetJob(env));
+      return;
+    }
+    ctx.waitUntil(sweepProcessingQueue(env));
   },
 };
 
 export const DAILY_INGEST_CRON = "45 6 * * *";
+/** 14:00 GMT+7, 15 minutes after the ingest, so a long ingest does not overlap it. */
+export const DAILY_SLOT_RESET_CRON = "0 7 * * *";
+
+/**
+ * Give both LLM slots a fresh day.
+ *
+ * A slot that exhausted its primary and secondary provider stops attempting anything
+ * for the rest of the day (see llmSlotState.ts), which is what stops a dead provider
+ * from being hammered every five minutes. That state has to be cleared by something,
+ * and it is this: reset both slots to their primary tier, then re-enqueue the pending
+ * work so whatever was left unanalysed/untranslated gets another full pass.
+ */
+export async function dailySlotResetJob(env: Env) {
+  try {
+    await resetAllSlotsForNewDay(env);
+    const suffix = new Date().toISOString().slice(0, 10);
+    await enqueueProcessingJobs(env, [
+      { job_type: "analysis", progress_key: `daily-retry-analyze-${suffix}` },
+      { job_type: "translation", progress_key: `daily-retry-translate-${suffix}`, locale: "zh-CN", limit: 1000 },
+    ]);
+    await drainProcessingQueue(env);
+  } catch (e) {
+    console.error("daily llm slot reset failed", e);
+  }
+}
 
 /**
  * Return abandoned and retryable jobs to the queue, then drain.

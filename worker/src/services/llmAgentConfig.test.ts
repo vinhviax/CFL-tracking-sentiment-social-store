@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   getSlotSelection,
+  isSlotConfigured,
   listLlmAgentConfigs,
   llmCatalogPayload,
   resolveLlmProvider,
+  resolveLlmProviderChain,
   saveLlmAgentConfig,
 } from "./llmAgentConfig";
 import { LLM_SLOT_DEFAULTS, normalizeByoOverride, parseByoHeader } from "./llmCatalog";
@@ -12,7 +14,13 @@ import { LLM_SLOT_DEFAULTS, normalizeByoOverride, parseByoHeader } from "./llmCa
  * Stubs D1 by matching on the table each statement touches, so a test can supply a
  * slot row and a provider secret independently.
  */
-function fakeEnv(opts: { slotRow?: any; secretRow?: any; missingTables?: boolean; env?: Record<string, unknown> } = {}) {
+function fakeEnv(opts: {
+  slotRow?: any;
+  secretRow?: any;
+  slotStateRow?: any;
+  missingTables?: boolean;
+  env?: Record<string, unknown>;
+} = {}) {
   const writes: unknown[][] = [];
   const DB = {
     prepare(sql: string) {
@@ -22,6 +30,9 @@ function fakeEnv(opts: { slotRow?: any; secretRow?: any; missingTables?: boolean
             async first() {
               if (opts.missingTables) throw new Error("D1_ERROR: no such table: llm_agent_configs");
               if (sql.includes("llm_provider_secrets")) return opts.secretRow ?? null;
+              if (sql.includes("llm_slot_state")) {
+                return opts.slotStateRow ?? { tier: "primary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null };
+              }
               return opts.slotRow ?? null;
             },
             async run() {
@@ -223,5 +234,91 @@ describe("per-request BYO provider", () => {
     expect(parseByoHeader("not json")).toBeNull();
     expect(parseByoHeader("")).toBeNull();
     expect(parseByoHeader(undefined)).toBeNull();
+  });
+});
+
+describe("resolveLlmProviderChain — stateful escalation, not a per-call safety net", () => {
+  test("a healthy slot resolves its own configured (primary) provider only", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotStateRow: { tier: "primary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
+    });
+    const chain = await resolveLlmProviderChain(env, "reasoning");
+    expect(chain).toHaveLength(1);
+    expect(chain[0].name).toBe("openai_viax");
+    expect(chain[0].model).toBe("gpt-5.6-terra");
+  });
+
+  test("an escalated slot resolves to its fixed secondary instead of the configured primary", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotStateRow: { tier: "secondary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
+    });
+    const chain = await resolveLlmProviderChain(env, "reasoning");
+    expect(chain).toHaveLength(1);
+    expect(chain[0].name).toBe("gemini_viax");
+  });
+
+  test("simple escalates to openai_viax/gpt-5.6-terra, not the reasoning slot's secondary", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+      slotStateRow: { tier: "secondary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
+    });
+    const chain = await resolveLlmProviderChain(env, "simple");
+    expect(chain[0].name).toBe("openai_viax");
+    expect(chain[0].model).toBe("gpt-5.6-terra");
+  });
+
+  test("a slot that gave up today resolves to no provider at all", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotStateRow: { tier: "exhausted", consecutive_failures: 0, last_failure_at: null, exhausted_date: "2020-01-01" },
+    });
+    expect(await resolveLlmProviderChain(env, "reasoning")).toEqual([]);
+  });
+
+  test("simple mid its post-failure backoff window resolves to no provider", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+      slotStateRow: { tier: "primary", consecutive_failures: 1, last_failure_at: new Date().toISOString(), exhausted_date: null },
+    });
+    expect(await resolveLlmProviderChain(env, "simple")).toEqual([]);
+  });
+
+  test("a BYO override bypasses escalation state entirely, even mid-backoff", async () => {
+    const { env } = fakeEnv({
+      slotStateRow: { tier: "exhausted", consecutive_failures: 0, last_failure_at: null, exhausted_date: "2020-01-01" },
+    });
+    const chain = await resolveLlmProviderChain(env, "reasoning", {
+      provider: "anthropic_direct",
+      model: "claude-sonnet-4-5",
+      api_key: "user-key",
+      endpoint_url: "https://api.anthropic.com/v1",
+    });
+    expect(chain[0]?.name).toBe("anthropic");
+  });
+});
+
+describe("isSlotConfigured", () => {
+  test("true when the slot's own provider can be built, regardless of escalation state", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+    });
+    expect(await isSlotConfigured(env, "simple")).toBe(true);
+  });
+
+  test("a BYO override is checked on its own terms", async () => {
+    const { env } = fakeEnv();
+    expect(await isSlotConfigured(env, "simple", { provider: "custom", model: "m", api_key: "k", endpoint_url: "https://x.example/v1" })).toBe(true);
+  });
+});
+
+describe("saving a slot resets its escalation state", () => {
+  test("a manual provider change writes to llm_slot_state after the config row", async () => {
+    const { env, writes } = fakeEnv();
+    await saveLlmAgentConfig(env, "simple", { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
+    // writes[0] is the llm_agent_configs upsert (checked elsewhere); resetSlotEscalation
+    // follows with an ensureRow (INSERT OR IGNORE) and the reset UPDATE.
+    expect(writes.length).toBeGreaterThanOrEqual(3);
   });
 });

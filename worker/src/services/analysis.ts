@@ -137,8 +137,9 @@ export async function runAnalysis(
     byo?: ByoOverride | null;
   }
 ) {
-  const chain = await resolveLlmProviderChain(env, "reasoning", opts.byo);
-  const svc = new ClassifierService(env, chain);
+  // Resolved per batch inside the loop, so a mid-run escalation or give-up takes
+  // effect on the next batch. This first resolve is only for the progress display.
+  const displayProvider = (await resolveLlmProviderChain(env, "reasoning", opts.byo))[0]?.name ?? "reasoning";
   await opts.shouldContinue?.();
   const comments = await pendingComments(env, {
     commentIds: opts.commentIds,
@@ -151,11 +152,11 @@ export async function runAnalysis(
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
   const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
 
-  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: svc.providerName });
+  await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: displayProvider });
 
   if (comments.length === 0) {
     await setProgress(env, opts.progressKey, { status: "done" });
-    return { analyzed: 0, provider: svc.providerName, total: 0 };
+    return { analyzed: 0, provider: displayProvider, total: 0 };
   }
 
   // Resolve parent post context once for better classification of short or ambiguous comments.
@@ -184,6 +185,31 @@ export async function runAnalysis(
     await opts.shouldContinue?.();
     const batchIndex = index + 1;
     const started = Date.now();
+
+    // The slot may have escalated or given up since the last batch. An empty chain
+    // means "do not call the LLM right now" — leave these comments pending and let
+    // the job requeue, which costs no queue attempt (drainProcessingQueue requeues
+    // rather than failing when complete === false).
+    const chain = await resolveLlmProviderChain(env, "reasoning", opts.byo);
+    if (!chain.length) {
+      if (opts.jobId != null) {
+        await safeAddProcessingLog(env, {
+          processing_job_id: opts.jobId,
+          progress_key: opts.progressKey,
+          job_type: "analysis",
+          level: "info",
+          phase: "llm_batch",
+          message: `Analysis batch ${batchIndex}/${groups.length} chưa chạy: slot suy luận đang không có provider khả dụng`,
+          batch_index: batchIndex,
+          batch_total: groups.length,
+          item_count: group.length,
+        });
+      }
+      failedBatches += 1;
+      return;
+    }
+    const svc = new ClassifierService(env, chain, { recordable: opts.byo == null });
+
     if (opts.jobId != null) {
       await safeAddProcessingLog(env, {
         processing_job_id: opts.jobId,
@@ -251,29 +277,33 @@ export async function runAnalysis(
         r.other_suggested, r.confidence,
         // Record what produced this row, not what was configured. Writing the
         // configured model even when every LLM call 403'd is what made a 12-day
-        // outage invisible in the analyses table.
-        batch.fellBack ? "fallback" : batch.servedBy?.provider || svc.providerName,
-        batch.fellBack ? null : batch.servedBy?.model || svc.model,
+        // outage invisible in the analyses table. Every row here came from the LLM —
+        // unclassified comments get no row at all now, rather than a keyword guess.
+        batch.servedBy?.provider || svc.providerName,
+        batch.servedBy?.model || svc.model,
         PROMPT_VERSION, "ok", analyzedAt
       )
     );
-    await env.DB.batch(stmts);
+    if (stmts.length) await env.DB.batch(stmts);
 
-    analyzed += group.length;
+    analyzed += batch.classifications.length;
+    // Comments the LLM skipped stay pending, so the job must not report itself done.
+    if (batch.unclassifiedCount > 0) failedBatches += 1;
     await setProgress(env, opts.progressKey, { done: alreadyDone + analyzed });
     if (opts.jobId != null) {
       await safeAddProcessingLog(env, {
         processing_job_id: opts.jobId,
         progress_key: opts.progressKey,
         job_type: "analysis",
-        // A batch the LLM could not classify is logged as an error even though the
-        // keyword fallback filled it in, so the queue view shows the problem instead
-        // of a green "completed" that hides it.
-        level: batch.fellBack ? "error" : "success",
+        // Partially classified counts as an error so the queue view shows the problem
+        // instead of a green "completed" that hides it.
+        level: batch.unclassifiedCount > 0 ? "error" : "success",
         phase: "llm_batch",
-        error: batch.fellBack ? batch.error || "LLM không phân loại được, đã dùng fallback từ khóa" : null,
-        message: batch.fellBack
-          ? `Analysis batch ${batchIndex}/${groups.length} dùng fallback từ khóa (${batch.llmClassified}/${group.length} qua LLM)`
+        error: batch.unclassifiedCount > 0
+          ? batch.error || `${batch.unclassifiedCount} comment chưa phân tích được, sẽ thử lại`
+          : null,
+        message: batch.unclassifiedCount > 0
+          ? `Analysis batch ${batchIndex}/${groups.length}: ${batch.llmClassified}/${group.length} qua LLM, ${batch.unclassifiedCount} còn chờ`
           : `Analysis batch ${batchIndex}/${groups.length} completed`,
         batch_index: batchIndex,
         batch_total: groups.length,
@@ -290,9 +320,9 @@ export async function runAnalysis(
 
   if (analyzed < comments.length || failedBatches > 0) {
     await setProgress(env, opts.progressKey, { status: "queued" });
-    return { analyzed, provider: svc.providerName, total, complete: false, failedBatches };
+    return { analyzed, provider: displayProvider, total, complete: false, failedBatches };
   }
 
   await setProgress(env, opts.progressKey, { status: "done" });
-  return { analyzed, provider: svc.providerName, total, complete: true };
+  return { analyzed, provider: displayProvider, total, complete: true };
 }

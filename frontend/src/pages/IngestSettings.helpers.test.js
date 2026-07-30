@@ -7,6 +7,7 @@ import {
   processingJobNote,
   processingJobPhase,
   shortModelName,
+  slotEscalationNote,
   tokenUsageState,
   totalTokens,
   usageModelLabel,
@@ -117,4 +118,36 @@ test("without a queue row the progress status alone decides the phase", () => {
   assert.equal(processingJobPhase({ status: "queued", queue_status: null }, []), "waiting");
   assert.equal(processingJobPhase({ status: "running", queue_status: null }, []), "running");
   assert.equal(processingJobCaption({ status: "queued" }, "waiting"), "Chưa bắt đầu · đang chờ trong hàng đợi");
+});
+
+test("a slot running normally on its configured provider says nothing extra", () => {
+  assert.equal(slotEscalationNote({ tier: "primary", consecutive_failures: 0 }), null);
+  assert.equal(slotEscalationNote(null), null);
+  assert.equal(slotEscalationNote(undefined), null);
+});
+
+test("a slot quietly running on its backup provider says so, with the real model", () => {
+  // Without this the UI shows the configured provider while calls actually go
+  // somewhere else — the state that let a dead provider go unnoticed.
+  const note = slotEscalationNote({
+    tier: "secondary",
+    consecutive_failures: 1,
+    active_provider_label: "Gemini by Viax",
+    active_model_label: "gemini-3-flash-agent",
+  });
+  assert.match(note, /dự phòng/);
+  assert.match(note, /Gemini by Viax · gemini-3-flash-agent/);
+  assert.match(note, /1 lỗi liên tiếp/);
+});
+
+test("a slot that gave up for the day says when it will retry", () => {
+  const note = slotEscalationNote({ tier: "exhausted", consecutive_failures: 0 });
+  assert.match(note, /Đã dừng gọi LLM cho hôm nay/);
+  assert.match(note, /ngày mai/);
+});
+
+test("failures short of the escalation threshold are surfaced as a warning", () => {
+  const note = slotEscalationNote({ tier: "primary", consecutive_failures: 2 });
+  assert.match(note, /2 lỗi liên tiếp/);
+  assert.match(note, /3 lỗi sẽ chuyển/);
 });

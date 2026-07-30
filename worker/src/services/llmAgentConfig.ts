@@ -12,6 +12,7 @@ import {
   publicLlmCatalog,
   shortModelName,
 } from "./llmCatalog";
+import { claimSlotAttempt, getSlotState, resetSlotEscalation } from "./llmSlotState";
 
 export type { LlmAgentSlot, ByoOverride };
 export { isLlmAgentSlot };
@@ -83,6 +84,11 @@ export async function listLlmAgentConfigs(env: Env) {
   for (const slot of LLM_SLOTS) {
     const selection = await getSlotSelection(env, slot);
     const spec = getLlmProvider(selection.provider);
+    // Escalation state comes along so the UI can say which provider is actually in
+    // use right now — otherwise a slot silently running on its secondary, or stopped
+    // for the day, looks identical to one running normally on its configured primary.
+    const state = await getSlotState(env, slot).catch(() => null);
+    const activeSpec = state?.tier === "secondary" ? getLlmProvider(SLOT_SECONDARY[slot].provider) : spec;
     out.push({
       slot,
       provider: selection.provider,
@@ -92,6 +98,14 @@ export async function listLlmAgentConfigs(env: Env) {
       is_default:
         selection.provider === LLM_SLOT_DEFAULTS[slot].provider &&
         selection.model === LLM_SLOT_DEFAULTS[slot].model,
+      tier: state?.tier || "primary",
+      consecutive_failures: state?.consecutive_failures ?? 0,
+      active_provider_label: state?.tier === "exhausted"
+        ? null
+        : activeSpec?.label || (state?.tier === "secondary" ? SLOT_SECONDARY[slot].provider : selection.provider),
+      active_model_label: state?.tier === "exhausted"
+        ? null
+        : shortModelName(state?.tier === "secondary" ? SLOT_SECONDARY[slot].model : selection.model),
     });
   }
   return out;
@@ -130,46 +144,79 @@ export async function saveLlmAgentConfig(env: Env, slot: LlmAgentSlot, input: { 
        model = excluded.model,
        updated_at = excluded.updated_at`
   ).bind(slot, selection.provider, selection.model, new Date().toISOString()).run();
+  // A manual provider change is a deliberate intervention — give the slot a clean
+  // slate immediately rather than making the admin wait for tomorrow's reset cron
+  // or for 3 more failures to accumulate against a tier that no longer applies.
+  await resetSlotEscalation(env, slot);
   return (await listLlmAgentConfigs(env)).find((row) => row.slot === slot)!;
 }
 
-/**
- * Resolve the provider to call for a slot.
- *
- * A BYO config supplied with the request wins and is used from memory only. It is
- * never persisted, so a drain triggered by cron — or by any request that did not
- * carry it, e.g. after the tab closed — falls back to the slot's stored provider.
- * That fallback is the cost of not storing the user's key, and is intentional.
- */
-/** Provider used as the house safety net when the chosen one errors. */
-const SAFETY_NET_PROVIDER = "gemini_viax";
+/** Fixed secondary provider per slot — what it escalates to after 3 consecutive
+ *  primary failures. Each Viax provider backs up the other. */
+const SLOT_SECONDARY: Record<LlmAgentSlot, { provider: string; model: string }> = {
+  reasoning: { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+  simple: { provider: "openai_viax", model: "gpt-5.6-terra" },
+};
+
+async function buildSlotTierProvider(
+  env: Env,
+  slot: LlmAgentSlot,
+  tier: "primary" | "secondary"
+): Promise<LLMProvider | null> {
+  if (tier === "primary") {
+    const selection = await getSlotSelection(env, slot);
+    const creds = await loadProviderCredentials(env, selection.provider);
+    return buildProvider(selection.provider, selection.model, creds);
+  }
+  const secondary = SLOT_SECONDARY[slot];
+  const creds = await loadProviderCredentials(env, secondary.provider);
+  return buildProvider(secondary.provider, secondary.model, creds);
+}
 
 /**
- * Providers to try for a slot, in order.
+ * The provider to call for a slot right now — at most one, chosen by the slot's
+ * persisted escalation tier (see llmSlotState.ts) rather than always chaining
+ * primary + a safety net on every single call. Empty means "do not attempt right
+ * now": the slot is in its post-failure backoff window (simple only), or has
+ * given up for the day, or a provider could not be built at all.
  *
- * Gemini by Viax is appended as a safety net so one bad provider choice degrades to a
- * working model rather than to keyword classification. It is omitted when it is
- * already the primary, and when it cannot be built (no proxy credential).
+ * A BYO override bypasses escalation state entirely — it's an explicit per-request
+ * choice and must not be gated by machinery that exists to protect the shared
+ * house providers' quota. Kept as an array (rather than a single provider) so the
+ * 5 call sites don't need to change how they use `chain[0]`/`chain.length`.
  */
 export async function resolveLlmProviderChain(
   env: Env,
   slot: LlmAgentSlot,
   byo?: ByoOverride | null
 ): Promise<LLMProvider[]> {
-  const chain: LLMProvider[] = [];
-  const primary = await resolveLlmProvider(env, slot, byo);
-  if (primary) chain.push(primary);
-
-  if (!chain.some((p) => p.name === SAFETY_NET_PROVIDER)) {
-    const spec = getLlmProvider(SAFETY_NET_PROVIDER);
-    const model = spec?.models[0];
-    if (model) {
-      const creds = await loadProviderCredentials(env, SAFETY_NET_PROVIDER);
-      const safety = buildProvider(SAFETY_NET_PROVIDER, model, creds);
-      if (safety) chain.push(safety);
-    }
+  if (byo) {
+    const provider = buildProvider(byo.provider, byo.model, {
+      apiKey: byo.api_key,
+      endpoint: byo.endpoint_url,
+    });
+    return provider ? [provider] : [];
   }
-  return chain;
+  const claim = await claimSlotAttempt(env, slot);
+  if (!claim || claim.tier === "exhausted") return [];
+  const provider = await buildSlotTierProvider(env, slot, claim.tier);
+  return provider ? [provider] : [];
+}
+
+/**
+ * Whether a slot's own configured provider can be built at all, ignoring
+ * escalation state entirely. Used to tell "genuinely unconfigured" (a hard
+ * failure, worth failing the whole job for) apart from "temporarily has no
+ * active provider" (backoff/exhausted — just skip this attempt and let the
+ * job requeue, see translation.ts/analysis.ts).
+ */
+export async function isSlotConfigured(env: Env, slot: LlmAgentSlot, byo?: ByoOverride | null): Promise<boolean> {
+  if (byo) {
+    return Boolean(buildProvider(byo.provider, byo.model, { apiKey: byo.api_key, endpoint: byo.endpoint_url }));
+  }
+  const selection = await getSlotSelection(env, slot);
+  const creds = await loadProviderCredentials(env, selection.provider);
+  return Boolean(buildProvider(selection.provider, selection.model, creds));
 }
 
 /**

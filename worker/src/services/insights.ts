@@ -2,7 +2,7 @@
 import type { Env } from "../types";
 import type { LLMUsage } from "./llm/base";
 import { type ByoOverride, resolveLlmProviderChain } from "./llmAgentConfig";
-import { completeTextWithFallback } from "./llm/chain";
+import { completeTextForSlot } from "./llmSlotState";
 import { addTopicFilter } from "./topicScope";
 
 export const INSIGHT_PROMPT_KEY = "insight_summary_prompt";
@@ -219,10 +219,7 @@ export async function generateSummary(env: Env, overview: any, samples: Sentimen
   if (!chain.length) return { summary: fallbackSummary(overview, locale), provider: "fallback", model: null };
   try {
     const [system, user] = buildInsightMessages(systemPrompt || await getInsightPrompt(env), overview, samples, locale);
-    const outcome = await completeTextWithFallback(chain, system, user);
-    for (const f of outcome.failures) {
-      console.warn(`insight ${f.provider}/${f.model} failed (${f.error}); retried via ${outcome.provider.name}`);
-    }
+    const outcome = await completeTextForSlot(env, "reasoning", chain, system, user, { recordable: byo == null });
     return { summary: outcome.content.trim(), provider: outcome.provider.name, model: outcome.provider.model, usage: outcome.usage };
   } catch (e: any) {
     // Falling back silently made an LLM outage indistinguishable from a working

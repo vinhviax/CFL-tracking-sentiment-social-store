@@ -2,8 +2,8 @@ import { PROMPT_VERSION, TOPICS } from "../../taxonomy";
 import type { Env } from "../../types";
 import { TOPIC_KEYWORD_HINTS } from "../topicKeywords";
 import { addUsage, Classification, CommentInput, validateClassification } from "./base";
-import { type ChainOutcome, completeJsonWithFallback } from "./chain";
-import { classifyFallback } from "./fallback";
+import type { ChainOutcome } from "./chain";
+import { completeJsonForSlot } from "../llmSlotState";
 import type { LLMProvider, LLMUsage } from "./base";
 
 export interface HumanCorrectionExample {
@@ -13,19 +13,22 @@ export interface HumanCorrectionExample {
 }
 
 export interface ClassifyResult {
+  /** Only the items the LLM actually classified. Anything it could not is omitted. */
   classifications: Classification[];
-  /** Undefined when the provider reported no usage (or the fallback classifier ran). */
+  /** Undefined when the provider reported no usage. */
   usage?: LLMUsage;
-  /** How many items the LLM classified; the rest came from the keyword fallback. */
+  /** How many items the LLM classified. */
   llmClassified: number;
-  /** True when at least one item had to fall back. */
-  fellBack: boolean;
+  /**
+   * Items the LLM could not classify. They get no analysis row at all rather than a
+   * keyword-guessed one, so the next attempt picks them up again — a low-confidence
+   * keyword guess written as if it were a real analysis is what hid a 12-day outage.
+   */
+  unclassifiedCount: number;
   /** First LLM error of the batch, for the processing log. */
   error?: string | null;
-  /** Provider/model that actually answered, which may be the safety net rather than the first choice. */
+  /** Provider/model that answered. */
   servedBy?: { provider: string; model: string } | null;
-  /** True when the first-choice provider errored and another in the chain answered. */
-  usedSafetyNet?: boolean;
 }
 
 export const CLASSIFIER_SYSTEM_PROMPT = `Bạn là senior liveops analyst cho game FPS mobile "Crossfire Legends" (CFL) của VNG tại Việt Nam. Mục tiêu là đọc hiểu phản hồi người chơi để team vận hành/game ops biết vấn đề cần xử lý, không chỉ gắn nhãn theo từ khóa.
@@ -113,19 +116,25 @@ export class ClassifierService {
   providerName: string;
   model: string | null;
   promptVersion = PROMPT_VERSION;
+  private env: Env;
   private chain: LLMProvider[];
   private batchSize: number;
+  /** False for a BYO request, whose failures must not touch the shared slot's counters. */
+  private recordable: boolean;
 
   /**
    * The provider chain is resolved by the caller (resolveLlmProviderChain) and passed
    * in, so the classifier has no second path to provider configuration that could
-   * disagree with the slot the user picked. An empty chain means keyword classification.
+   * disagree with the slot the user picked. It now holds at most one provider — the
+   * slot's active escalation tier. An empty chain means nothing is attempted.
    */
-  constructor(env: Env, chain: LLMProvider[]) {
+  constructor(env: Env, chain: LLMProvider[], opts: { recordable?: boolean } = {}) {
+    this.env = env;
     this.chain = chain;
-    this.providerName = chain[0]?.name ?? "fallback";
+    this.providerName = chain[0]?.name ?? "unavailable";
     this.model = chain[0]?.model ?? null;
     this.batchSize = Number(env.CLASSIFY_BATCH_SIZE) || 30;
+    this.recordable = opts.recordable !== false;
   }
 
   private async classifyBatchLlm(
@@ -133,10 +142,13 @@ export class ClassifierService {
     humanExamples: HumanCorrectionExample[] = []
   ): Promise<{ classifications: Map<number, Classification>; usage?: LLMUsage; outcome: ChainOutcome }> {
     const out = new Map<number, Classification>();
-    const outcome = await completeJsonWithFallback(
+    const outcome = await completeJsonForSlot(
+      this.env,
+      "reasoning",
       this.chain,
       CLASSIFIER_SYSTEM_PROMPT,
-      buildClassifierUserPrompt(items, humanExamples)
+      buildClassifierUserPrompt(items, humanExamples),
+      { recordable: this.recordable }
     );
     for (const rec of parseResults(outcome.content)) {
       const c = validateClassification(rec);
@@ -155,10 +167,7 @@ export class ClassifierService {
     let usage: LLMUsage | undefined;
 
     const errors: string[] = [];
-    // Who actually answered. May differ from the first choice when the safety net
-    // provider took over, and the caller records this rather than the configured one.
     let servedBy: { provider: string; model: string } | null = null;
-    let usedSafetyNet = false;
 
     if (this.chain.length) {
       for (let i = 0; i < items.length; i += this.batchSize) {
@@ -168,37 +177,23 @@ export class ClassifierService {
           got.classifications.forEach((v, k) => results.set(k, v));
           usage = addUsage(usage, got.usage);
           servedBy = { provider: got.outcome.provider.name, model: got.outcome.provider.model };
-          if (got.outcome.failures.length) {
-            usedSafetyNet = true;
-            for (const f of got.outcome.failures) {
-              console.warn(`LLM ${f.provider}/${f.model} failed (${f.error}); retried via ${got.outcome.provider.name}`);
-              errors.push(`${f.provider}/${f.model}: ${f.error}`);
-            }
-          }
         } catch (e: any) {
           const message = e?.message || String(e);
-          console.warn(`every LLM provider failed (${message}), using keyword fallback for ${batch.length} items`);
+          console.warn(`reasoning slot failed (${message}); ${batch.length} item(s) left unanalysed this round`);
           errors.push(message);
         }
       }
     }
 
-    // How many items the LLM actually classified. Reported so the caller can record
-    // the truth: a misconfigured model returns 403 on every batch, and recording the
-    // configured model regardless is what hid exactly that for 31,322 comments.
-    const llmClassified = results.size;
-
-    for (const it of items) {
-      if (!results.has(it.id)) results.set(it.id, classifyFallback(it));
-    }
+    // Only what the LLM actually returned. Items it could not classify are left out
+    // entirely so they stay pending for the next attempt.
     return {
-      classifications: items.map((it) => results.get(it.id)!),
+      classifications: items.filter((it) => results.has(it.id)).map((it) => results.get(it.id)!),
       usage,
-      llmClassified,
-      fellBack: llmClassified < items.length,
+      llmClassified: results.size,
+      unclassifiedCount: items.length - results.size,
       error: errors[0] || null,
       servedBy,
-      usedSafetyNet,
     };
   }
 }

@@ -21,10 +21,13 @@
 
   "triggers": {
     // 45 6 UTC = 13:45 GMT+7: the daily ingest.
+    // 0 7 UTC = 14:00 GMT+7: reset both LLM slots to their primary provider and retry
+    // whatever was left unanalysed/untranslated. A slot that exhausted both providers
+    // stops attempting for the rest of the day, and this is what clears that.
     // Every 5 minutes: sweep abandoned/failed processing jobs and keep the queue
     // moving. Without it, progress depends on a browser polling the Ingest page, so a
     // long re-analysis stalled the moment the tab was closed.
-    "crons": ["45 6 * * *", "*/5 * * * *"]
+    "crons": ["45 6 * * *", "0 7 * * *", "*/5 * * * *"]
   },
 
   // Which provider and model each slot uses lives in the provider catalog

@@ -1,7 +1,7 @@
 import { isTopic, TOPIC_LABELS_VI, type Topic } from "../taxonomy";
 import type { Env } from "../types";
 import { resolveLlmProviderChain } from "./llmAgentConfig";
-import { completeJsonWithFallback } from "./llm/chain";
+import { completeJsonForSlot } from "./llmSlotState";
 import { getSemanticSubtopic } from "./subtopicSemantics";
 import { isGenericMajorTopicKeyword, normalizeTopicText } from "./topicKeywords";
 
@@ -296,7 +296,10 @@ async function discoverCandidates(env: Env, comments: RunCommentForMemory[]): Pr
   if (!chain.length) return { candidates: fallbackCandidates(comments), provider: "fallback", model: null };
 
   try {
-    const outcome = await completeJsonWithFallback(chain, buildDiscoverySystem(), buildDiscoveryUser(comments, existing));
+    const outcome = await completeJsonForSlot(
+      env, "reasoning", chain, buildDiscoverySystem(), buildDiscoveryUser(comments, existing),
+      { recordable: true }
+    );
     const raw = outcome.content;
     const parsed = parseSubtopicDiscoveryResults(raw);
     return {
