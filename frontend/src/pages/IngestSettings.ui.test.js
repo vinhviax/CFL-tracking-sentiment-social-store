@@ -245,8 +245,8 @@ test("ingest history can delete a run with an explicit confirmation", () => {
 
 test("ingest history shows token spend under each run's analysis and translation cells", () => {
   assert.match(source, /function TokenUsageNote\(/);
-  assert.match(source, /<TokenUsageNote usage=\{run\.analysis_tokens\} \/>/);
-  assert.match(source, /<TokenUsageNote usage=\{run\.translation_tokens\} \/>/);
+  assert.match(source, /<TokenUsageNote usage=\{run\.analysis_tokens\}/);
+  assert.match(source, /<TokenUsageNote usage=\{run\.translation_tokens\}/);
   // the note sits below the existing status badge, not replacing it
   assert.match(source, /className="run-cell-stack"/);
   assert.ok(source.indexOf("<ProcessingBadge status={run.analysis_status}") < source.indexOf("<TokenUsageNote usage={run.analysis_tokens}"));
@@ -268,4 +268,16 @@ test("ingest history has a date-filtered token total broken down by model", () =
   assert.ok(source.indexOf("RUN_SOURCE_FILTERS.map") < source.indexOf("<TokenUsagePanel"));
   // reprocessing a run refreshes the totals too
   assert.match(source, /loadTokenUsage\(\);\s*\}, \[loadRuns, loadIngestStatus, loadTokenUsage\]\)/);
+});
+
+test("a finished job whose tokens belong to an ad-hoc task says so instead of rendering blank", () => {
+  // Three ways a run can have no token figure, and they used to collapse into two
+  // renderings: real numbers, "chưa ghi nhận", or an empty cell that looked like
+  // nothing had run. A run translated by a comment_ids task (run_id NULL) has no
+  // batches attributed to it, so it landed in the empty case.
+  assert.match(source, /function TokenUsageNote\(\{ usage, processed \}\)/);
+  assert.match(source, /if \(!processed\) return null;/);
+  assert.match(source, /Token: thuộc task lẻ/);
+  assert.match(source, /processed=\{run\.analysis_status === "done"\}/);
+  assert.match(source, /processed=\{run\.translation_status === "done"\}/);
 });

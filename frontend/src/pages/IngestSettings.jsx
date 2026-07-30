@@ -215,12 +215,35 @@ function translationRunActionLabel(run) {
 /**
  * Token spend for one job on one run. See tokenUsageState for why "no batches",
  * "batches but no usage reported" and "partially reported" are three distinct cases.
+ *
+ * `processed` says whether the job itself finished for this run, which is what
+ * separates the two ways of having no batches: never ran, or ran under a job that
+ * belongs to no run (an ad-hoc comment_ids job, whose tokens cannot be attributed
+ * to any run). Rendering both as an empty cell made a finished translation look
+ * like nothing had happened.
  */
-function TokenUsageNote({ usage }) {
+function TokenUsageNote({ usage, processed }) {
   const state = tokenUsageState(usage);
-  if (state === "none") return null;
+  if (state === "none") {
+    if (!processed) return null;
+    return (
+      <span
+        className="token-note token-note-missing"
+        title="Việc này chạy bởi task theo danh sách comment (không thuộc run nào), nên token của nó chỉ hiện ở bảng Token đã dùng theo khoảng ngày"
+      >
+        Token: thuộc task lẻ
+      </span>
+    );
+  }
   if (state === "missing") {
-    return <span className="token-note token-note-missing">Token: chưa ghi nhận</span>;
+    return (
+      <span
+        className="token-note token-note-missing"
+        title={`${usage.batches} batch đã chạy nhưng không batch nào trả về số token`}
+      >
+        Token: chưa ghi nhận
+      </span>
+    );
   }
   const partial = state === "partial";
   const models = usageModelLabel(usage);
@@ -1176,13 +1199,13 @@ export default function IngestSettings() {
                     <td>
                       <div className="run-cell-stack">
                         <ProcessingBadge status={run.analysis_status} progress={run.analysis_progress} kind="analysis" />
-                        <TokenUsageNote usage={run.analysis_tokens} />
+                        <TokenUsageNote usage={run.analysis_tokens} processed={run.analysis_status === "done"} />
                       </div>
                     </td>
                     <td>
                       <div className="run-cell-stack">
                         <ProcessingBadge status={run.translation_status} progress={run.translation_progress} kind="translation" />
-                        <TokenUsageNote usage={run.translation_tokens} />
+                        <TokenUsageNote usage={run.translation_tokens} processed={run.translation_status === "done"} />
                       </div>
                     </td>
                     <td style={{ color: "var(--negative)", fontSize: 12 }}>{run.error || ""}</td>
