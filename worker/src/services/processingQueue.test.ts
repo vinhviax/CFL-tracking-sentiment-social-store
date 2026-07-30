@@ -44,6 +44,12 @@ function fakeQueueDb() {
               if (!active) {
                 existing.started_at = null;
                 existing.attempts = 0;
+                // The new request's parameters replace the row's, so a stale force=1
+                // cannot outlive the run that set it.
+                existing.force = force;
+                existing.comment_ids_json = comment_ids_json;
+                existing.locale = locale;
+                existing.limit_count = limit_count;
               }
               return {};
             },
@@ -498,6 +504,42 @@ describe("re-enqueueing a progress_key with a real D1 upsert", () => {
     await enqueueProcessingJobs(env, [{ job_type: "translation", progress_key: "translate-run-47-zh-CN" }]);
 
     expect(rows.get("translate-run-47-zh-CN")).toMatchObject({ status: "queued", started_at: null, attempts: 0 });
+  });
+
+  test("re-enqueueing without force clears a force left over from an earlier run", async () => {
+    // The real symptom: run #73 had been force-re-analysed once, so its queue row kept
+    // force=1. Pressing "Phân tích" (not "Phân tích lại") later sent force=false, but
+    // the row's own value was never updated, so it re-scanned all 650 comments when
+    // only 19 were missing an analysis.
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 73, progress_key: "run-73", force: true }]);
+    rows.get("run-73").status = "done";
+
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 73, progress_key: "run-73", force: false }]);
+
+    expect(rows.get("run-73").force).toBe(0);
+  });
+
+  test("re-enqueueing replaces the comment list, locale and limit too", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [
+      { job_type: "translation", progress_key: "t1", comment_ids: [1, 2, 3], locale: "zh-CN", limit: 300 },
+    ]);
+    rows.get("t1").status = "cancelled";
+
+    await enqueueProcessingJobs(env, [{ job_type: "translation", progress_key: "t1", comment_ids: [9] }]);
+
+    expect(rows.get("t1")).toMatchObject({ comment_ids_json: JSON.stringify([9]), locale: null, limit_count: null });
+  });
+
+  test("an active job keeps the parameters it is mid-way through", async () => {
+    const { env, rows } = fakeQueueDb();
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 73, progress_key: "run-73", force: true }]);
+    rows.get("run-73").status = "running";
+
+    await enqueueProcessingJobs(env, [{ job_type: "analysis", run_id: 73, progress_key: "run-73", force: false }]);
+
+    expect(rows.get("run-73").force).toBe(1);
   });
 
   test("a brand new progress_key just gets created, no conflict branch involved", async () => {

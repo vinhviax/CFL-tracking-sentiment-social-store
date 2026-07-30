@@ -165,6 +165,29 @@ const d1QueueStore: QueueStore = {
            attempts = CASE
              WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.attempts
              ELSE 0
+           END,
+           -- The request's own parameters must win over whatever the row held from a
+           -- previous enqueue under the same progress_key. They used to be left
+           -- untouched, so force stayed 1 forever once any forced run had happened:
+           -- pressing "Phân tích" (force off) on run #73 still re-scanned all 650
+           -- comments when only 19 needed one. Same stickiness applied to the comment
+           -- list, locale and limit. Only updated for a terminal row — an active job
+           -- must not have the parameters it is mid-way through swapped underneath it.
+           force = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.force
+             ELSE excluded.force
+           END,
+           comment_ids_json = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.comment_ids_json
+             ELSE excluded.comment_ids_json
+           END,
+           locale = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.locale
+             ELSE excluded.locale
+           END,
+           limit_count = CASE
+             WHEN processing_queue.status IN ('queued', 'running') THEN processing_queue.limit_count
+             ELSE excluded.limit_count
            END`
       ).bind(
         job.job_type,
