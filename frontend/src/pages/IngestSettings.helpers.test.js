@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatTokens, shortModelName, tokenUsageState, totalTokens, usageModelLabel } from "./IngestSettings.helpers.js";
+import {
+  STALE_LOG_MS,
+  formatTokens,
+  processingJobCaption,
+  processingJobNote,
+  processingJobPhase,
+  shortModelName,
+  tokenUsageState,
+  totalTokens,
+  usageModelLabel,
+} from "./IngestSettings.helpers.js";
 
 test("no logged batch reads as 'none', so nothing is rendered at all", () => {
   assert.equal(tokenUsageState(null), "none");
@@ -58,4 +68,53 @@ test("a job spanning two models lists both", () => {
   const usage = { by_model: [{ model: "codex-lb/gpt-5.6-terra" }, { model: "ag/gemini-3-flash-agent" }] };
   assert.equal(usageModelLabel(usage), "gpt-5.6-terra, gemini-3-flash-agent");
   assert.equal(usageModelLabel({}), "");
+});
+
+test("a job still waiting its turn is not reported like one that is working", () => {
+  // The queue only claims a few jobs at a time, so this is the normal state for most
+  // of a large batch of runs. It used to render as "Đang chờ ... 0/0 comment".
+  const waiting = { status: "queued", done: 0, total: 0, queue_status: "queued", queue_started_at: null, queue_ahead: 4 };
+  assert.equal(processingJobPhase(waiting, []), "waiting");
+  assert.equal(processingJobCaption(waiting, "waiting"), "Chưa bắt đầu · còn 4 task phía trước");
+  assert.equal(processingJobCaption({ ...waiting, queue_ahead: 0 }, "waiting"), "Chưa bắt đầu · sắp tới lượt");
+});
+
+test("a job that already did work and requeued itself reads as paused, with its real counts", () => {
+  const paused = {
+    status: "queued",
+    done: 150,
+    total: 400,
+    provider: "openai_viax",
+    queue_status: "queued",
+    queue_started_at: "2026-07-30T01:10:42.360Z",
+    queue_ahead: 2,
+  };
+  assert.equal(processingJobPhase(paused, []), "paused");
+  assert.equal(processingJobCaption(paused, "paused"), "150/400 comment · Provider: openai_viax");
+  assert.match(processingJobNote("paused"), /chạy tiếp/);
+});
+
+test("a running job whose logs went quiet past the worker's stale window reads as stalled", () => {
+  const running = { status: "running", done: 20, total: 400, queue_status: "running", queue_started_at: "2026-07-30T01:10:42.360Z" };
+  const fresh = [{ created_at: new Date(Date.now() - 5_000).toISOString() }];
+  const quiet = [{ created_at: new Date(Date.now() - STALE_LOG_MS - 1_000).toISOString() }];
+  assert.equal(processingJobPhase(running, fresh), "running");
+  assert.equal(processingJobPhase(running, quiet), "stalled");
+  // No log at all is not evidence of a stall — a freshly claimed job has none yet.
+  assert.equal(processingJobPhase(running, []), "running");
+  assert.match(processingJobNote("stalled"), /tự thu hồi/);
+});
+
+test("terminal states win over any queue row left behind", () => {
+  assert.equal(processingJobPhase({ status: "done", queue_status: "queued" }, []), "done");
+  assert.equal(processingJobPhase({ status: "failed" }, []), "failed");
+  assert.equal(processingJobPhase({ status: "cancelled" }, []), "cancelled");
+  assert.equal(processingJobNote("running"), null);
+});
+
+test("without a queue row the progress status alone decides the phase", () => {
+  // Ad-hoc keys from before the queue existed, and jobs whose queue row is gone.
+  assert.equal(processingJobPhase({ status: "queued", queue_status: null }, []), "waiting");
+  assert.equal(processingJobPhase({ status: "running", queue_status: null }, []), "running");
+  assert.equal(processingJobCaption({ status: "queued" }, "waiting"), "Chưa bắt đầu · đang chờ trong hàng đợi");
 });

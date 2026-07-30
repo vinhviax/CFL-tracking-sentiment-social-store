@@ -19,7 +19,16 @@ import {
   uploadCsv,
 } from "../api/client.js";
 import DateTextInput from "../components/DateTextInput.jsx";
-import { formatTokens, shortModelName, tokenUsageState, totalTokens, usageModelLabel } from "./IngestSettings.helpers.js";
+import {
+  formatTokens,
+  processingJobCaption,
+  processingJobNote,
+  processingJobPhase,
+  shortModelName,
+  tokenUsageState,
+  totalTokens,
+  usageModelLabel,
+} from "./IngestSettings.helpers.js";
 import { previewCsvFile } from "../utils/facebookCsv.js";
 import { getByoConfig, setByoConfig } from "../utils/llmSession.js";
 import { StatusPill } from "../components/Badges.jsx";
@@ -313,7 +322,7 @@ function ProcessingBadge({ status, progress, kind }) {
   );
 }
 
-function ProgressBlock({ title, progress, color, error, action, children }) {
+function ProgressBlock({ title, progress, color, error, action, caption, note, children }) {
   return (
     <div className="processing-progress">
       <div className="progress-heading">
@@ -321,9 +330,9 @@ function ProgressBlock({ title, progress, color, error, action, children }) {
         {action}
       </div>
       <p className="progress-caption">
-        {progress.done ?? 0}/{progress.total ?? 0} comment
-        {progress.provider ? ` · Provider: ${progress.provider}` : ""}
+        {caption ?? `${progress.done ?? 0}/${progress.total ?? 0} comment${progress.provider ? ` · Provider: ${progress.provider}` : ""}`}
       </p>
+      {note && <p className="progress-caption">{note}</p>}
       <div className="progress-track">
         <div
           className="progress-fill"
@@ -357,9 +366,15 @@ function formatConfigModelName(model) {
   return parts.at(-1) || String(model);
 }
 
-function ProcessingLogList({ logs }) {
+function ProcessingLogList({ logs, phase }) {
   if (!logs?.length) {
-    return <div className="llm-log-empty">Chưa có log LLM cho task này.</div>;
+    return (
+      <div className="llm-log-empty">
+        {phase === "waiting"
+          ? "Chưa chạy nên chưa có log — task đang chờ tới lượt."
+          : "Chưa có log LLM cho task này."}
+      </div>
+    );
   }
   return (
     <div className="llm-log-list">
@@ -413,13 +428,16 @@ function jobLabel(kind) {
   return kind === "translation" ? "dịch zh-CN" : "phân tích";
 }
 
-function progressTitle(job, progress) {
+function progressTitle(job, phase) {
   const label = jobLabel(job.kind);
-  if (progress?.status === "queued") return `Đang chờ ${label}: ${runTitle(job.run)}`;
-  if (progress?.status === "done") return `Đã ${label} xong: ${runTitle(job.run)}`;
-  if (progress?.status === "cancelled") return `Đã hủy ${label}: ${runTitle(job.run)}`;
-  if (progress?.status === "failed") return `${label[0].toUpperCase()}${label.slice(1)} lỗi: ${runTitle(job.run)}`;
-  return `Đang ${label}: ${runTitle(job.run)}`;
+  const run = runTitle(job.run);
+  if (phase === "waiting") return `Đang xếp hàng, chưa tới lượt ${label}: ${run}`;
+  if (phase === "paused") return `Tạm dừng giữa lượt, sẽ tự chạy tiếp ${label}: ${run}`;
+  if (phase === "stalled") return `${label[0].toUpperCase()}${label.slice(1)} chưa có tiến triển mới: ${run}`;
+  if (phase === "done") return `Đã ${label} xong: ${run}`;
+  if (phase === "cancelled") return `Đã hủy ${label}: ${run}`;
+  if (phase === "failed") return `${label[0].toUpperCase()}${label.slice(1)} lỗi: ${run}`;
+  return `Đang ${label}: ${run}`;
 }
 
 function canCancelTrackedJob(job, progress) {
@@ -444,10 +462,13 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
 
   if (!progress) return null;
   const canCancel = canCancelTrackedJob(job, progress);
+  const phase = processingJobPhase(progress, logs);
   return (
     <ProgressBlock
-      title={progressTitle(job, progress)}
+      title={progressTitle(job, phase)}
       progress={progress}
+      caption={processingJobCaption(progress, phase)}
+      note={processingJobNote(phase)}
       color={job.kind === "translation" ? "var(--positive)" : "var(--accent)"}
       error={progress.error}
       action={canCancel ? (
@@ -460,7 +481,7 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
         </button>
       ) : null}
     >
-      {job.id && <ProcessingLogList logs={logs} />}
+      {job.id && <ProcessingLogList logs={logs} phase={phase} />}
     </ProgressBlock>
   );
 }

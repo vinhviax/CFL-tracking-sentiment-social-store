@@ -110,9 +110,21 @@ test("tracked processing rows show recent LLM batch logs", () => {
   assert.doesNotMatch(source, /` · \$\{log\.model\}`/);
 });
 
+test("a queued job that has not been claimed says so instead of showing 0/0 comment", () => {
+  // The old view rendered "Đang chờ phân tích ... 0/0 comment" with no logs for a job
+  // that was simply behind others in the queue, which read as a hung job.
+  assert.match(source, /processingJobPhase\(progress, logs\)/);
+  assert.match(source, /caption=\{processingJobCaption\(progress, phase\)\}/);
+  assert.match(source, /note=\{processingJobNote\(phase\)\}/);
+  assert.match(source, /Đang xếp hàng, chưa tới lượt/);
+  assert.match(source, /Tạm dừng giữa lượt/);
+  assert.match(source, /chưa có tiến triển mới/);
+  assert.match(source, /task đang chờ tới lượt/);
+});
+
 test("completed tracked processing rows are removed from the queue view", () => {
   assert.match(source, /function hideCompletedTrackedJob\(job\)/);
-  assert.match(source, /progress\?\.status === "done"/);
+  assert.match(source, /if \(progress\?\.status !== "done"\) return;/);
   assert.match(source, /setTimeout\(\(\) => onDone\?\.\(/);
   assert.match(source, /onDone=\{hideCompletedTrackedJob\}/);
   assert.match(source, /item\.progressKey !== job\.progressKey/);
@@ -182,8 +194,8 @@ test("own-key providers are held in sessionStorage and never saved to the server
 });
 
 test("manual run translation does not cap large ingest runs", () => {
-  assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN" \}\)/);
-  assert.doesNotMatch(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN", limit: 300 \}\)/);
+  assert.match(source, /runTranslate\(\{ run_id: target\.id, locale: "zh-CN"/);
+  assert.doesNotMatch(source, /runTranslate\([^)]*limit:/);
 });
 
 test("CSV preview makes Fanpage and Group Facebook CSV rows visible before upload", () => {

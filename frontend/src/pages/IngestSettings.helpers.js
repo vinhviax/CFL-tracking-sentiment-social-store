@@ -39,3 +39,54 @@ export function totalTokens(usage) {
 export function usageModelLabel(usage) {
   return (usage?.by_model || []).map((m) => shortModelName(m.model)).join(", ");
 }
+
+/** Matches STALE_RUNNING_MS in the worker: past this with no new log, recovery reclaims the job. */
+export const STALE_LOG_MS = 3 * 60 * 1000;
+
+/**
+ * Which state a queued/running processing job is actually in.
+ *
+ * The queue runs a few jobs at a time, so most jobs spend a long time waiting their
+ * turn. Those used to render exactly like a job that was working ("0/0 comment", no
+ * logs) and like one whose batch had died, so a healthy queue read as broken:
+ *  - "waiting": in the queue, never claimed. There is no total yet because nothing
+ *    has counted its comments.
+ *  - "paused": claimed, did some work, then put itself back in the queue to continue
+ *    within the next invocation's budget. done/total are real.
+ *  - "stalled": claimed but no log for longer than the worker's stale window, so
+ *    stale recovery is about to take it back.
+ */
+export function processingJobPhase(progress, logs) {
+  const status = progress?.status;
+  if (["done", "failed", "cancelled"].includes(status)) return status;
+  const queued = progress?.queue_status ? progress.queue_status === "queued" : status === "queued";
+  if (queued) return progress?.queue_started_at ? "paused" : "waiting";
+  // Logs arrive newest first.
+  const newest = Date.parse(logs?.[0]?.created_at ?? "");
+  if (Number.isFinite(newest) && Date.now() - newest > STALE_LOG_MS) return "stalled";
+  return "running";
+}
+
+/** The count line under a job title. A waiting job has no counts to show yet. */
+export function processingJobCaption(progress, phase) {
+  if (phase === "waiting") {
+    const ahead = progress?.queue_ahead;
+    if (ahead == null) return "Chưa bắt đầu · đang chờ trong hàng đợi";
+    return ahead > 0
+      ? `Chưa bắt đầu · còn ${ahead} task phía trước`
+      : "Chưa bắt đầu · sắp tới lượt";
+  }
+  const counts = `${progress?.done ?? 0}/${progress?.total ?? 0} comment`;
+  return progress?.provider ? `${counts} · Provider: ${progress.provider}` : counts;
+}
+
+/** Extra line explaining the states that look like a failure but are not. */
+export function processingJobNote(phase) {
+  if (phase === "paused") {
+    return "Đã xong một phần, task tự quay lại hàng đợi để chạy tiếp phần còn lại.";
+  }
+  if (phase === "stalled") {
+    return "Không có log mới trong hơn 3 phút — hệ thống sẽ tự thu hồi và chạy lại task này.";
+  }
+  return null;
+}

@@ -27,7 +27,30 @@ export async function setProgress(env: Env, key: string, patch: Record<string, a
 }
 
 export async function getProgressJob(env: Env, key: string) {
-  const row = await env.DB.prepare(`SELECT status, done, total, provider, error FROM analyze_jobs WHERE progress_key=?`)
-    .bind(key).first();
-  return row || { status: "unknown", done: 0, total: 0 };
+  // The queue columns come along so the UI can tell "queued, never claimed" apart from
+  // "claimed and working" and from "claimed but stalled" — all three used to render as
+  // an identical "waiting · 0/0 comment" line, which read as broken.
+  const row = await env.DB.prepare(
+    `SELECT p.status, p.done, p.total, p.provider, p.error,
+            q.status AS queue_status,
+            q.started_at AS queue_started_at,
+            CASE WHEN q.status = 'queued' THEN (
+              SELECT COUNT(*) FROM processing_queue ahead
+              WHERE ahead.status IN ('queued', 'running') AND ahead.id < q.id
+            ) END AS queue_ahead
+     FROM analyze_jobs p
+     LEFT JOIN processing_queue q ON q.progress_key = p.progress_key
+     WHERE p.progress_key = ?`
+  ).bind(key).first<any>();
+  if (!row) return { status: "unknown", done: 0, total: 0 };
+  return {
+    status: row.status,
+    done: Number(row.done || 0),
+    total: Number(row.total || 0),
+    provider: row.provider ?? null,
+    error: row.error ?? null,
+    queue_status: row.queue_status ?? null,
+    queue_started_at: row.queue_started_at ?? null,
+    queue_ahead: row.queue_ahead == null ? null : Number(row.queue_ahead),
+  };
 }
