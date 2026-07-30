@@ -151,11 +151,15 @@ export async function saveLlmAgentConfig(env: Env, slot: LlmAgentSlot, input: { 
   return (await listLlmAgentConfigs(env)).find((row) => row.slot === slot)!;
 }
 
-/** Fixed secondary provider per slot — what it escalates to after 3 consecutive
- *  primary failures. Each Viax provider backs up the other. */
+/**
+ * Fixed secondary provider per slot — what it escalates to after 3 consecutive
+ * primary failures. Each Viax provider backs up the other, and the two slots use
+ * different OpenAI models on purpose: the reasoning slot's own primary is terra, so
+ * the simple slot falls back to luna instead of competing for the same model.
+ */
 const SLOT_SECONDARY: Record<LlmAgentSlot, { provider: string; model: string }> = {
   reasoning: { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
-  simple: { provider: "openai_viax", model: "gpt-5.6-terra" },
+  simple: { provider: "openai_viax", model: "gpt-5.6-luna" },
 };
 
 async function buildSlotTierProvider(

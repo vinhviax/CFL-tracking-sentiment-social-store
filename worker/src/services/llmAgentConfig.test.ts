@@ -259,14 +259,14 @@ describe("resolveLlmProviderChain — stateful escalation, not a per-call safety
     expect(chain[0].name).toBe("gemini_viax");
   });
 
-  test("simple escalates to openai_viax/gpt-5.6-terra, not the reasoning slot's secondary", async () => {
+  test("simple escalates to openai_viax/gpt-5.6-luna — a different model from the reasoning slot's primary", async () => {
     const { env } = fakeEnv({
       slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
       slotStateRow: { tier: "secondary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
     });
     const chain = await resolveLlmProviderChain(env, "simple");
     expect(chain[0].name).toBe("openai_viax");
-    expect(chain[0].model).toBe("gpt-5.6-terra");
+    expect(chain[0].model).toBe("gpt-5.6-luna");
   });
 
   test("a slot that gave up today resolves to no provider at all", async () => {

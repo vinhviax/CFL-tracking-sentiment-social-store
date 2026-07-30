@@ -17,7 +17,9 @@ Commit `26476fd`. Worker Version **`aec28aba-235f-4cf4-b52e-11900da77126`**, Pag
 | Slot | Provider chính | Provider dự phòng | Khoảng chờ giữa các lần thử lại |
 |---|---|---|---|
 | `reasoning` (phân tích, insight, report HTML, game-mode, taxonomy) | `openai_viax`/`gpt-5.6-terra` | `gemini_viax`/`ag/gemini-3-flash-agent` | không có |
-| `simple` (dịch zh-CN) | `gemini_viax`/`ag/gemini-3-flash-agent` | `openai_viax`/`gpt-5.6-terra` | **120s** (chỉ khi đang có streak lỗi) |
+| `simple` (dịch zh-CN) | `gemini_viax`/`ag/gemini-3-flash-agent` | `openai_viax`/**`gpt-5.6-luna`** | **120s** (chỉ khi đang có streak lỗi) |
+
+> Provider dự phòng của `simple` là **`gpt-5.6-luna`**, KHÔNG phải `gpt-5.6-terra` — cố ý dùng model khác với provider chính của slot `reasoning` (terra) để 2 slot không giành cùng 1 model khi cả hai đều đang leo thang. Định nghĩa ở `SLOT_SECONDARY` trong `worker/src/services/llmAgentConfig.ts`.
 
 Luồng: `primary` → **3 lỗi liên tiếp** → `secondary` → **3 lỗi liên tiếp nữa** → `exhausted` (dừng gọi LLM hoàn toàn, để comment ở trạng thái chưa xử lý). Cron mới **`0 7 * * *`** (14:00 GMT+7) reset cả 2 slot về `primary` + enqueue lại phần còn thiếu.
 
