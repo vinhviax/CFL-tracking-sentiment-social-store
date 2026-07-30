@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
@@ -795,8 +795,19 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
   );
   const storeHighlights = useMemo(() => buildStoreHighlights(storeBreakdown, ranking, t), [storeBreakdown, ranking, t]);
 
+  // Guards against a stale request (the tab/filter the user just left) resolving
+  // after a newer one and overwriting its data — only the most recently started
+  // load is allowed to commit its results.
+  const loadRequestId = useRef(0);
+
   const loadData = useCallback(() => {
+    const requestId = ++loadRequestId.current;
     setError(null);
+    // Switching tab/group/filters must show "loading" again, not the previous
+    // selection's data — leaving overview/comments in place let a stale
+    // total_comments of 0 flash "Chưa có dữ liệu" while the new fetch was in flight.
+    setOverview(null);
+    setComments(null);
     Promise.all([
       getOverview(aggregateParams),
       getTrend(aggregateParams),
@@ -811,6 +822,7 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
       group === "store" ? getStoreBreakdown(aggregateParams) : Promise.resolve(null),
     ])
       .then(([ov, tr, rank, negRank, neuRank, posRank, optionRank, subRank, cmts, postList, storeStats]) => {
+        if (loadRequestId.current !== requestId) return;
         setOverview(ov);
         setTrend(tr);
         setRanking(rank.items || []);
@@ -825,7 +837,10 @@ export default function FeedbackWorkspace({ theme = "light", onThemeChange = () 
         setPosts(postList);
         setStoreBreakdown(storeStats);
       })
-      .catch((e) => setError(e?.response?.data?.detail || e.message));
+      .catch((e) => {
+        if (loadRequestId.current !== requestId) return;
+        setError(e?.response?.data?.detail || e.message);
+      });
   }, [aggregateParams, hierarchyParams, params, group, subtab]);
 
   useEffect(() => {

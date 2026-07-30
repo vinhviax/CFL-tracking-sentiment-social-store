@@ -123,3 +123,25 @@ test("saved insights archive is collapsible and supports deleting individual ite
   assert.match(source, /archive-delete-button/);
   assert.ok(source.indexOf("archive-item-summary") < source.indexOf("<InsightMarkdown text={item.summary}"));
 });
+
+test("switching tab/group/filters shows loading again instead of the previous selection's stale data", () => {
+  // loadData used to leave overview/comments untouched while the new fetch was in
+  // flight, so a stale overview.total_comments===0 from the prior tab briefly (or
+  // permanently, on a slow request) rendered "no data" instead of "loading".
+  const loadDataBody = source.slice(source.indexOf("const loadData = useCallback"), source.indexOf("Promise.all(["));
+  assert.match(loadDataBody, /setOverview\(null\)/);
+  assert.match(loadDataBody, /setComments\(null\)/);
+});
+
+test("a slower request for the tab the user just left cannot overwrite the newer one's data", () => {
+  // Without this guard, switching tabs quickly could still flash stale "no data"
+  // between the new loading state and the new tab's real data, if the abandoned
+  // tab's request happened to resolve after the new one started.
+  assert.match(source, /const loadRequestId = useRef\(0\);/);
+  assert.match(source, /const requestId = \+\+loadRequestId\.current;/);
+  const thenStart = source.indexOf(".then(([ov,");
+  const catchStart = source.indexOf(".catch(", thenStart);
+  const loadDataEnd = source.indexOf("}, [aggregateParams, hierarchyParams, params, group, subtab]);", catchStart);
+  assert.match(source.slice(thenStart, catchStart), /if \(loadRequestId\.current !== requestId\) return;/);
+  assert.match(source.slice(catchStart, loadDataEnd), /if \(loadRequestId\.current !== requestId\) return;/);
+});
