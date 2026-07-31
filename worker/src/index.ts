@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { adminRoute } from "./routes/admin";
 import { analyzeRoute } from "./routes/analyze";
 import { commentsRoute } from "./routes/comments";
 import { exportRoute } from "./routes/export";
@@ -13,6 +14,7 @@ import { reportRoute } from "./routes/report";
 import { runsRoute } from "./routes/runs";
 import { statsRoute } from "./routes/stats";
 import { translateRoute } from "./routes/translate";
+import { ADMIN_HEADER, requireAdmin } from "./services/adminAuth";
 import { ingestFacebook } from "./services/facebook";
 import { describeSlotResolution } from "./services/llmAgentConfig";
 import { BYO_HEADER } from "./services/llmCatalog";
@@ -47,7 +49,19 @@ const app = new Hono<{ Bindings: Env }>();
 
 // Pages is a different origin, so the browser's own-provider header has to be
 // allow-listed explicitly — the default allowed set does not include it.
-app.use("*", cors({ origin: "*", allowHeaders: ["Content-Type", BYO_HEADER] }));
+app.use("*", cors({ origin: "*", allowHeaders: ["Content-Type", BYO_HEADER, ADMIN_HEADER] }));
+
+// The write side of Ingest & Cài đặt, behind the shared admin password. Reads fall
+// straight through (see adminAuth.ts), so a viewer still gets every panel, every
+// progress poll, and the queue drain those polls perform. Everything outside this
+// list — comments, insights, stats, export — stays open on purpose: the lock covers
+// the Ingest tab only.
+app.use("/api/ingest/*", requireAdmin);
+app.use("/api/llm-config/*", requireAdmin);
+app.use("/api/analyze/*", requireAdmin);
+app.use("/api/translate/*", requireAdmin);
+app.use("/api/runs/*", requireAdmin);
+app.use("/api/processing/*", requireAdmin);
 
 app.get("/api/health", async (c) => {
   // Reports both slots, which is what the pipeline actually uses, instead of the
@@ -78,6 +92,7 @@ app.get("/api/meta", (c) =>
   })
 );
 
+app.route("/api/admin", adminRoute);
 app.route("/api/ingest", ingestRoute);
 app.route("/api/llm-config", llmConfigRoute);
 app.route("/api/analyze", analyzeRoute);

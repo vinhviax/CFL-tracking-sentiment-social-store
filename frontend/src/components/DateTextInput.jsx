@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { displayDateToIso, isoToDisplayDate } from "../utils/dateFormat.js";
 
-export default function DateTextInput({ value = "", onChange, className = "", ...props }) {
+export default function DateTextInput({ value = "", onChange, className = "", disabled = false, ...props }) {
   const [text, setText] = useState(isoToDisplayDate(value));
   const pickerRef = useRef(null);
 
@@ -44,6 +44,7 @@ export default function DateTextInput({ value = "", onChange, className = "", ..
     <div className={`date-input ${className}`.trim()}>
       <input
         {...props}
+        disabled={disabled}
         className="date-input-text"
         type="text"
         inputMode="numeric"
@@ -57,15 +58,19 @@ export default function DateTextInput({ value = "", onChange, className = "", ..
         className="date-native-picker"
         type="date"
         value={value || ""}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         tabIndex={-1}
         aria-hidden="true"
       />
+      {/* The calendar button needs disabling too, otherwise it still opens the native
+          picker over a field the caller has locked. */}
       <button
         className="date-picker-button"
         type="button"
         aria-label="Chọn ngày"
         title="Chọn ngày"
+        disabled={disabled}
         onClick={openPicker}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">

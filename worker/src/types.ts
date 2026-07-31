@@ -13,6 +13,9 @@ export interface Env {
   LLM_VIAX_BASE_URL?: string; // not secret - just an endpoint URL
 
   // secrets (wrangler secret put)
+  // Shared password gating every write under Ingest & Cài đặt. Unset leaves the
+  // workspace open to anyone holding the link — see services/adminAuth.ts.
+  ADMIN_PASSWORD?: string;
   SENSORTOWER_API_KEY?: string;
   FB_PAGE_ID?: string;
   FB_ACCESS_TOKEN?: string;

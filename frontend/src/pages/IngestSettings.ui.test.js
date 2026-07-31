@@ -9,8 +9,8 @@ test("ingest history uses a compact horizontal action group", () => {
   assert.match(source, /className="run-actions-cell"/);
   assert.match(source, /className="run-action-group"/);
   assert.match(source, /className="btn btn-secondary run-action-button"/);
-  assert.match(source, /run-action-button" onClick=\{\(\) => startAnalyze\(run\)\}/);
-  assert.match(source, /run-action-button" onClick=\{\(\) => startTranslate\(run\)\}/);
+  assert.match(source, /run-action-button"[^>]*onClick=\{\(\) => startAnalyze\(run\)\}/);
+  assert.match(source, /run-action-button"[^>]*onClick=\{\(\) => startTranslate\(run\)\}/);
 });
 
 test("manual ingest follows the automatic processing queue returned by the Worker", () => {
@@ -280,4 +280,53 @@ test("a finished job whose tokens belong to an ad-hoc task says so instead of re
   assert.match(source, /Token: thuộc task lẻ/);
   assert.match(source, /processed=\{run\.analysis_status === "done"\}/);
   assert.match(source, /processed=\{run\.translation_status === "done"\}/);
+});
+
+test("the Ingest tab opens read-only and asks the Worker which mode the tab is in", () => {
+  assert.match(source, /function useAdminLock\(\)/);
+  assert.match(source, /getAdminStatus\(\)/);
+  // Unknown state must render as read-only, so a viewer never sees usable controls flash.
+  assert.match(source, /readOnly: !status \|\| \(status\.lock_enabled && !status\.authorized\)/);
+  assert.match(source, /<AdminLockBar lock=\{adminLock\} \/>/);
+  assert.match(source, /const readOnly = adminLock\.readOnly;/);
+});
+
+test("a rotated password drops the dead key instead of resending it forever", () => {
+  assert.match(source, /if \(next\.lock_enabled && !next\.authorized\) clearAdminKey\(\);/);
+  assert.match(source, /setAdminKey\(password\)/);
+  assert.match(source, /const lock = useCallback\(\(\) => \{\s*clearAdminKey\(\);/);
+});
+
+test("a Worker with no admin API is treated as unlocked, not as a lockout", () => {
+  assert.match(source, /\.catch\(\(\) => \{[\s\S]*lock_enabled: false, authorized: true, unknown: true/);
+  assert.match(source, /Worker chưa có API khóa quản trị/);
+});
+
+test("an unlocked deployment says plainly that anyone with the link can write", () => {
+  assert.match(source, /admin-lock-open/);
+  assert.match(source, /Chưa đặt mật khẩu quản trị/);
+  assert.match(source, /wrangler secret put ADMIN_PASSWORD/);
+});
+
+test("every write control on the Ingest tab is disabled in read-only mode", () => {
+  // The Worker is the real boundary; these only stop a viewer from firing a request
+  // that would come back 401. Each one is listed so a new control cannot be added
+  // without this test being looked at.
+  assert.match(source, /const READ_ONLY_HINT = /);
+  // CSV upload
+  assert.match(source, /if \(readOnly \|\| !selectedFile\) return;/);
+  assert.match(source, /onClick=\{\(\) => \{ if \(!readOnly\) fileRef\.current\?\.click\(\); \}\}/);
+  assert.match(source, /disabled=\{uploading \|\| readOnly \|\| preview\.importable_rows === 0\}/);
+  // pulls
+  assert.match(source, /disabled=\{stBusy \|\| readOnly\}/);
+  assert.match(source, /disabled=\{fbBusy \|\| readOnly\}/);
+  // per-run re-analyse / re-translate / delete
+  assert.match(source, /run-action-button" disabled=\{readOnly\}[^>]*onClick=\{\(\) => startAnalyze\(run\)\}/);
+  assert.match(source, /run-action-button" disabled=\{readOnly\}[^>]*onClick=\{\(\) => startTranslate\(run\)\}/);
+  assert.match(source, /disabled=\{readOnly \|\| deletingRunId === run\.id\}/);
+  // queue cancel
+  assert.match(source, /disabled=\{cancelling \|\| readOnly\}/);
+  // LLM agent config: readable, not writable
+  assert.match(source, /<fieldset className="llm-config-grid" disabled=\{readOnly\}>/);
+  assert.match(source, /disabled=\{saving \|\| !byoReady \|\| readOnly\}/);
 });

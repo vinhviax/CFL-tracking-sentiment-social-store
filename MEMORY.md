@@ -64,6 +64,7 @@ Khong commit secret. Khong nhap secret thay user.
 
 Secrets dang can tren Cloudflare Worker:
 
+- `ADMIN_PASSWORD`: mat khau chung mo khoa phan ghi cua tab Ingest & Cai dat. **Chua set = workspace mo**, ai co link cung keo/xoa/chay lai LLM duoc; trang Ingest hien banner do canh bao. Xem muc "Khoa quan tri" ben duoi.
 - `LLM_VIAX_API_KEY`: da tung verify la co key va `/api/health` tra `llm_ready: true`.
 - `FB_PAGE_ID`: Fanpage CFL.
 - `FB_ACCESS_TOKEN`: Page Access Token.
@@ -73,10 +74,23 @@ Neu user bao key loi, huong dan chay:
 
 ```powershell
 cd worker
+npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put LLM_VIAX_API_KEY
 npx wrangler secret put SENSORTOWER_API_KEY
 npx wrangler secret put FB_ACCESS_TOKEN
 ```
+
+## Khoa quan tri (Ingest & Cai dat chi xem)
+
+Link workspace chia cho nhieu nguoi. Moi nguoi doc duoc het; chi nguoi co `ADMIN_PASSWORD` ghi duoc tren tab Ingest & Cai dat.
+
+- Bien gioi that nam o Worker: `worker/src/services/adminAuth.ts` (middleware `requireAdmin`), mount trong `index.ts` cho `/api/ingest/*`, `/api/llm-config/*`, `/api/analyze/*`, `/api/translate/*`, `/api/runs/*`, `/api/processing/*`. Nut bi mo o frontend chi la phan anh, khong phai bao mat.
+- Chi chan method ghi (POST/PUT/PATCH/DELETE). GET luon qua, nen viewer van xem duoc trang thai, lich su, token, va cac GET poll van drain duoc hang doi xu ly.
+- **Ngoai pham vi co y**: `/api/comments` PATCH va `/api/insights/*` van mo — Feedback Workspace khong bi khoa.
+- Endpoint cua khoa: `GET /api/admin/status` -> `{lock_enabled, authorized}`, `POST /api/admin/unlock {password}`. Ca hai deu KHONG nam sau `requireAdmin`.
+- Header mang key: `X-CFL-Admin-Key`. Frontend giu trong `sessionStorage` (`frontend/src/utils/adminSession.js`) — F5 con, dong tab la mat. Khong bao gio de key vao query string.
+- Chua set secret thi Worker **fail-open** (moi nguoi ghi duoc) chu khong fail-closed, de deploy code moi khong khoa luon chinh owner ra ngoai. Canh bao hien bang banner do tren trang Ingest.
+- Doi mat khau: chay lai `wrangler secret put ADMIN_PASSWORD`. Tab dang mo khoa se tu roi ve chi xem o lan `/api/admin/status` ke tiep.
 
 ## Chuc nang da co
 

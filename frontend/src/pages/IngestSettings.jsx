@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelProcessingJob,
   deleteIngestRun,
+  getAdminStatus,
   getAnalyzeProgress,
   getHealth,
   getIngestStatus,
@@ -16,9 +17,11 @@ import {
   runAnalyze,
   saveLlmAgentConfig,
   runTranslate,
+  unlockAdmin,
   uploadCsv,
 } from "../api/client.js";
 import DateTextInput from "../components/DateTextInput.jsx";
+import { clearAdminKey, setAdminKey } from "../utils/adminSession.js";
 import {
   formatTokens,
   processingJobCaption,
@@ -39,6 +42,159 @@ const slotLabels = {
   reasoning: "Suy luận",
   simple: "Đơn giản",
 };
+
+/** Tooltip on every control the lock disables, so a viewer knows why it is greyed. */
+const READ_ONLY_HINT = "Chế độ chỉ xem — cần mật khẩu quản trị để thao tác.";
+
+/**
+ * Read-only vs. unlocked for this tab.
+ *
+ * The Worker is the authority (it rejects the writes outright), so this only asks it
+ * what mode the tab is in. Until the answer arrives the page renders read-only, which
+ * is the safe way round: a viewer never sees controls flash as usable.
+ */
+function useAdminLock() {
+  const [status, setStatus] = useState(null);
+
+  const refresh = useCallback(
+    () =>
+      getAdminStatus()
+        .then((next) => {
+          // A key that no longer works (password rotated) is dead weight that would
+          // keep riding on every request; drop it so the unlock form is the way back.
+          if (next.lock_enabled && !next.authorized) clearAdminKey();
+          setStatus(next);
+          return next;
+        })
+        .catch(() => {
+          // An older Worker has no /api/admin/status. Treat it as no lock rather than
+          // locking the owner out of their own workspace over a version skew.
+          setStatus({ lock_enabled: false, authorized: true, unknown: true });
+          return null;
+        }),
+    []
+  );
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const unlock = useCallback(
+    (password) =>
+      unlockAdmin(password).then((next) => {
+        setAdminKey(password);
+        setStatus(next);
+        return next;
+      }),
+    []
+  );
+
+  const lock = useCallback(() => {
+    clearAdminKey();
+    refresh();
+  }, [refresh]);
+
+  return {
+    status,
+    // Unknown state counts as read-only: see above.
+    readOnly: !status || (status.lock_enabled && !status.authorized),
+    lockEnabled: Boolean(status?.lock_enabled),
+    unknown: Boolean(status?.unknown),
+    unlock,
+    lock,
+    refresh,
+  };
+}
+
+function AdminLockBar({ lock }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    lock
+      .unlock(password)
+      .then(() => {
+        setOpen(false);
+        setPassword("");
+      })
+      .catch((e) => setError(e?.response?.data?.detail || e.message))
+      .finally(() => setBusy(false));
+  };
+
+  if (!lock.status) return null;
+
+  // No password configured on the Worker: everyone with the link can pull, re-analyse
+  // and delete. Said plainly, because the fix is one command and only the owner can run it.
+  if (!lock.lockEnabled) {
+    return (
+      <div className="admin-lock-bar admin-lock-open">
+        <span className="admin-lock-pill open">Chưa khóa</span>
+        <span className="admin-lock-text">
+          {lock.unknown
+            ? "Worker chưa có API khóa quản trị — deploy bản mới để bật chế độ chỉ xem."
+            : "Chưa đặt mật khẩu quản trị: ai có link cũng kéo dữ liệu, chạy lại LLM và xóa run được."}
+          {" "}Đặt bằng <code>npx wrangler secret put ADMIN_PASSWORD</code> trong thư mục <code>worker/</code>.
+        </span>
+      </div>
+    );
+  }
+
+  if (!lock.readOnly) {
+    return (
+      <div className="admin-lock-bar admin-lock-unlocked">
+        <span className="admin-lock-pill unlocked">Đang mở khóa</span>
+        <span className="admin-lock-text">
+          Bạn thao tác được trên trang này. Mật khẩu chỉ nằm trong tab này; đóng tab là mất.
+        </span>
+        <button type="button" className="btn btn-secondary run-action-button" onClick={lock.lock}>
+          Khóa lại
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-lock-bar admin-lock-readonly">
+      <span className="admin-lock-pill readonly">Chỉ xem</span>
+      <span className="admin-lock-text">
+        Bạn xem được toàn bộ trạng thái, lịch sử và token. Kéo dữ liệu, chạy lại LLM, đổi cấu
+        hình và xóa run cần mật khẩu quản trị.
+      </span>
+      {open ? (
+        <form className="admin-lock-form" onSubmit={submit}>
+          <input
+            type="password"
+            value={password}
+            autoFocus
+            autoComplete="current-password"
+            placeholder="Mật khẩu quản trị"
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button type="submit" className="btn run-action-button" disabled={busy || !password.trim()}>
+            {busy ? "Đang mở..." : "Mở khóa"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary run-action-button"
+            onClick={() => { setOpen(false); setError(null); }}
+          >
+            Hủy
+          </button>
+        </form>
+      ) : (
+        <button type="button" className="btn btn-secondary run-action-button" onClick={() => setOpen(true)}>
+          Mở khóa chỉnh sửa
+        </button>
+      )}
+      {error && <div className="error-banner admin-lock-error">{error}</div>}
+    </div>
+  );
+}
 
 /** What this tab already holds for a BYO provider, so F5 does not wipe the form. */
 function sessionDraft(slot, providerId) {
@@ -470,7 +626,7 @@ function canCancelTrackedJob(job, progress) {
   return Boolean(job?.id && progress && !["done", "cancelled"].includes(progress.status));
 }
 
-function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
+function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling, readOnly }) {
   const loader = job.kind === "translation" ? getTranslateProgress : getAnalyzeProgress;
   const progress = useProgressPoll(job.progressKey, loader);
   const isTerminal = ["done", "failed", "cancelled"].includes(progress?.status);
@@ -500,7 +656,8 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
       action={canCancel ? (
         <button
           className="btn btn-danger progress-cancel-button"
-          disabled={cancelling}
+          disabled={cancelling || readOnly}
+          title={readOnly ? READ_ONLY_HINT : undefined}
           onClick={() => onCancel(job)}
         >
           {cancelling ? "Đang hủy..." : "Hủy"}
@@ -512,7 +669,7 @@ function TrackedProgressJob({ job, onComplete, onDone, onCancel, cancelling }) {
   );
 }
 
-function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSession }) {
+function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSession, readOnly }) {
   const [form, setForm] = useState(() => defaultSlotState(slot, llmConfig));
 
   useEffect(() => {
@@ -573,7 +730,10 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSessio
         )}
       </div>
 
-      <div className="llm-config-grid">
+      {/* A viewer may read which provider and model each slot runs on — no secret is
+          ever sent here — but not change either, so the whole grid is disabled rather
+          than only the submit. */}
+      <fieldset className="llm-config-grid" disabled={readOnly}>
         <label>
           <span>Provider</span>
           <select value={form.provider} onChange={(event) => selectProvider(event.target.value)}>
@@ -625,16 +785,23 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSessio
             />
           </label>
         )}
-      </div>
+      </fieldset>
 
       {error && <div className="error-banner">{error}</div>}
       <div className="llm-config-actions">
         <span>
-          {spec?.byo
-            ? "Không lưu lên hệ thống. F5 vẫn còn; mở tab mới thì mất."
-            : `Đang dùng: ${form.provider_label || spec?.label || "—"} · ${formatConfigModelName(form.model)}`}
+          {readOnly
+            ? READ_ONLY_HINT
+            : spec?.byo
+              ? "Không lưu lên hệ thống. F5 vẫn còn; mở tab mới thì mất."
+              : `Đang dùng: ${form.provider_label || spec?.label || "—"} · ${formatConfigModelName(form.model)}`}
         </span>
-        <button className="btn btn-secondary" disabled={saving || !byoReady} type="submit">
+        <button
+          className="btn btn-secondary"
+          disabled={saving || !byoReady || readOnly}
+          title={readOnly ? READ_ONLY_HINT : undefined}
+          type="submit"
+        >
           {saving ? "Đang lưu..." : `Áp dụng ${slotLabels[slot]}`}
         </button>
       </div>
@@ -642,7 +809,7 @@ function LlmAgentSlotForm({ slot, llmConfig, saving, error, onSave, onSaveSessio
   );
 }
 
-function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onClose, onSave, onSaveSession }) {
+function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onClose, onSave, onSaveSession, readOnly }) {
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation">
@@ -654,6 +821,7 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
               Phân tích dùng Suy luận; dịch zh-CN dùng Đơn giản. Provider tự nhập key chỉ
               áp dụng cho tab này — việc chạy nền và cron vẫn dùng provider đã lưu.
             </p>
+            {readOnly && <p className="admin-lock-text">{READ_ONLY_HINT}</p>}
           </div>
           <button className="btn btn-secondary" type="button" onClick={onClose}>Đóng</button>
         </div>
@@ -668,6 +836,7 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
               error={error?.slot === "reasoning" ? error.message : null}
               onSave={onSave}
               onSaveSession={onSaveSession}
+              readOnly={readOnly}
             />
             <LlmAgentSlotForm
               slot="simple"
@@ -676,6 +845,7 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
               error={error?.slot === "simple" ? error.message : null}
               onSave={onSave}
               onSaveSession={onSaveSession}
+              readOnly={readOnly}
             />
           </div>
         )}
@@ -685,6 +855,8 @@ function LlmAgentConfigDialog({ open, llmConfig, loading, savingSlot, error, onC
 }
 
 export default function IngestSettings() {
+  const adminLock = useAdminLock();
+  const readOnly = adminLock.readOnly;
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null);
   const [file, setFile] = useState(null);
@@ -853,7 +1025,7 @@ export default function IngestSettings() {
   }
 
   const onFileSelect = (selectedFile) => {
-    if (!selectedFile) return;
+    if (readOnly || !selectedFile) return;
     setFile(selectedFile);
     setUploadError(null);
     // Parsed in the browser rather than posted to /api/ingest/preview-csv: the
@@ -979,22 +1151,27 @@ export default function IngestSettings() {
       <p className="queue-note">
         Sau mỗi lần kéo/upload thành công: Phân loại LLM -&gt; ghi nhớ chủ đề con -&gt; dịch zh-CN. Nút trong lịch sử chỉ dùng để chạy lại khi cần.
       </p>
+      <AdminLockBar lock={adminLock} />
       <SourceStatusStrip ingestStatus={ingestStatus} />
 
       <div className="two-col">
         <div className="panel">
           <h3>Upload CSV (Facebook)</h3>
           <div
-            className="upload-zone"
-            onClick={() => fileRef.current?.click()}
+            className={`upload-zone${readOnly ? " upload-zone-locked" : ""}`}
+            title={readOnly ? READ_ONLY_HINT : undefined}
+            onClick={() => { if (!readOnly) fileRef.current?.click(); }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); onFileSelect(e.dataTransfer.files?.[0]); }}
           >
-            {file ? `Đã chọn: ${file.name}` : "Kéo thả file CSV vào đây, hoặc bấm để chọn file"}
+            {readOnly
+              ? "Chỉ xem — cần mật khẩu quản trị để nạp file CSV"
+              : file ? `Đã chọn: ${file.name}` : "Kéo thả file CSV vào đây, hoặc bấm để chọn file"}
             <input
               ref={fileRef}
               type="file"
               accept=".csv"
+              disabled={readOnly}
               style={{ display: "none" }}
               onChange={(e) => onFileSelect(e.target.files?.[0])}
             />
@@ -1046,7 +1223,7 @@ export default function IngestSettings() {
                   ))}
                 </tbody>
               </table>
-              <button className="btn" disabled={uploading || preview.importable_rows === 0} onClick={confirmUpload} style={{ marginTop: 12 }}>
+              <button className="btn" disabled={uploading || readOnly || preview.importable_rows === 0} title={readOnly ? READ_ONLY_HINT : undefined} onClick={confirmUpload} style={{ marginTop: 12 }}>
                 {uploading ? "Đang nạp..." : preview.importable_rows === 0 ? "Không có dòng Facebook để nạp" : "Xác nhận nạp dữ liệu Facebook CSV"}
               </button>
             </>
@@ -1055,7 +1232,12 @@ export default function IngestSettings() {
           {lastRun && (
             <div style={{ marginTop: 14 }}>
               <p>Đã nạp {lastRun.rows_new}/{lastRun.rows_fetched} dòng mới ({runTitle(lastRun)}). Hệ thống đã tự xếp hàng phân loại rồi dịch zh-CN.</p>
-              <button className="btn btn-secondary" onClick={() => startAnalyze(lastRun)}>
+              <button
+                className="btn btn-secondary"
+                disabled={readOnly}
+                title={readOnly ? READ_ONLY_HINT : undefined}
+                onClick={() => startAnalyze(lastRun)}
+              >
                 Chạy lại phân loại AI cho {runTitle(lastRun)}
               </button>
             </div>
@@ -1073,6 +1255,7 @@ export default function IngestSettings() {
                   onDone={hideCompletedTrackedJob}
                   onCancel={cancelTrackedJob}
                   cancelling={job.id ? cancellingJobIds.has(job.id) : false}
+                  readOnly={readOnly}
                 />
               ))}
             </div>
@@ -1094,14 +1277,16 @@ export default function IngestSettings() {
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               <DateTextInput
                 value={stRange.start_date}
+                disabled={readOnly}
                 onChange={(value) => setStRange({ ...stRange, start_date: value })}
               />
               <DateTextInput
                 value={stRange.end_date}
+                disabled={readOnly}
                 onChange={(value) => setStRange({ ...stRange, end_date: value })}
               />
             </div>
-            <button className="btn" disabled={stBusy} onClick={pullSensorTower}>
+            <button className="btn" disabled={stBusy || readOnly} title={readOnly ? READ_ONLY_HINT : undefined} onClick={pullSensorTower}>
               {stBusy ? "Đang kéo..." : "Kéo review Store"}
             </button>
             {stError && <div className="error-banner" style={{ marginTop: 8 }}>{stError}</div>}
@@ -1112,7 +1297,7 @@ export default function IngestSettings() {
             <p className="progress-caption" style={{ marginTop: 0 }}>
               Dùng cùng khoảng ngày đang chọn ở trên.
             </p>
-            <button className="btn" disabled={fbBusy} onClick={pullFacebook}>
+            <button className="btn" disabled={fbBusy || readOnly} title={readOnly ? READ_ONLY_HINT : undefined} onClick={pullFacebook}>
               {fbBusy ? "Đang kéo..." : "Kéo bài viết + bình luận Fanpage"}
             </button>
             {fbError && <div className="error-banner" style={{ marginTop: 8 }}>{fbError}</div>}
@@ -1212,16 +1397,16 @@ export default function IngestSettings() {
                     <td className="run-actions-cell">
                       {run.status === "done" && run.rows_new > 0 && (
                         <div className="run-action-group">
-                          <button className="btn btn-secondary run-action-button" onClick={() => startAnalyze(run)}>{analysisRunActionLabel(run)}</button>
-                          <button className="btn btn-secondary run-action-button" onClick={() => startTranslate(run)}>{translationRunActionLabel(run)}</button>
-                          <button className="btn btn-danger run-action-button" disabled={deletingRunId === run.id} onClick={() => deleteRun(run)}>
+                          <button className="btn btn-secondary run-action-button" disabled={readOnly} title={readOnly ? READ_ONLY_HINT : undefined} onClick={() => startAnalyze(run)}>{analysisRunActionLabel(run)}</button>
+                          <button className="btn btn-secondary run-action-button" disabled={readOnly} title={readOnly ? READ_ONLY_HINT : undefined} onClick={() => startTranslate(run)}>{translationRunActionLabel(run)}</button>
+                          <button className="btn btn-danger run-action-button" disabled={readOnly || deletingRunId === run.id} title={readOnly ? READ_ONLY_HINT : undefined} onClick={() => deleteRun(run)}>
                             {deletingRunId === run.id ? "Đang xóa..." : `Xóa #${run.id}`}
                           </button>
                         </div>
                       )}
                       {(run.status !== "done" || run.rows_new <= 0) && (
                         <div className="run-action-group">
-                          <button className="btn btn-danger run-action-button" disabled={deletingRunId === run.id} onClick={() => deleteRun(run)}>
+                          <button className="btn btn-danger run-action-button" disabled={readOnly || deletingRunId === run.id} title={readOnly ? READ_ONLY_HINT : undefined} onClick={() => deleteRun(run)}>
                             {deletingRunId === run.id ? "Đang xóa..." : `Xóa #${run.id}`}
                           </button>
                         </div>
@@ -1266,6 +1451,7 @@ export default function IngestSettings() {
         onClose={() => setLlmConfigOpen(false)}
         onSave={saveLlmConfigSlot}
         onSaveSession={saveLlmSessionSlot}
+        readOnly={readOnly}
       />
     </>
   );

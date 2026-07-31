@@ -2293,3 +2293,113 @@ tbody tr {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Admin lock (Ingest & Cài đặt)
+   The workspace link is shared widely, so this strip is the first thing the page
+   states: read-only, unlocked, or — loudest — not locked at all.
+   --------------------------------------------------------------------------- */
+
+.admin-lock-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  font-size: 13px;
+}
+
+.admin-lock-readonly {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+}
+
+.admin-lock-unlocked {
+  border-color: color-mix(in srgb, var(--positive) 42%, transparent);
+  background: color-mix(in srgb, var(--positive) 10%, transparent);
+}
+
+/* No password set: every holder of the link can pull, re-analyse and delete. */
+.admin-lock-open {
+  border-color: color-mix(in srgb, var(--negative) 46%, transparent);
+  background: color-mix(in srgb, var(--negative) 11%, transparent);
+}
+
+.admin-lock-pill {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.admin-lock-pill.readonly {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.admin-lock-pill.unlocked {
+  background: color-mix(in srgb, var(--positive) 20%, transparent);
+  color: var(--positive);
+}
+
+.admin-lock-pill.open {
+  background: color-mix(in srgb, var(--negative) 20%, transparent);
+  color: var(--negative);
+}
+
+.admin-lock-text {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.admin-lock-text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  font-size: 12px;
+}
+
+.admin-lock-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-lock-form input {
+  width: 200px;
+}
+
+.admin-lock-error {
+  flex: 1 1 100%;
+  margin-bottom: 0;
+}
+
+/* The provider grid is a fieldset so the lock can disable it wholesale; strip the
+   browser's default chrome so it still renders as the plain grid it was. */
+.llm-config-grid {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.upload-zone-locked {
+  cursor: not-allowed;
+  border-style: solid;
+  opacity: 0.62;
+}
+
+.upload-zone-locked:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-2);
+  color: var(--text-dim);
+}

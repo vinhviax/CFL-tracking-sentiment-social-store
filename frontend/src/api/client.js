@@ -1,4 +1,5 @@
 import axios from "axios";
+import { ADMIN_HEADER, getAdminKey } from "../utils/adminSession.js";
 import { BYO_HEADER, byoHeaderValue } from "../utils/llmSession.js";
 
 const api = axios.create({
@@ -12,10 +13,18 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const value = byoHeaderValue(config.url);
   if (value) config.headers[BYO_HEADER] = value;
+  // The Worker rejects the Ingest tab's writes without this. Sent on every request
+  // rather than only the writes, so /api/admin/status can confirm on load that the key
+  // this tab still holds is the current one.
+  const adminKey = getAdminKey();
+  if (adminKey) config.headers[ADMIN_HEADER] = adminKey;
   return config;
 });
 
 export const getHealth = () => api.get("/api/health").then((r) => r.data);
+export const getAdminStatus = () => api.get("/api/admin/status").then((r) => r.data);
+export const unlockAdmin = (password) =>
+  api.post("/api/admin/unlock", { password }).then((r) => r.data);
 export const getMeta = () => api.get("/api/meta").then((r) => r.data);
 export const getLlmAgentConfig = () =>
   api.get("/api/llm-config").then((r) => r.data);
