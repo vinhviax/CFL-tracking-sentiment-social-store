@@ -27,8 +27,9 @@ Project chi duoc giu cac file Markdown sau:
 - `AGENT.md`: rule lam viec cua agent.
 - `MEMORY.md`: thong tin project, kien truc, secrets, deploy, trang thai song.
 - `handoff/*.md`: ban giao tien do theo phien lam viec.
+- `README.md`: gioi thieu tong quan du an cho nguoi ngoai (vd doi/vendor migrate sang he thong khac) — chi mo ta kien truc/setup on dinh, KHONG ghi tien do phien lam viec (cho vao MEMORY.md/handoff). Da them 2026-07-31 theo yeu cau user.
 
-Khong them README/BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nho thong tin, cap nhat vao 3 nhom tren.
+Khong them BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nho thong tin, cap nhat vao 4 nhom tren.
 
 ## Git va deploy
 
