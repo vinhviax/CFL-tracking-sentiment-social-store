@@ -28,8 +28,9 @@ Project chi duoc giu cac file Markdown sau:
 - `MEMORY.md`: thong tin project, kien truc, secrets, deploy, trang thai song.
 - `handoff/*.md`: ban giao tien do theo phien lam viec.
 - `README.md`: gioi thieu tong quan du an cho nguoi ngoai (vd doi/vendor migrate sang he thong khac) — chi mo ta kien truc/setup on dinh, KHONG ghi tien do phien lam viec (cho vao MEMORY.md/handoff). Da them 2026-07-31 theo yeu cau user.
+- `MIGRATION.md`: huong dan ky thuat cho doi/dev ngoai migrate he thong roi khoi Cloudflare sang ha tang tu quan ly (vd Dokploy). Anh xa tung Cloudflare primitive (Worker runtime, D1, waitUntil, Cron Triggers, Pages, secrets) sang tuong duong tu-host, kem checklist va rui ro. La ban do + checklist, KHONG phai code migrate da viet san. Da them 2026-07-31 theo yeu cau user.
 
-Khong them BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nho thong tin, cap nhat vao 4 nhom tren.
+Khong them BRIEF/docs Markdown khac neu user chua yeu cau. Neu can ghi nho thong tin, cap nhat vao 5 nhom tren.
 
 ## Git va deploy
 
