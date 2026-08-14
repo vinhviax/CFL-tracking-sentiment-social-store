@@ -7,9 +7,6 @@
 
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
 
-  // Decoding + hashing a large Facebook CSV export exceeds the 30s default.
-  "limits": { "cpu_ms": 60000 },
-
   "d1_databases": [
     {
       "binding": "DB",

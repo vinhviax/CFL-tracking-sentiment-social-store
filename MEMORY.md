@@ -43,7 +43,7 @@ Worker config nam o `worker/wrangler.jsonc`.
   - `*/5 * * * *`: sweep hang doi (`sweepProcessingQueue`) — chi thu hoi job treo/failed va drain, KHONG tao job moi.
 - LLM base URL cua proxy Viax: `https://rpi7jss.abc-tunnel.us/v1` (env `LLM_VIAX_BASE_URL`, secret `LLM_VIAX_API_KEY`).
 - Endpoint/key cua provider `openai_viax` (`agent-shop.clawd.io.vn`) nam trong bang D1 `llm_provider_secrets`, KHONG nam trong wrangler.jsonc/env.
-- `wrangler.jsonc` co `limits.cpu_ms = 60000`.
+- Tai khoan Cloudflare hien dang **Free plan** (xac nhan 2026-08-14 khi deploy bi tu choi voi loi "CPU limits are not supported for the Free plan"). `wrangler.jsonc` tung co `limits.cpu_ms = 60000` de tranh loi giai ma+hash file CSV Facebook lon vuot qua 30s CPU mac dinh — da **xoa dong nay 2026-08-14 de deploy duoc tren Free plan**, gio quay lai gioi han CPU mac dinh (30s). Neu upload lai file CSV Facebook rat lon (~17k dong nhu run #133) va thay loi timeout/giai ma o buoc ingest, day la nguyen nhan — nguoi dung da duoc bao va chap nhan chia nho file khi upload thay vi nang lai limit (can Cloudflare plan tra phi moi cau hinh lai duoc `limits.cpu_ms`).
 
 ## LLM: catalog provider + co che leo thang co trang thai (tu 2026-07-30)
 
