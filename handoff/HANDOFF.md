@@ -2,6 +2,42 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
+## Trạng thái tại 2026-08-14 (cuối phiên 6) — có sửa code, đã deploy production
+
+- Commit mới nhất: `0db5f89` trên `origin/main`, working tree sạch tại J:.
+- **Đã deploy Worker 2 lần trong phiên này**: version `b0cd427f` (11:33:24 UTC) là bản đang chạy production — đổi model `gemini_viax` + xóa `limits.cpu_ms`. Đã chạy migration `0016` trên D1 remote.
+- Test/typecheck đã chạy lại sau mọi thay đổi: worker 300/300 pass, `tsc --noEmit` sạch, frontend 68/68 pass (chạy bằng `node --test`, không phải `npm test` — xem mục gotcha bên dưới).
+- **Chưa deploy lại frontend** trong phiên này — không có thay đổi frontend nào.
+
+## 🎯 Việc quan trọng nhất cần biết khi mở máy ở nhà
+
+**Tài khoản Cloudflare đang là Free plan** (phát hiện 2026-08-14 khi deploy bị Cloudflare từ chối thẳng: `"CPU limits are not supported for the Free plan"`). Đã xóa `limits.cpu_ms: 60000` khỏi `worker/wrangler.jsonc` để deploy được — quay lại giới hạn CPU mặc định 30 giây/invocation. Chi tiết + rủi ro xem `MEMORY.md` mục "Cloudflare config". **Nếu deploy tối nay ở nhà cũng bị lỗi tương tự, đây không phải lỗi mới — kiểm tra lại `git log -1 -- worker/wrangler.jsonc` để chắc bản ở nhà đã có commit `0db5f89`.**
+
+## Việc đã làm phiên 6 (2026-08-14)
+
+User báo "Ingest #133 đứng yên hoàn toàn", đồng thời nhờ đổi key Sensor Tower đã hết hạn. Diễn biến:
+
+1. **Đổi key Sensor Tower** (`SENSORTOWER_API_KEY`, user tự chạy `wrangler secret put`) — key cũ đã hết hạn khiến cron kéo Store fail 401 liên tục **6 ngày** (`run #118` → `#128`, 2026-08-08 → 08-13), cursor `sensortower_store` bị kẹt ở `2026-08-07`.
+2. **Backfill 1 lần** qua `POST /api/ingest/sensortower {start_date:"2026-08-08", end_date:"2026-08-14"}` (endpoint admin, cần `X-CFL-Admin-Key`) → `run #134`: 223 dòng, 221 mới, cursor đã đẩy lên `2026-08-14`. Run #134 đã **phân tích + dịch xong 100% (221/221)**.
+3. **Chẩn đoán gốc vụ run #133 đứng yên** (16.429 comment Facebook CSV, 0% tiến độ suốt ~40 phút trước khi sửa): dùng `wrangler tail --format json` bắt được bằng chứng trực tiếp từ Cloudflare — cảnh báo `"waitUntil() tasks did not complete within the allowed time after invocation end and have been cancelled"` trên các invocation dài đúng **~30.05 giây**, CPU chỉ ~113ms (không phải hết CPU, hết wall-clock của `ctx.waitUntil`). Đo thêm bằng `POST /api/processing/drain` (đường đồng bộ, không qua `waitUntil`) chạy thật 71.8 giây liên tục → suy ra **1 batch phân tích qua `gpt-5.6-terra` (openai_viax) mất ~25–35 giây/batch**, sát/vượt ngưỡng 30 giây mà Cloudflare cho `ctx.waitUntil` sống sau khi trả response. Mọi lần chạy nền (cron 5 phút, poll từ UI) đều bị cắt giữa batch → không kịp ghi log completed lẫn failed → job bị coi là "treo" sau 3 phút (`STALE_RUNNING_MS`) → khởi động lại từ batch 1 → lặp vô hạn không tiến triển. **User đã xin hoãn fix gốc (đổi `ctx.waitUntil` thành `await` trực tiếp trong `scheduled()`) để mai test lại — CHƯA SỬA CODE cho vấn đề này.**
+4. **Đổi model `gemini_viax`** từ `ag/gemini-3-flash-agent` sang `ag/gemini-3.6-flash-high` (yêu cầu riêng của user, không liên quan vụ treo). Sửa: `worker/src/services/llmCatalog.ts` (model đầu danh sách + default slot `simple`), `worker/src/services/llmAgentConfig.ts` (`SLOT_SECONDARY.reasoning`), thêm migration `worker/migrations/0016_gemini_viax_flash_high.sql` để UPDATE dòng đã seed sẵn trong D1 (đổi catalog code không đủ — tiền lệ `0013`). Model cũ vẫn còn trong danh sách chọn để revert nhanh từ UI nếu cần. Đã TDD (test đỏ trước, xanh sau), verify bằng `processing_logs` thật: 9 batch thành công (~10s/batch, nhanh hơn hẳn model cũ), 3 batch lỗi "0/20 qua LLM" (tự retry, không mất dữ liệu) — tỷ lệ lỗi ~25% batch đầu, **cần theo dõi thêm ở diện rộng hơn**, chưa rõ có phải hiện tượng thoáng qua hay đặc điểm của model mới.
+5. **Gỡ chặn deploy do Free plan** (xem mục trên) — xóa `limits.cpu_ms` khỏi `wrangler.jsonc`, user đã đồng ý đánh đổi (xem MEMORY.md).
+6. Nhờ leo thang tự động sang Gemini (do OpenAI đang chậm/bận), run #133 **đang chạy thật** dù chưa sửa vụ `waitUntil` — cuối phiên đạt khoảng **3.940/16.429 đã phân tích** (~24%), dịch chưa bắt đầu (đợi phân tích xong do thiết kế hàng đợi chặn translation cùng run). Cần xem lại tiến độ khi tiếp tục.
+
+## 🎯 Việc đầu tiên cần làm phiên sau — 2 lựa chọn, ưu tiên theo ý user
+
+**A. Fix `ctx.waitUntil` 30 giây (mới phát hiện phiên 6, user xin hoãn qua hôm sau):**
+Đổi `scheduled()` trong `worker/src/index.ts` — 3 dispatch hiện dùng `ctx.waitUntil(...)` rồi return ngay (dòng ~117-125). Đổi `sweepProcessingQueue` (ít nhất) sang `await` trực tiếp để invocation không kết thúc sớm, tránh bị Cloudflare cắt ở mốc 30 giây. Bằng chứng đầy đủ + số đo đã ghi ở mục "Việc đã làm phiên 6" bên trên. **Rủi ro cần cân nhắc trước khi sửa**: 1 lượt cron có thể chạy thật vài phút nếu backlog lớn; cần kiểm tra Cloudflare có serialize Cron Trigger theo lịch hay không (tránh 2 lượt cron chồng nhau gọi LLM trùng lặp) trước khi deploy.
+
+**B. `pendingTranslations` không chọn lại comment dịch dở dang (kế thừa từ phiên 3, vẫn chưa sửa — xem `worker/src/services/translation.ts:41`):**
+Vẫn y nguyên như các phiên trước, xem MEMORY.md mục "Luu y bug/han che da gap". Chưa ai sửa qua 4 phiên liền.
+
+## Gotcha mới phiên 6
+
+- Frontend **không có script `npm test`** trong `package.json` — chạy test bằng `node --test src/pages/*.test.js` (Node's built-in test runner, ES modules thuần, không cần build step). Đừng chạy `npm test` rồi tưởng frontend không có test.
+- `wrangler tail --format json` cho log máy đọc được (wallTime, cpuTime, exceptions, logs) — hữu ích hơn `--format pretty` khi cần chẩn đoán treo/lỗi runtime thật sự thay vì chỉ xem request nào gọi tới.
+- Đã dùng `npx wrangler d1 execute cfl-feedback --remote --json --command "..."` để đọc trực tiếp bảng `llm_slot_state`/`llm_agent_configs`/`processing_logs` trên D1 production khi cần chẩn đoán sâu hơn API cho phép — an toàn vì chỉ SELECT.
+
 ## Trạng thái tại 2026-07-31 (cuối phiên 5), chỉ thêm docs, không đổi code chạy
 
 - Commit mới nhất: `a410629` trên `origin/main`, working tree sạch, đã `git fetch` xác nhận J: khớp 100% với remote (0 commit lệch cả 2 chiều).
@@ -25,12 +61,6 @@ User có nhu cầu **gửi repo GitHub này cho một đội dev khác để h�
 3. **Viết `MIGRATION.md`** — hướng dẫn kỹ thuật cho đội dev ngoài migrate rời Cloudflare (ví dụ Dokploy): bảng ánh xạ từng Cloudflare primitive (Worker runtime, D1, `ExecutionContext.waitUntil`, Cron Triggers, Pages, secrets) sang tương đương tự host, kiến trúc đề xuất, checklist 8 bước, và mục rủi ro (mạng có gọi được LLM proxy hiện tại từ hạ tầng mới không, D1 không có transaction đa-statement thật, `backend/` FastAPI cũ không phải lựa chọn thay thế sẵn sàng). Đã xác nhận bằng code thật: worker chỉ dùng đúng 2 API đặc thù Cloudflare (D1 + `waitUntil`), không có KV/R2/Queues/Durable Objects nào khác — phạm vi migrate hẹp hơn tưởng tượng ban đầu. Cũng cập nhật `AGENT.md` thêm MIGRATION.md vào danh sách file được phép giữ.
 4. User đã thử endpoint LLM nội bộ VNG `https://lite-aawp.vnggames.net` (xem phiên trước) — quyết định không dùng, giữ nguyên `openai_viax`/`gemini_viax`. Không có thay đổi code liên quan.
 
-## 🎯 Việc đầu tiên cần làm phiên sau (kế thừa từ phiên 3, vẫn chưa sửa)
-
-**`pendingTranslations` (`worker/src/services/translation.ts:41`) không bao giờ chọn lại comment đã có dòng dịch dở dang.** Điều kiện không-force chỉ là `t.comment_id IS NULL`, nên các comment đã có `message_translated` nhưng `summary_translated` rỗng sẽ bị bỏ qua vĩnh viễn — không phải do rate limit, cron sẽ không tự dọn hết số này. **Vẫn còn nguyên, chưa ai sửa** (đã kiểm tra lại đầu phiên 4 và phiên 5).
-
-Cách sửa: nới điều kiện thành `t.comment_id IS NULL OR (summary đã có mà summary_translated rỗng)` — xem chi tiết kỹ thuật đã ghi trong `MEMORY.md` (mục "Luu y bug/han che da gap"). Nhớ thêm test cho điều kiện WHERE của `pendingTranslations` (hiện chưa có). Sau khi sửa, không cần tạo job `comment_ids` + `force:true` thủ công nữa. Số lượng comment bị ảnh hưởng chưa đo lại (phiên 3 ghi nhận 4.323) — nên đo lại qua trang Ingest hoặc query D1 trước khi ước lượng công sức sửa.
-
 ## Workflow làm việc đa ổ đĩa (quan trọng, áp dụng từ phiên 4)
 
 - **Sửa code + `git commit` + `git push`**: làm ở `J:\My Drive\CFL\Agent\Tracking Store Social` (canonical, git thuần chạy bình thường trên Google Drive).
@@ -45,3 +75,5 @@ Cách sửa: nới điều kiện thành `t.comment_id IS NULL OR (summary đã 
 - `wrangler dev` (local dev server) hiện lỗi `Incorrect type for map entry 'DAILY_INGEST_CRON'` — do `index.ts` export thêm hằng/hàm ngoài default export, bản wrangler 4.107 không chấp nhận kiểu export đó cho local dev (không ảnh hưởng `wrangler deploy`/production). Chưa sửa, không khẩn vì không cản deploy.
 - 3 branch `codex/*` (xem mục "Việc đã hoàn tất phiên 5") vẫn còn trên repo — an toàn, có thể xóa cho gọn nếu user yêu cầu, chưa tự ý xóa.
 - `.claude/launch.json` vẫn giữ tên gốc — user đang cân nhắc đổi tên, chưa quyết định, chưa làm.
+- 2 `ingest_run` mồ côi kẹt ở trạng thái `running` vĩnh viễn, chưa dọn: `#104` (2026-08-01, source `store`) và `#130` (2026-08-14, source `store`, trước khi tạo run #134) — cùng họ triệu chứng với vụ `ctx.waitUntil` 30 giây (job chết giữa chừng, không kịp ghi `failed`). Không ảnh hưởng dữ liệu hiển thị, chỉ là rác trong bảng `ingest_runs`; có thể dọn bằng `DELETE /api/runs/:id` (admin) sau khi xác nhận không còn `processing_queue` job nào tham chiếu.
+- Tỷ lệ lỗi parse ~25% batch đầu của model `ag/gemini-3.6-flash-high` (xem phiên 6) — cần theo dõi thêm trên diện rộng hơn 12 batch quan sát được, chưa đủ dữ liệu để kết luận đây là bình thường hay cần điều chỉnh prompt/retry.
