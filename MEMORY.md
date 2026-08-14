@@ -49,8 +49,10 @@ Worker config nam o `worker/wrangler.jsonc`.
 
 Kien truc "custom provider override" cu (D1 slot override tro thang toi `agent-shop.clawd.io.vn` voi model prefix `codex-lb/`) **da bi thay the hoan toan**. Gio la 1 catalog co dinh 6 provider (`worker/src/services/llmCatalog.ts`), 2 slot co dinh:
 
-- `reasoning` (phan tich comment, xuat report HTML, Insight, gameplay-mode verify, taxonomy discovery): chinh = `openai_viax`/`gpt-5.6-terra`, phu = `gemini_viax`/`ag/gemini-3-flash-agent`.
-- `simple` (dich zh-CN): chinh = `gemini_viax`/`ag/gemini-3-flash-agent`, phu = `openai_viax`/`gpt-5.6-luna`.
+- `reasoning` (phan tich comment, xuat report HTML, Insight, gameplay-mode verify, taxonomy discovery): chinh = `openai_viax`/`gpt-5.6-terra`, phu = `gemini_viax`/`ag/gemini-3.6-flash-high`.
+- `simple` (dich zh-CN): chinh = `gemini_viax`/`ag/gemini-3.6-flash-high`, phu = `openai_viax`/`gpt-5.6-luna`.
+
+Model cua `gemini_viax` doi tu `ag/gemini-3-flash-agent` sang `ag/gemini-3.6-flash-high` ngay 2026-08-14 (migration `0016`). Ten cu VAN con trong catalog de doi lai duoc tu UI khong can deploy. **Doi model trong catalog code la KHONG DU**: bang `llm_agent_configs` da co dong seed tu migration `0012`, va `getSlotSelection` uu tien dong trong D1 — phai co migration UPDATE kem theo, neu khong production van goi model cu (tien le: `0013`).
 
 Moi slot co 1 dong trong bang `llm_slot_state` (migration `0015`) theo doi `tier` (`primary`/`secondary`/`exhausted`) va `consecutive_failures`. Luong: chinh -> 3 loi lien tiep -> phu -> 3 loi nua -> dung goi LLM het ngay (comment de nguyen trang thai chua xu ly, KHONG con fallback tu khoa/copy nguyen van nhu truoc). Cron `0 7 * * *` reset ca 2 slot ve primary. Slot `simple` co them backoff 120s giua cac lan thu lai SAU LOI (khong phai gioi han thong luong khi dang chay khoe). Module chinh: `worker/src/services/llmSlotState.ts`. Xem chi tiet thiet ke + cac diem de vo trong `handoff/HANDOFF.md` phien 2026-07-30.
 

@@ -158,7 +158,7 @@ export async function saveLlmAgentConfig(env: Env, slot: LlmAgentSlot, input: { 
  * the simple slot falls back to luna instead of competing for the same model.
  */
 const SLOT_SECONDARY: Record<LlmAgentSlot, { provider: string; model: string }> = {
-  reasoning: { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+  reasoning: { provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" },
   simple: { provider: "openai_viax", model: "gpt-5.6-luna" },
 };
 

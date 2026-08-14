@@ -38,7 +38,10 @@ export const LLM_PROVIDERS: LlmProviderSpec[] = [
     label: "Gemini by Viax",
     transport: "openai", // the Viax proxy is OpenAI-compatible whatever model it fronts
     byo: false,
-    models: ["ag/gemini-3-flash-agent"],
+    // Newest first — that is what the slots default to. The older flash-agent name is
+    // kept selectable rather than deleted so a model the proxy turns out not to serve
+    // can be reverted from the UI in seconds instead of needing a deploy.
+    models: ["ag/gemini-3.6-flash-high", "ag/gemini-3-flash-agent"],
   },
   {
     id: "openai_viax",
@@ -93,7 +96,7 @@ export const LLM_SLOTS: LlmAgentSlot[] = ["reasoning", "simple"];
 /** What each slot uses when the user has never chosen anything. */
 export const LLM_SLOT_DEFAULTS: Record<LlmAgentSlot, { provider: string; model: string }> = {
   reasoning: { provider: "openai_viax", model: "gpt-5.6-terra" },
-  simple: { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+  simple: { provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" },
 };
 
 export function isLlmAgentSlot(value: unknown): value is LlmAgentSlot {

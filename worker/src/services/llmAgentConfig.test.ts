@@ -79,7 +79,9 @@ describe("provider catalog exposed to the client", () => {
 
   test("only the Viax providers pin a model list; BYO ones are free-form", () => {
     const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
-    expect(byId.gemini_viax.models).toEqual(["ag/gemini-3-flash-agent"]);
+    // The retired flash-agent model stays listed on purpose: if the newer one turns out
+    // not to be served, the slot can be switched back from the UI without a deploy.
+    expect(byId.gemini_viax.models).toEqual(["ag/gemini-3.6-flash-high", "ag/gemini-3-flash-agent"]);
     expect(byId.openai_viax.models).toEqual(["gpt-5.6-terra", "gpt-5.6-luna"]);
     expect(byId.anthropic_direct.models).toEqual([]);
     expect(byId.custom.models).toEqual([]);
@@ -105,7 +107,7 @@ describe("provider catalog exposed to the client", () => {
 describe("slot defaults", () => {
   test("reasoning defaults to OpenAI by Viax on terra, simple to Gemini by Viax", () => {
     expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "openai_viax", model: "gpt-5.6-terra" });
-    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
+    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" });
   });
 
   test("an absent row falls back to the default", async () => {
@@ -257,6 +259,9 @@ describe("resolveLlmProviderChain — stateful escalation, not a per-call safety
     const chain = await resolveLlmProviderChain(env, "reasoning");
     expect(chain).toHaveLength(1);
     expect(chain[0].name).toBe("gemini_viax");
+    // Pinned: the reasoning slot's Gemini backup must follow the same model the simple
+    // slot runs, or a model retirement silently leaves the escalation path on a dead one.
+    expect(chain[0].model).toBe("ag/gemini-3.6-flash-high");
   });
 
   test("simple escalates to openai_viax/gpt-5.6-luna — a different model from the reasoning slot's primary", async () => {

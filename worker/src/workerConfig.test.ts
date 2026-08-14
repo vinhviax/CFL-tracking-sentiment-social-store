@@ -24,6 +24,6 @@ describe("Worker LLM configuration", () => {
 
   test("the documented slot defaults are the ones the code ships", () => {
     expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "openai_viax", model: "gpt-5.6-terra" });
-    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
+    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" });
   });
 });
