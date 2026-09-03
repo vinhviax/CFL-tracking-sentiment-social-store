@@ -2,6 +2,37 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
+## 🔴 Trạng thái tại 2026-09-03 (phiên 7) — CODE ĐÃ PUSH NHƯNG CHƯA DEPLOY, production đang lỗi
+
+**Việc đầu tiên phải làm khi mở máy: chạy 2 lệnh dưới đây, đúng thứ tự này.** Quota D1 reset lúc **00:00 UTC = 07:00 sáng GMT+7**. Trước giờ đó thì cả 2 lệnh đều fail.
+
+```bash
+cd worker
+npx wrangler d1 migrations apply cfl-feedback --remote   # BẮT BUỘC chạy trước
+npx wrangler deploy                                       # chỉ chạy sau khi lệnh trên xong
+```
+
+**Tuyệt đối không deploy trước khi migration xong.** Code mới trong `routes/runs.ts` ghi vào các cột chỉ tồn tại sau migration `0018`; deploy trước sẽ làm `/api/runs` trả 500 ngay cả khi quota đã reset. Migration `0017` sẽ đọc ~487k dòng để dựng index và `0019` đọc ~87k — tốn khoảng 11% quota ngày, một lần duy nhất, đây là bình thường.
+
+Sau khi deploy, verify: `Invoke-RestMethod ".../api/health"` phải trả `status: ok`, rồi mở trang Ingest và kiểm tra cột "Phân tích"/"Dịch" vẫn hiện đúng số như trước.
+
+### Chuyện gì đã xảy ra
+
+Production trả **HTTP 500 toàn bộ** ngày 2026-09-03. Nguyên nhân: D1 báo `exceeded free tier daily row read limit` (5 triệu dòng/ngày, code 7500). `/api/meta` vẫn sống vì không đụng D1 — đó là cách phân biệt nhanh lỗi loại này.
+
+Đo thật: **một lần mở trang Ingest tốn ~1 triệu dòng đọc D1**, nên chỉ 5 lần mở là hết quota ngày. Bốn nguyên nhân, đã sửa cả bốn trong commit `c9c892a`:
+
+1. **`routes/runs.ts` tính lại toàn bộ số đếm mỗi request** — 5 subquery tương quan cho mỗi run, với `limit: 500` từ frontend → quét 87.500 comment 5 lượt + join sang `analyses`/`comment_translations` ≈ **600k dòng/request**, và tăng vĩnh viễn theo lượng dữ liệu. Thay bằng cột cache trên `ingest_runs` (migration `0018`) + `services/runCounters.ts`: chỉ đếm lại run nào còn việc đang chạy. **Điểm quan trọng nhất không phải con số hôm nay mà là chi phí không còn tăng theo dữ liệu** — với 300k comment thì code cũ sẽ ngốn hết quota chỉ trong 1 lần mở trang.
+2. **`tokenUsage.ts` quét cả 487k dòng `processing_logs`** dù chỉ ~18k dòng khớp `level='success' AND phase='llm_batch'`. Thêm partial index đúng predicate đó (migration `0017`) — không đổi code, không đổi UI.
+3. **`/api/ingest/status` dùng `MAX(SUBSTR(created_at,1,10))`** làm index vô dụng → quét cả bảng `comments` mỗi lần mở trang. Đổi sang `MAX(created_at)` rồi cắt 10 ký tự ở JS + index `(source_type, created_at)` (migration `0019`).
+4. **Bug `ctx.waitUntil` từ phiên 6 (mục A đã hoãn) — nay đã sửa.** `scheduled()` giao việc cho `ctx.waitUntil` rồi return ngay, Cloudflare hủy task sau ~30s giữa lúc gọi LLM (batch mất 25-35s) → job treo `running`, 3 phút sau bị thu hồi, chạy lại từ batch 1, **lặp vô hạn suốt 3 tuần**: vừa không bao giờ xong (đó là lý do "rất nhiều task chưa dịch/phân tích") vừa đốt quota đọc. Đổi sang `await` trực tiếp. CPU đo được chỉ ~113ms nên không chạm giới hạn CPU.
+
+Test: worker **316/316** pass, `tsc --noEmit` sạch, frontend **68/68** pass.
+
+### Cảnh báo: J: đang lỗi git
+
+`J:\My Drive\CFL\Agent\Tracking Store Social` trả `error: bad tree object HEAD` (exit 128) khi `git status`, lặp lại được — đúng cảnh báo có sẵn trong MEMORY về git trên Google Drive. `git rev-parse HEAD` vẫn ra `6fe15f5` nhưng không commit được. **Phiên 7 đã làm code và commit/push từ G:** (clone thật trên ổ local, sạch). J: giờ đã lạc hậu 1 commit — cần `git pull` hoặc clone lại; nếu vẫn lỗi thì nên coi G: là workspace chính từ nay.
+
 ## Trạng thái tại 2026-08-14 (cuối phiên 6) — có sửa code, đã deploy production
 
 - Commit mới nhất: `0db5f89` trên `origin/main`, working tree sạch tại J:.
