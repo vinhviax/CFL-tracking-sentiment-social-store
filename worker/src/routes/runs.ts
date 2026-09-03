@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Env } from "../types";
 import { deleteIngestRun } from "../services/deleteIngestRun";
+import { loadQueueActivity, pickStaleRunIds, refreshRunCounts } from "../services/runCounters";
 import { loadRunTokenUsage, sumTokenUsage, type TokenUsageGroup } from "../services/tokenUsage";
 
 export const runsRoute = new Hono<{ Bindings: Env }>();
@@ -50,60 +51,39 @@ export function mapRunRow(row: any, tokenGroups: TokenUsageGroup[] = []) {
   };
 }
 
-const RUN_SELECT = `
-  SELECT r.*,
-         (
-           SELECT COUNT(*)
-           FROM comments c
-           WHERE c.ingest_run_id = r.id
-             AND c.skipped_analysis = 0
-         ) AS comment_count,
-         (
-           SELECT COUNT(*)
-           FROM comments c
-           JOIN analyses a ON a.comment_id = c.id
-           WHERE c.ingest_run_id = r.id
-             AND c.skipped_analysis = 0
-         ) AS analyzed_count,
-         (
-           SELECT COUNT(*)
-           FROM comments c
-           JOIN comment_translations t ON t.comment_id = c.id AND t.locale = 'zh-CN'
-           WHERE c.ingest_run_id = r.id
-             AND c.skipped_analysis = 0
-         ) AS translated_zh_cn_count,
-         (
-           SELECT MIN(SUBSTR(c.created_at, 1, 10))
-           FROM comments c
-           WHERE c.ingest_run_id = r.id
-             AND c.created_at IS NOT NULL
-         ) AS data_start_date,
-         (
-           SELECT MAX(SUBSTR(c.created_at, 1, 10))
-           FROM comments c
-           WHERE c.ingest_run_id = r.id
-             AND c.created_at IS NOT NULL
-         ) AS data_end_date
-  FROM ingest_runs r
-`;
+/**
+ * Counts come from the cached columns on ingest_runs, not from subqueries over the raw
+ * tables. Runs whose work can still move are recounted on the way past — see
+ * services/runCounters.ts for the rule and migration 0018 for why this exists.
+ */
+async function withFreshCounts(c: Context<{ Bindings: Env }>, rows: any[]) {
+  if (!rows.length) return rows;
+  const activity = await loadQueueActivity(c.env);
+  const fresh = await refreshRunCounts(c.env, pickStaleRunIds(rows, activity));
+  return rows.map((row) => {
+    const snapshot = fresh.get(Number(row.id));
+    return snapshot ? { ...row, ...snapshot } : row;
+  });
+}
 
 runsRoute.get("/", async (c) => {
   const limit = Math.max(1, Number(c.req.query("limit")) || 50);
   const rows = await c.env.DB
-    .prepare(`${RUN_SELECT} ORDER BY r.id DESC LIMIT ?`)
+    .prepare(`SELECT * FROM ingest_runs ORDER BY id DESC LIMIT ?`)
     .bind(limit)
     .all();
-  const results = rows.results as any[];
+  const results = await withFreshCounts(c, rows.results as any[]);
   const tokensByRun = await loadRunTokenUsage(c.env, results.map((row) => Number(row.id)));
   return c.json(results.map((row) => mapRunRow(row, tokensByRun.get(Number(row.id)) || [])));
 });
 
 runsRoute.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const row = await c.env.DB.prepare(`${RUN_SELECT} WHERE r.id = ?`).bind(id).first();
+  const row = await c.env.DB.prepare(`SELECT * FROM ingest_runs WHERE id = ?`).bind(id).first();
   if (!row) return c.json({ detail: "Run not found" }, 404);
+  const [fresh] = await withFreshCounts(c, [row as any]);
   const tokensByRun = await loadRunTokenUsage(c.env, [id]);
-  return c.json(mapRunRow(row, tokensByRun.get(id) || []));
+  return c.json(mapRunRow(fresh, tokensByRun.get(id) || []));
 });
 
 runsRoute.delete("/:id", async (c) => {

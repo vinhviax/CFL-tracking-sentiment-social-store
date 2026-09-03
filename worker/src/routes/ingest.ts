@@ -50,8 +50,13 @@ ingestRoute.get("/status", async (c) => {
   const cursors = await c.env.DB.prepare(`SELECT * FROM ingest_cursors WHERE key IN (?, ?) ORDER BY key`)
     .bind(SENSOR_TOWER_CURSOR_KEY, FACEBOOK_CURSOR_KEY)
     .all();
+  // MAX(created_at), not MAX(SUBSTR(created_at, 1, 10)): wrapping the column made this
+  // unindexable, so filling in three dates scanned every comment in the table on every
+  // page load. ISO-8601 sorts lexicographically, so the newest value's date prefix is
+  // the same answer — and idx_comments_source_created (migration 0019) turns it into
+  // one seek per source_type. The prefix is taken below, when the map is built.
   const dataDates = await c.env.DB.prepare(
-    `SELECT source_type, MAX(SUBSTR(created_at, 1, 10)) AS latest_data_date
+    `SELECT source_type, MAX(created_at) AS latest_data_date
      FROM comments
      WHERE source_type IN ('store', 'fb_page', 'fb_group_csv')
        AND created_at IS NOT NULL
@@ -67,7 +72,12 @@ ingestRoute.get("/status", async (c) => {
     `SELECT * FROM ingest_runs WHERE source_type = 'fb_group_csv' ORDER BY id DESC LIMIT 1`
   ).first();
   const cursorByKey = new Map((cursors.results || []).map((row: any) => [row.key, row]));
-  const dataDateBySource = new Map((dataDates.results || []).map((row: any) => [row.source_type, row.latest_data_date || null]));
+  const dataDateBySource = new Map(
+    (dataDates.results || []).map((row: any) => [
+      row.source_type,
+      row.latest_data_date ? String(row.latest_data_date).slice(0, 10) : null,
+    ])
+  );
   const sourceStatus = ([
     {
       key: "store",

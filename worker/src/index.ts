@@ -110,19 +110,30 @@ app.route("/api/processing", processingRoute);
 export default {
   fetch: app.fetch,
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
     // Three schedules share this handler, dispatched by exact cron string: the daily
     // ingest, the daily LLM slot reset, and a five-minute sweep that only keeps the
     // processing queue moving. The sweep must not re-run either daily job.
+    //
+    // Awaited, never handed to ctx.waitUntil. Cloudflare cancels waitUntil tasks about
+    // 30s after the invocation ends — the runtime says so itself: "waitUntil() tasks did
+    // not complete within the allowed time after invocation end and have been cancelled".
+    // An analysis batch takes 25-35s, so every sweep was killed mid-batch before it could
+    // log either success or failure: the job stayed 'running' with nothing to finish it,
+    // stale recovery reclaimed it 3 minutes later, and the run restarted from batch 1 —
+    // forever, making no progress while re-scanning the pending set each time. That churn
+    // is what exhausted D1's free-tier daily row-read limit and took production down on
+    // 2026-09-03. Awaiting keeps the invocation alive for the real work; CPU stays tiny
+    // (~113ms measured) because the time is spent waiting on the LLM, not computing.
     if (event.cron === DAILY_INGEST_CRON) {
-      ctx.waitUntil(dailyJob(env));
+      await dailyJob(env);
       return;
     }
     if (event.cron === DAILY_SLOT_RESET_CRON) {
-      ctx.waitUntil(dailySlotResetJob(env));
+      await dailySlotResetJob(env);
       return;
     }
-    ctx.waitUntil(sweepProcessingQueue(env));
+    await sweepProcessingQueue(env);
   },
 };
 

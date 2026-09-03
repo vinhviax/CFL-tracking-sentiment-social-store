@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   upsertSourceCursor: vi.fn(),
   enqueueProcessingJobs: vi.fn(),
   drainProcessingQueue: vi.fn(),
+  recoverStaleProcessingJobs: vi.fn(),
+  retryFailedProcessingJobs: vi.fn(),
+  resetAllSlotsForNewDay: vi.fn(),
 }));
 
 vi.mock("./routes/analyze", () => ({ analyzeRoute: { routes: [] } }));
@@ -31,7 +34,10 @@ vi.mock("./services/processingQueue", () => ({
   ],
   enqueueProcessingJobs: mocks.enqueueProcessingJobs,
   drainProcessingQueue: mocks.drainProcessingQueue,
+  recoverStaleProcessingJobs: mocks.recoverStaleProcessingJobs,
+  retryFailedProcessingJobs: mocks.retryFailedProcessingJobs,
 }));
+vi.mock("./services/llmSlotState", () => ({ resetAllSlotsForNewDay: mocks.resetAllSlotsForNewDay }));
 vi.mock("./services/sensortowerCursor", () => ({
   SENSOR_TOWER_CURSOR_KEY: "sensortower_store",
   FACEBOOK_CURSOR_KEY: "facebook_page",
@@ -44,7 +50,64 @@ vi.mock("./services/sensortowerCursor", () => ({
   upsertSourceCursor: mocks.upsertSourceCursor,
 }));
 
-import { dailyJob } from "./index";
+import worker, { DAILY_INGEST_CRON, DAILY_SLOT_RESET_CRON, dailyJob } from "./index";
+
+/**
+ * The scheduled handler must not hand its work to ctx.waitUntil and return.
+ *
+ * Cloudflare cancels waitUntil tasks roughly 30s after the invocation ends — it logs
+ * "waitUntil() tasks did not complete within the allowed time and have been cancelled".
+ * An LLM batch takes 25-35s, so every sweep was killed mid-batch: the job stayed
+ * 'running' with nothing to finish it, stale recovery reclaimed it 3 minutes later, and
+ * the run restarted from batch 1 forever. Awaiting keeps the invocation alive for the
+ * whole sweep, which is what makes a long run finish on its own.
+ */
+describe("scheduled handler keeps its work inside the invocation", () => {
+  const cronEvent = (cron: string) => ({ cron, scheduledTime: Date.now(), noRetry() {} }) as any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.recoverStaleProcessingJobs.mockResolvedValue(undefined);
+    mocks.retryFailedProcessingJobs.mockResolvedValue(0);
+    mocks.resetAllSlotsForNewDay.mockResolvedValue(undefined);
+    mocks.enqueueProcessingJobs.mockResolvedValue(undefined);
+    mocks.seedSourceCursor.mockResolvedValue(null);
+    mocks.buildCursorCatchupRange.mockReturnValue(null);
+  });
+
+  test("the five-minute sweep finishes draining before scheduled() resolves", async () => {
+    let drained = false;
+    mocks.drainProcessingQueue.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      drained = true;
+    });
+    const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
+
+    await worker.scheduled(cronEvent("*/5 * * * *"), {} as any, ctx);
+
+    expect(drained).toBe(true);
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  test("the daily ingest is awaited too, not fired into the background", async () => {
+    const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
+
+    await worker.scheduled(cronEvent(DAILY_INGEST_CRON), {} as any, ctx);
+
+    expect(mocks.seedSourceCursor).toHaveBeenCalled();
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  test("the daily slot reset is awaited too", async () => {
+    mocks.drainProcessingQueue.mockResolvedValue(undefined);
+    const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as any;
+
+    await worker.scheduled(cronEvent(DAILY_SLOT_RESET_CRON), {} as any, ctx);
+
+    expect(mocks.resetAllSlotsForNewDay).toHaveBeenCalled();
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+  });
+});
 
 describe("scheduled cursor ingest", () => {
   beforeEach(() => {
