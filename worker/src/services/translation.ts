@@ -34,7 +34,15 @@ export async function getTranslationProgress(env: Env, key: string) {
 
 async function pendingTranslations(
   env: Env,
-  opts: { commentIds?: number[]; runId?: number; locale: string; force?: boolean; limit?: number }
+  opts: {
+    commentIds?: number[];
+    runId?: number;
+    locale: string;
+    force?: boolean;
+    limit?: number;
+    maxBatches?: number;
+    batchSize?: number;
+  }
 ): Promise<PendingTranslation[]> {
   const params: any[] = [opts.locale];
   const where = ["c.skipped_analysis = 0"];
@@ -71,9 +79,44 @@ async function pendingTranslations(
   return rows.results;
 }
 
-export function buildTranslationLimit(opts: { runId?: number; limit?: number }) {
+/**
+ * How many comments still need this locale, for the progress bar's denominator.
+ * Only called when the capped SELECT came back full — one scan per job, not per attempt.
+ */
+async function countPendingTranslations(
+  env: Env,
+  opts: { runId?: number; locale: string; force?: boolean }
+): Promise<number | null> {
+  if (opts.runId == null) return null;
+  const where = ["c.skipped_analysis = 0"];
+  if (!opts.force) where.push("t.comment_id IS NULL");
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS pending
+     FROM comments c
+     LEFT JOIN comment_translations t ON t.comment_id = c.id AND t.locale = ?
+     WHERE ${where.join(" AND ")} AND c.ingest_run_id = ?`
+  ).bind(opts.locale, opts.runId).first<{ pending: number }>();
+  return row ? Number(row.pending || 0) : null;
+}
+
+/**
+ * How many rows the pending SELECT may return.
+ *
+ * An explicit caller limit wins. Otherwise a run-scoped job is capped at what this
+ * attempt can actually translate — fetching the whole run made finishing it cost
+ * ~N²/batch row reads and exhausted D1's daily read limit on 2026-09-04. Only a forced
+ * sweep (no maxBatches) stays uncapped, because it is meant to revisit everything.
+ */
+export function buildTranslationLimit(opts: {
+  runId?: number;
+  limit?: number;
+  maxBatches?: number;
+  batchSize?: number;
+}) {
   if (opts.limit != null) return parseBoundedInt(opts.limit, 1, 5000, 1000);
-  return opts.runId == null ? 1000 : null;
+  if (opts.runId == null) return 1000;
+  if (opts.maxBatches == null || opts.batchSize == null) return null;
+  return Math.max(1, opts.maxBatches) * opts.batchSize;
 }
 
 export function getTranslationBatchSize(env: Env) {
@@ -241,10 +284,19 @@ export async function runTranslation(
   const displayProvider = (await resolveLlmProviderChain(env, "simple", opts.byo))[0]?.name ?? "simple";
 
   await opts.shouldContinue?.();
-  const comments = await pendingTranslations(env, { ...opts, locale });
+  const batchSize = getTranslationBatchSize(env);
+  const comments = await pendingTranslations(env, { ...opts, locale, batchSize });
   const previousProgress = await getProgressJob(env, opts.progressKey);
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
-  const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
+  // Same reasoning as runAnalysis: once the SELECT is capped it no longer stands in for
+  // "everything still pending", so the denominator needs a COUNT — and only when the cap
+  // was actually hit and no earlier attempt already recorded a total.
+  const knownTotal = Number(previousProgress?.total || 0);
+  const fetchLimit = buildTranslationLimit({ ...opts, batchSize });
+  const pendingTotal = fetchLimit != null && comments.length === fetchLimit && !knownTotal
+    ? (await countPendingTranslations(env, { runId: opts.runId, locale, force: opts.force })) ?? comments.length
+    : comments.length;
+  const total = Math.max(knownTotal, alreadyDone + pendingTotal);
   await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: displayProvider });
 
   if (!comments.length) {
@@ -265,7 +317,6 @@ export async function runTranslation(
   let done = 0;
   // Batches whose LLM call failed; left unprocessed so the job requeues for them.
   let failedBatches = 0;
-  const batchSize = getTranslationBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
   const groups = chunk(comments, batchSize);
   const groupsToProcess = opts.maxBatches == null ? groups : groups.slice(0, Math.max(1, opts.maxBatches));

@@ -63,7 +63,8 @@ export async function loadHumanCorrectionExamples(env: Env, limit = 12): Promise
 }
 
 async function pendingComments(
-  env: Env, opts: { commentIds?: number[]; runId?: number; force?: boolean; forceSince?: string | null }
+  env: Env,
+  opts: { commentIds?: number[]; runId?: number; force?: boolean; forceSince?: string | null; limit?: number }
 ): Promise<PendingComment[]> {
   // Without force, only comments that have no analysis at the current prompt version.
   // With force, every comment in scope — which is what "Phân tích lại" means. The old
@@ -87,11 +88,19 @@ async function pendingComments(
   `;
   const versionParams = opts.force ? (opts.forceSince ? [opts.forceSince] : []) : [PROMPT_VERSION];
 
+  // Never select more than the caller can process this attempt. Without this the cost
+  // of finishing a run was quadratic: an attempt handles maxBatches*batchSize comments
+  // but used to read every pending row in the run first and discard the rest, so a
+  // 16,429-comment run cost ~2.7M row reads to get through — which is what exhausted
+  // D1's daily read limit on 2026-09-04. A forced sweep passes no limit on purpose.
+  const limitSql = opts.limit == null ? "" : " LIMIT ?";
+  const limitParams = opts.limit == null ? [] : [opts.limit];
+
   // Filter by ingest_run_id directly rather than passing thousands of ids —
   // D1/SQLite caps bound parameters per statement well below dataset size.
   if (opts.runId != null) {
-    const res = await env.DB.prepare(`${baseSql} AND c.ingest_run_id = ?`)
-      .bind(...versionParams, opts.runId).all<PendingComment>();
+    const res = await env.DB.prepare(`${baseSql} AND c.ingest_run_id = ?${limitSql}`)
+      .bind(...versionParams, opts.runId, ...limitParams).all<PendingComment>();
     return res.results;
   }
 
@@ -106,8 +115,35 @@ async function pendingComments(
     return out;
   }
 
-  const res = await env.DB.prepare(baseSql).bind(...versionParams).all<PendingComment>();
+  const res = await env.DB.prepare(`${baseSql}${limitSql}`)
+    .bind(...versionParams, ...limitParams).all<PendingComment>();
   return res.results;
+}
+
+/**
+ * How many comments are still pending, for the progress bar's denominator.
+ *
+ * Only called when the capped SELECT came back full, meaning there is more work than
+ * this attempt can see. Costs one scan per job rather than one per attempt, because
+ * the answer is then reused from the stored progress row on later attempts.
+ */
+async function countPendingComments(
+  env: Env, opts: { runId?: number; force?: boolean; forceSince?: string | null }
+): Promise<number | null> {
+  if (opts.runId == null) return null;
+  const versionFilter = opts.force
+    ? (opts.forceSince ? "AND (a.comment_id IS NULL OR a.analyzed_at IS NULL OR a.analyzed_at < ?)" : "")
+    : "AND (a.comment_id IS NULL OR a.prompt_version != ?)";
+  const versionParams = opts.force ? (opts.forceSince ? [opts.forceSince] : []) : [PROMPT_VERSION];
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS pending
+     FROM comments c
+     LEFT JOIN analyses a ON a.comment_id = c.id
+     WHERE c.skipped_analysis = 0
+       ${versionFilter}
+       AND c.ingest_run_id = ?`
+  ).bind(...versionParams, opts.runId).first<{ pending: number }>();
+  return row ? Number(row.pending || 0) : null;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -141,16 +177,26 @@ export async function runAnalysis(
   // effect on the next batch. This first resolve is only for the progress display.
   const displayProvider = (await resolveLlmProviderChain(env, "reasoning", opts.byo))[0]?.name ?? "reasoning";
   await opts.shouldContinue?.();
+  const batchSize = getAnalysisBatchSize(env);
+  const fetchLimit = opts.maxBatches == null ? undefined : Math.max(1, opts.maxBatches) * batchSize;
   const comments = await pendingComments(env, {
     commentIds: opts.commentIds,
     runId: opts.runId,
     force: opts.force,
     forceSince: opts.forceSince,
+    limit: fetchLimit,
   });
   const humanExamples = await loadHumanCorrectionExamples(env);
   const previousProgress = await getProgressJob(env, opts.progressKey);
   const alreadyDone = Math.max(0, Number(previousProgress?.done || 0));
-  const total = Math.max(Number(previousProgress?.total || 0), alreadyDone + comments.length);
+  // The capped SELECT can no longer stand in for "everything still pending", so the
+  // denominator comes from a COUNT — but only when the cap was actually reached and no
+  // earlier attempt has already recorded one.
+  const knownTotal = Number(previousProgress?.total || 0);
+  const pendingTotal = fetchLimit != null && comments.length === fetchLimit && !knownTotal
+    ? (await countPendingComments(env, { runId: opts.runId, force: opts.force, forceSince: opts.forceSince })) ?? comments.length
+    : comments.length;
+  const total = Math.max(knownTotal, alreadyDone + pendingTotal);
 
   await setProgress(env, opts.progressKey, { status: "running", done: alreadyDone, total, provider: displayProvider });
 
@@ -171,7 +217,6 @@ export async function runAnalysis(
     }
   }
 
-  const batchSize = getAnalysisBatchSize(env);
   const concurrency = getLlmBatchConcurrency(env);
   let analyzed = 0;
   // Batches whose LLM call failed. They stay unprocessed so the job requeues and picks

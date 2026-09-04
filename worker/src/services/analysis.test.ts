@@ -114,3 +114,69 @@ describe("forced re-analysis", () => {
     expect(select.params).toEqual([53]);
   });
 });
+
+/**
+ * Reading more rows than an attempt can process is what made the cost quadratic.
+ * runAnalysis processes at most `maxBatches * batchSize` comments per attempt, but it
+ * used to SELECT every pending comment in the run first and throw the rest away — so a
+ * 16,429-comment run cost ~16,429 row reads on each of its ~164 attempts, about 2.7
+ * million reads to finish one run. That is what exhausted D1's free-tier daily read
+ * limit on 2026-09-04, hours after the page-load fix.
+ */
+describe("runAnalysis only reads what one attempt can process", () => {
+  function fakeEnv(pendingRows: any[], countRow?: { pending: number }) {
+    const queries: { sql: string; args: unknown[] }[] = [];
+    const env = {
+      ANALYSIS_BATCH_SIZE: "20",
+      LLM_BATCH_CONCURRENCY: "1",
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...args: unknown[]) {
+              queries.push({ sql, args });
+              return {
+                async all() {
+                  if (/analysis_corrections/.test(sql)) return { results: [] };
+                  if (/FROM posts/.test(sql)) return { results: [] };
+                  return { results: pendingRows };
+                },
+                async first() {
+                  if (/COUNT\(\*\)/.test(sql)) return countRow ?? { pending: pendingRows.length };
+                  return null;
+                },
+                async run() {
+                  return {};
+                },
+              };
+            },
+          };
+        },
+        async batch() {
+          return [];
+        },
+      },
+    } as any;
+    return { env, queries };
+  }
+
+  test("caps the pending SELECT at maxBatches * batchSize", async () => {
+    const { env, queries } = fakeEnv([]);
+
+    await runAnalysis(env, { runId: 133, progressKey: "run-133", maxBatches: 5 });
+
+    const pendingQuery = queries.find((q) => /FROM comments c/.test(q.sql) && /LEFT JOIN analyses/.test(q.sql));
+    expect(pendingQuery).toBeDefined();
+    expect(pendingQuery!.sql).toContain("LIMIT");
+    // 5 batches x 20 per batch — not the whole run.
+    expect(pendingQuery!.args).toContain(100);
+  });
+
+  test("a forced sweep with no maxBatches stays unlimited", async () => {
+    const { env, queries } = fakeEnv([]);
+
+    await runAnalysis(env, { runId: 133, progressKey: "run-133" });
+
+    const pendingQuery = queries.find((q) => /FROM comments c/.test(q.sql) && /LEFT JOIN analyses/.test(q.sql));
+    expect(pendingQuery!.sql).not.toContain("LIMIT");
+  });
+});

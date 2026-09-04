@@ -58,9 +58,18 @@ describe("parseTranslationResults", () => {
     ]);
   });
 
-  test("does not cap run-specific translation when no explicit limit is provided", () => {
+  /**
+   * Fetching more rows than an attempt can process is what made the cost quadratic:
+   * a run of N comments translating 100 per attempt read N rows every attempt, so
+   * finishing it cost ~N²/100 row reads. That is what exhausted D1's daily read limit
+   * on 2026-09-04, hours after the previous fix.
+   */
+  test("caps a run-specific fetch to what one attempt can actually process", () => {
+    expect(buildTranslationLimit({ runId: 42, maxBatches: 5, batchSize: 20 })).toBe(100);
+    // An explicit caller limit still wins — that is the "translate up to N" button.
+    expect(buildTranslationLimit({ runId: 42, limit: 300, maxBatches: 5, batchSize: 20 })).toBe(300);
+    // A forced re-run passes no maxBatches: it deliberately sweeps the whole run.
     expect(buildTranslationLimit({ runId: 42 })).toBeNull();
-    expect(buildTranslationLimit({ runId: 42, limit: 300 })).toBe(300);
     expect(buildTranslationLimit({})).toBe(1000);
   });
 
