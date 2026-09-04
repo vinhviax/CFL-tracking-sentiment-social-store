@@ -13,6 +13,23 @@ Migration + deploy chạy tự động qua lịch hẹn (`CronCreate`, one-shot 
 
 **Việc còn lại**: theo dõi vài ngày xem D1 row-read/ngày có ổn định ở mức thấp không (trước đây ~1 triệu dòng/lần mở trang Ingest, giờ kỳ vọng vài trăm dòng). Không có lệnh đo trực tiếp usage/ngày qua CLI — nếu cần, kiểm tra qua Cloudflare Dashboard → Workers & Pages → D1 → Metrics.
 
+## 🔴 CẬP NHẬT 2026-09-04 ~09:50 — quota HẾT LẠI sau vài tiếng, đã tìm ra nguyên nhân thứ 2
+
+Sau khi deploy sáng nay, quota D1 lại cạn chỉ sau vài giờ. Fix hôm qua đúng nhưng **chưa đủ** — nó chỉ cắt chi phí *mở trang*, còn thủ phạm lớn hơn nằm ở **chính hàng đợi xử lý**, và fix `await` hôm qua vô tình làm nó lộ ra: trước đây job bị giết sau 30s nên quét được ít, giờ chạy thật nên quét liên tục.
+
+**Chi phí bậc hai trong `pendingComments`/`pendingTranslations`**: mỗi lượt xử lý chỉ làm `maxBatches × batchSize` = 100 comment, nhưng câu SELECT lại **tải toàn bộ** comment còn lại của run rồi vứt phần thừa. Hoàn thành 1 run N comment tốn ~N²/100 dòng đọc → riêng run #133 (16.429 comment) ≈ **2,7 triệu dòng đọc**.
+
+Đã sửa (commit `b39d3d5`, deploy version `295a09b2-6cff-40b6-9bcb-fce6b8bc26ab`):
+- Đẩy `LIMIT` xuống SQL cho cả 2 hàm — chỉ đọc đúng số dòng một lượt xử lý được.
+- Mẫu số thanh tiến độ lấy từ `COUNT` riêng, chỉ chạy **1 lần cho mỗi job** (khi chạm trần và chưa có total cũ) thay vì mỗi lượt → từ ~N²/100 xuống ~2N.
+- Sweep cưỡng bức (`force`, không truyền `maxBatches`) vẫn không giới hạn, vì nó có chủ đích quét lại toàn bộ.
+
+Test 318/318 pass, typecheck sạch, đã deploy.
+
+⚠️ **Chưa verify được** vì quota đang cạn tới 00:00 UTC (07:00 GMT+7 ngày 05/09). Khi quota reset, việc đầu tiên là **đo thật** xem read/ngày có còn tăng bất thường không (Cloudflare Dashboard → D1 → Metrics), đừng mặc định là đã xong — đây là lần thứ 2 tưởng xong mà chưa xong.
+
+**Bài học chung**: mọi vòng lặp xử lý theo lô phải giới hạn ngay trong SQL, không được "tải hết rồi cắt trong bộ nhớ". Chi phí tính theo số dòng **quét**, không phải số dòng dùng.
+
 ### Chuyện gì đã xảy ra
 
 Production trả **HTTP 500 toàn bộ** ngày 2026-09-03. Nguyên nhân: D1 báo `exceeded free tier daily row read limit` (5 triệu dòng/ngày, code 7500). `/api/meta` vẫn sống vì không đụng D1 — đó là cách phân biệt nhanh lỗi loại này.
