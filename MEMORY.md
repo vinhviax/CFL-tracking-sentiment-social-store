@@ -54,6 +54,38 @@ Kien truc "custom provider override" cu (D1 slot override tro thang toi `agent-s
 
 Model cua `gemini_viax` doi tu `ag/gemini-3-flash-agent` sang `ag/gemini-3.6-flash-high` ngay 2026-08-14 (migration `0016`). Ten cu VAN con trong catalog de doi lai duoc tu UI khong can deploy. **Doi model trong catalog code la KHONG DU**: bang `llm_agent_configs` da co dong seed tu migration `0012`, va `getSlotSelection` uu tien dong trong D1 — phai co migration UPDATE kem theo, neu khong production van goi model cu (tien le: `0013`).
 
+## Provider `vng_lite` - gateway LLM noi bo VNG (tu 2026-09-04)
+
+Them vao catalog vi **container Dokploy KHONG goi duoc ra ngoai**, nen 2 provider Viax hien tai (`openai_viax` qua `agent-shop.clawd.io.vn`, `gemini_viax` qua tunnel `rpi7jss.abc-tunnel.us`) se chet khi migrate sang Dokploy.
+
+- Endpoint: `https://lite-aawp.vnggames.net/v1` (env `LLM_VNG_LITE_BASE_URL`, da ghi trong `wrangler.jsonc`)
+- Key: secret `LLM_VNG_LITE_API_KEY` (`wrangler secret put`)
+- **Chuan OpenAI-compatible** -> dung lai `OpenAIProvider`, khong can provider moi
+- `loadProviderCredentials` co y **KHONG fallback** sang proxy Viax cho provider nay: fallback se bao slot san sang trong khi moi loi goi deu that bai, vi Viax khong goi duoc tu mang VNG
+
+**Toc do da do that tren 1 batch 20 comment (2026-09-04) - dung do lai:**
+
+| Model | Giay | Output token | Reasoning token |
+|---|---|---|---|
+| `gemini/gemini-3.5-flash-lite` (da chon) | 4,7 | 1.821 | 0 |
+| `gpt-5.4-mini` | 4,9 | 1.067 | 0 |
+| `gemini-3.1-flash-lite-preview` | 5,0 | 1.777 | 0 |
+| `gemini/gemini-3.6-flash` + `reasoning_effort=none` | 19,9 | 1.943 | 0 |
+| `deepseek-v4-flash` + `reasoning_effort=low` | 28,2 | 3.200 | 1.628 |
+| `deepseek-v4-flash` (mac dinh) | 38,3 | 4.131 | 2.528 |
+
+Tat ca tra JSON dung 20/20. **`reasoning_effort` chi co tac dung voi gemini** (68,8s -> 19,9s); deepseek phot lo hoan toan gia tri `none`. Code khong gui `reasoning_effort`, nen danh sach model trong catalog xep model lite dung dau - de model nang suy luan lam mac dinh se am tham cham gap 8 lan.
+
+## Lop adapter libSQL (`worker/src/db/libsqlAdapter.ts`, tu 2026-09-04)
+
+Gia lap dung hinh dang D1 binding (`prepare().bind().all/first/run`, `DB.batch`, `meta.changes`/`meta.last_row_id`) de chay app ngoai Cloudflare **khong phai sua 133 cho goi DB trong 17 file**. Chon libSQL vi tuong thich SQLite: **19/19 migration chay nguyen van** (da kiem chung that, khong phai suy doan).
+
+Hai bay da xu ly, dung pha lai:
+- `lastInsertRowid` cua libSQL la **BigInt** -> phai `Number()`, vi 9 cho dung truc tiep lam id
+- `bind()` tra ve statement **moi** thay vi sua tai cho, vi `services/` dung lai statement trong vong lap
+
+`worker/src/db/libsqlIntegration.test.ts` dung libSQL in-memory that + ap ca 19 migration + goi code that. Day la bai test duy nhat tra loi duoc "SQL cua app co chay tren libSQL khong" - mock luon dong y voi SQL ma SQLite se tu choi. Giu bai test nay khi sua schema.
+
 Moi slot co 1 dong trong bang `llm_slot_state` (migration `0015`) theo doi `tier` (`primary`/`secondary`/`exhausted`) va `consecutive_failures`. Luong: chinh -> 3 loi lien tiep -> phu -> 3 loi nua -> dung goi LLM het ngay (comment de nguyen trang thai chua xu ly, KHONG con fallback tu khoa/copy nguyen van nhu truoc). Cron `0 7 * * *` reset ca 2 slot ve primary. Slot `simple` co them backoff 120s giua cac lan thu lai SAU LOI (khong phai gioi han thong luong khi dang chay khoe). Module chinh: `worker/src/services/llmSlotState.ts`. Xem chi tiet thiet ke + cac diem de vo trong `handoff/HANDOFF.md` phien 2026-07-30.
 
 `resolveLlmProviderChain` (`worker/src/services/llmAgentConfig.ts`) gio tra ve toi da 1 provider (tier dang active), khong con tu dong noi `gemini_viax` lam safety net vao moi lan goi nhu truoc.
@@ -177,6 +209,9 @@ Invoke-RestMethod "https://cfl-feedback-worker.vinhviax.workers.dev/api/meta"
 - `worker/node_modules/typescript` tren `J:` (Google Drive) bi loi sync (`ERR_INVALID_PACKAGE_CONFIG`) va `vitest` treo vo han o do. Test/typecheck/build/deploy PHAI chay tu ban mirror local `C:\Temp\cfl-export-20260720-1442\` (khong phai git repo — chi copy file vua sua sang do roi chay). Xem chi tiet quy trinh o memory Claude Code (`cfl-run-tests-from-local-mirror`).
 - `enqueueJobs` (`processing_queue`, `ON CONFLICT DO UPDATE`) phai cap nhat CA `force`/`comment_ids_json`/`locale`/`limit_count` khi row o trang thai ket thuc, khong chi `status`/`attempts`/`started_at`. Neu quen, mot progress_key da tung force 1 lan se giu `force=1` vinh vien, khien lan bam "Phan tich"/"Dich" binh thuong sau do van quet lai ca run (da xay ra that voi run #73, sua ngay `1545046`).
 - `pendingTranslations` (`worker/src/services/translation.ts`) khong-force chi chon comment CHUA co dong nao trong `comment_translations` (`t.comment_id IS NULL`). Comment da co dong (vd `message_translated` xong nhung `summary_translated` rong — tinh trang nay xay ra khi phan tich lai sau khi dich da chay) se KHONG BAO GIO duoc chon lai neu khong `force`. Day la ly do can `force:true` thu cong cho cac dot "dich lai summary", va la viec can sua o dau phien sau (xem handoff 2026-07-30 phien 3).
+- **Moi vong lap xu ly theo lo phai gioi han ngay trong SQL.** `pendingComments`/`pendingTranslations` tung tai TOAN BO comment con lai cua run roi chi xu ly `maxBatches*batchSize` (100 comment) va vut phan con lai -> chi phi hoan thanh 1 run N comment la ~N^2/100 dong doc (rieng run #133: ~2,7 trieu dong). Da sua bang cach day `LIMIT` xuong SQL + `COUNT` rieng chi chay 1 lan moi job cho mau so thanh tien do. **Dung quay lai kieu "tai het roi cat trong bo nho".**
+- **Dokploy VNG la ha tang BAT BUOC** (quy dinh noi bo, xac nhan 2026-09-04). Khong de xuat o lai Cloudflare hay nang plan tra phi nua.
+- **Container Dokploy khong goi duoc ra ngoai internet** -> chi dung duoc LLM noi bo (`vng_lite`). Kiem tra egress la viec bat buoc lam dau tien khi migrate bat ky app nao sang Dokploy.
 - **D1 Free plan chi cho 5 trieu dong DOC/ngay** (va 100k dong ghi/ngay). Vuot la MOI query D1 fail voi `code: 7500`, ca `wrangler d1 execute` cung fail, va app tra HTTP 500 toan bo. Dau hieu nhan biet nhanh: `/api/meta` van song (khong dung D1) nhung `/api/health` tra 500. Quota reset 00:00 UTC = 07:00 GMT+7. Da xay ra that 2026-09-03, xem handoff phien 7.
 - **D1 tinh "rows read" theo so dong QUET, khong phai so dong tra ve.** Mot `COUNT(*)` tren bang 487k dong = 487k dong doc. Vi vay query khong dung duoc index tren bang lon la cach nhanh nhat de dot quota, du du lieu tra ve chi vai dong. Khi viet query moi tren `comments`/`processing_logs`, phai kiem tra co dung index khong.
 - **Dung boc column trong ham o WHERE/MAX/MIN neu muon dung index.** `MAX(SUBSTR(created_at,1,10))` lam index vo dung; `MAX(created_at)` roi cat chuoi o JS thi dung duoc index. Da sua o `/api/ingest/status` (migration `0019`).

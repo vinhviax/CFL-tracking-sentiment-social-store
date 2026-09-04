@@ -2,6 +2,66 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
+## 🎯 Trạng thái tại 2026-09-04 cuối phiên 8 — ĐANG MIGRATE SANG DOKPLOY (1/4 việc code đã xong)
+
+### Bối cảnh đã thay đổi hẳn: Dokploy là BẮT BUỘC, không phải lựa chọn
+
+User xác nhận **Dokploy VNG là hạ tầng nội bộ bắt buộc dùng** — bỏ hẳn phương án ở lại Cloudflare (kể cả nâng plan trả phí). Mọi đề xuất kiểu "kiểm chứng thêm trên Cloudflare rồi tính" là **lạc đề**, đừng lặp lại: user đã phải nhắc về việc này.
+
+### Phát hiện quyết định kiến trúc: container Dokploy KHÔNG gọi được ra ngoài
+
+User đã xác nhận. Hệ quả: **2 provider LLM hiện tại sẽ chết khi migrate** (`openai_viax` qua `agent-shop.clawd.io.vn`, `gemini_viax` qua tunnel `rpi7jss.abc-tunnel.us`). Đường duy nhất dùng được là **gateway nội bộ `https://lite-aawp.vnggames.net/v1`** — đã thêm vào catalog dưới tên provider `vng_lite`, xem `MEMORY.md`.
+
+Đã đo thật trên 1 batch 20 comment (2026-09-04), số liệu này là căn cứ chọn model, đừng đo lại:
+
+| Model | Thời gian | Output token | Reasoning token |
+|---|---|---|---|
+| **`gemini/gemini-3.5-flash-lite`** ← đã chọn | **4,7s** | 1.821 | 0 |
+| `gpt-5.4-mini` | 4,9s | 1.067 | 0 |
+| `gemini-3.1-flash-lite-preview` | 5,0s | 1.777 | 0 |
+| `gemini/gemini-3.6-flash` + `reasoning_effort=none` | 19,9s | 1.943 | 0 |
+| `deepseek-v4-flash` + `reasoning_effort=low` | 28,2s | 3.200 | 1.628 |
+| `deepseek-v4-flash` (mặc định) | 38,3s | 4.131 | 2.528 |
+
+Tất cả đều trả JSON đúng 20/20. Hai điều đáng nhớ: `reasoning_effort` **chỉ có tác dụng với gemini** (68,8s → 19,9s), còn deepseek phớt lờ hoàn toàn giá trị `none`; và gateway **chuẩn OpenAI-compatible** nên dùng lại `OpenAIProvider` sẵn có, không cần viết provider mới.
+
+### Việc code migration: 1/4 xong
+
+| | Việc | Trạng thái |
+|---|---|---|
+| 1 | **Lớp adapter DB** (`worker/src/db/libsqlAdapter.ts`) | ✅ **XONG** (commit `446bb11`) |
+| 2 | Entrypoint Node (`@hono/node-server`) + shim `waitUntil` | ⬜ chưa làm — **việc tiếp theo** |
+| 3 | 3 cron sang `node-cron` trong tiến trình | ⬜ chưa làm |
+| 4 | Dockerfile + `docker-compose`, chạy thử trọn luồng ở local | ⬜ chưa làm |
+
+**Việc 1 đã trả lời xong câu hỏi lớn nhất của cả migration: 19/19 migration chạy sạch trên libSQL, không sửa một dòng SQL nào.** Không chỉ tin mock — có `worker/src/db/libsqlIntegration.test.ts` dựng libSQL in-memory thật, áp cả 19 migration, rồi gọi code thật (`loadQueueActivity`, `refreshRunCounts`, `loadTokenUsageByRange`, `DB.batch`). Partial index, `SUBSTR`, `GROUP BY`, batch insert trả `last_row_id` riêng từng dòng — tất cả đúng.
+
+Hai chi tiết dễ vỡ mà integration test đã bắt được (đã xử lý, đừng vô tình phá lại):
+- `lastInsertRowid` của libSQL là **BigInt** → phải `Number()`, vì 9 chỗ dùng trực tiếp làm id.
+- `bind()` phải trả statement **mới** thay vì sửa tại chỗ, vì `services/` dùng lại statement trong vòng lặp.
+
+Test hiện tại: **336/336 pass**, `tsc --noEmit` sạch.
+
+### 🎯 Việc đầu tiên phiên sau: việc 2 (entrypoint Node)
+
+Viết entrypoint cho Node dùng `@hono/node-server`: import lại đúng `app` (Hono instance) từ `index.ts`, bỏ phần `export default { fetch, scheduled }` kiểu Workers, thay bằng `serve({ fetch: app.fetch, port })`. Cần shim `executionCtx.waitUntil` vì Hono Node adapter không có sẵn — trên container chạy liên tục thì chỉ cần `{ waitUntil: (p) => { p.catch(e => console.error(e)) } }`.
+
+Làm theo TDD, chạy `npx vitest run` + `npx tsc --noEmit` trước khi commit. **Không cần Dokploy hay D1 cho việc 2, 3, 4** — viết và test hoàn toàn ở local.
+
+### Việc còn vướng D1 (chờ quota reset 07:00 GMT+7 hằng ngày)
+
+**Xuất dữ liệu** từ D1 (87.534 comment, ~310MB) bắt buộc đọc D1 nên phải chờ. Đây là bước gần cuối, không cản việc 2/3/4. Khi làm, nhớ dọn trước 433.865 dòng `processing_logs` không mang token (giữ 18.235 dòng có token — xem MEMORY, đó là nguồn duy nhất tính chi phí LLM).
+
+### Trạng thái Cloudflare hiện tại (vẫn đang chạy production)
+
+Version đang chạy: **`e50a0bb1-52a7-4c62-a32e-6c5135eab5c1`**. Đã deploy fix chi phí đọc D1 bậc hai (`b39d3d5`) + provider `vng_lite` (`a1a0cf8`). **Chưa chuyển slot production sang `vng_lite`** — không cần thiết nữa vì đang rời Cloudflare; slot sẽ trỏ sang `vng_lite` khi dựng service trên Dokploy.
+
+⚠️ Quota D1 đã cạn 2 ngày liên tiếp (03/09 và 04/09). Chưa đo được hiệu quả của fix bậc hai vì cạn quota trước khi kịp quan sát. Nếu sáng mai app lại 500 thì **kiểm tra đúng thứ tự này**: `/api/meta` còn sống (không đụng D1) + `/api/health` trả 500 = hết quota, không phải bug mới.
+
+### Cảnh báo còn nguyên: J: lỗi git
+
+`J:\My Drive\CFL\Agent\Tracking Store Social` vẫn trả `error: bad tree object HEAD`. **Toàn bộ phiên 7 và 8 làm việc + commit từ G:** (`G:\CFM\Research\Crossfire Legends Sea`). J: giờ lạc hậu nhiều commit. Coi **G: là workspace chính** cho tới khi J: được clone lại.
+
 ## ✅ Trạng thái tại 2026-09-04 07:03 GMT+7 (phiên 7, tiếp) — ĐÃ DEPLOY, production đã sống lại
 
 Migration + deploy chạy tự động qua lịch hẹn (`CronCreate`, one-shot 07:03 GMT+7 ngay sau khi quota D1 reset lúc 00:00 UTC) — không cần người can thiệp.
