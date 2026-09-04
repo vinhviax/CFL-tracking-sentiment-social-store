@@ -1,0 +1,46 @@
+# Self-hosted stack, standing in for the Cloudflare deployment (Worker + D1 + Pages).
+#
+# Two services and one volume. There is no separate database container: libSQL in file
+# mode is a plain SQLite file, and the API process is the only writer. That holds as long
+# as exactly one API container runs — see the replica note below.
+services:
+  api:
+    build:
+      context: ./worker
+    # The Cloudflare Worker's port, kept so nothing else has to be re-learned.
+    ports:
+      - "${API_PORT:-8787}:8787"
+    environment:
+      # The database file lives on the volume, not in the image.
+      LIBSQL_URL: file:/data/cfl-feedback.db
+      PORT: "8787"
+      # The three former Cron Triggers, run in-process (src/node/cron.ts). Exactly one
+      # container may have these on: two schedulers means every daily ingest and every
+      # queue sweep happens twice.
+      CRON_ENABLED: "true"
+      # Secrets. Kept out of this file — put them in .env next to it, which .gitignore
+      # already excludes (*.env). Nothing here has a default: an accidental blank is
+      # better than a committed key.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      LLM_VNG_LITE_API_KEY: ${LLM_VNG_LITE_API_KEY:-}
+      SENSORTOWER_API_KEY: ${SENSORTOWER_API_KEY:-}
+      FB_PAGE_ID: ${FB_PAGE_ID:-}
+      FB_ACCESS_TOKEN: ${FB_ACCESS_TOKEN:-}
+    volumes:
+      - cfl-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle at build time, so this needs a rebuild to change.
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8787}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  cfl-data:

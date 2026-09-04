@@ -3,6 +3,7 @@
 // Split from entry.ts so the whole boot path can be tested — entry.ts is only the bit
 // that reads the real process and installs signal handlers, which a test cannot own.
 import { startCronSchedules, type ScheduleFn } from "./cron";
+import { applyMigrations, resolveMigrationsDir } from "./migrate";
 import { buildNodeEnv, createLibsqlDatabase, resolvePort, type ProcessEnv } from "./nodeEnv";
 import { startNodeServer } from "./nodeServer";
 
@@ -15,9 +16,26 @@ export async function startApp(
   source: ProcessEnv,
   deps: { schedule?: ScheduleFn } = {}
 ): Promise<RunningApp> {
-  const { db, close: closeDb } = createLibsqlDatabase(source);
+  const { db, client, close: closeDb } = createLibsqlDatabase(source);
   const env = buildNodeEnv(source, db);
   const port = resolvePort(source);
+
+  // Migrate before the first request, not after. There is no `wrangler d1 migrations
+  // apply` here, and a container that starts serving on an empty volume answers every
+  // request with a 500. The runner is idempotent, so restarting costs nothing.
+  // RUN_MIGRATIONS=false is for restoring a D1 dump, which brings its own schema.
+  if ((source.RUN_MIGRATIONS ?? "true").toLowerCase() !== "false") {
+    try {
+      const dir = resolveMigrationsDir(source);
+      const outcome = await applyMigrations(client, dir);
+      console.log(
+        `migrations: ${outcome.applied.length} applied, ${outcome.skipped.length} already present (${dir})`
+      );
+    } catch (e) {
+      closeDb();
+      throw e;
+    }
+  }
 
   let server;
   try {

@@ -1,0 +1,9 @@
+node_modules
+dist
+.wrangler
+data
+*.db
+*.sqlite*
+**/*.test.ts
+.env
+*.env

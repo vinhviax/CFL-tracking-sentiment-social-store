@@ -9,7 +9,10 @@
     "db:migrate:local": "wrangler d1 migrations apply cfl-feedback --local",
     "db:migrate:remote": "wrangler d1 migrations apply cfl-feedback --remote",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:node": "esbuild src/node/entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server.js",
+    "start:node": "node dist/server.js",
+    "smoke:node": "node scripts/smoke-node.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -21,6 +24,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "@types/node": "^22.20.1",
+    "esbuild": "^0.28.2",
     "typescript": "^5.7.2",
     "vitest": "^4.0.16",
     "wrangler": "^4.107.0"

@@ -7,6 +7,7 @@
 import { createClient } from "@libsql/client";
 import { createLibsqlD1, type D1Like } from "../db/libsqlAdapter";
 import type { Env } from "../types";
+import type { MigrationClient } from "./migrate";
 
 /**
  * The wrangler.jsonc "vars" values, restated for the container.
@@ -75,7 +76,12 @@ export function resolvePort(source: ProcessEnv): number {
  * happily against an empty file and answer every request with "no comments yet", which
  * is indistinguishable from having lost the data.
  */
-export function createLibsqlDatabase(source: ProcessEnv): { db: D1Like; close: () => void } {
+export function createLibsqlDatabase(source: ProcessEnv): {
+  db: D1Like;
+  /** The raw client, for the one job that needs more than D1's shape: migrations. */
+  client: MigrationClient;
+  close: () => void;
+} {
   const url = pick(source, "LIBSQL_URL");
   if (!url) {
     throw new Error(
@@ -83,5 +89,5 @@ export function createLibsqlDatabase(source: ProcessEnv): { db: D1Like; close: (
     );
   }
   const client = createClient({ url, authToken: pick(source, "LIBSQL_AUTH_TOKEN") });
-  return { db: createLibsqlD1(client as any), close: () => client.close() };
+  return { db: createLibsqlD1(client as any), client, close: () => client.close() };
 }

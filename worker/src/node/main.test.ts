@@ -73,3 +73,41 @@ describe("startApp and the cron schedules", () => {
     }
   });
 });
+
+describe("startApp and the schema", () => {
+  test("migrates before serving, so a fresh volume comes up with a working schema", async () => {
+    // /api/processing/jobs reads processing_queue. On an unmigrated database the query
+    // fails and the route 500s — exactly what a container on a brand-new volume would
+    // do without this. (/api/health is no proof: it reports slot state defensively and
+    // answers 200 even when the tables are missing.)
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { schedule } = fakeScheduler();
+    const app = await startApp({ LIBSQL_URL: ":memory:", PORT: "0" }, { schedule });
+    try {
+      const res = await fetch(`http://127.0.0.1:${app.port}/api/processing/jobs`);
+      expect(res.status).toBe(200);
+      expect(Array.isArray(await res.json())).toBe(true);
+    } finally {
+      await app.shutdown();
+      log.mockRestore();
+    }
+  });
+
+  test("RUN_MIGRATIONS=false leaves the schema alone", async () => {
+    // For the import step: the dump being restored brings its own schema, and applying
+    // migrations on top of a half-loaded database is the last thing anyone wants.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await startApp(
+      { LIBSQL_URL: ":memory:", PORT: "0", RUN_MIGRATIONS: "false", CRON_ENABLED: "false" },
+      {}
+    );
+    try {
+      expect((await fetch(`http://127.0.0.1:${app.port}/api/processing/jobs`)).status).toBe(500);
+    } finally {
+      await app.shutdown();
+      log.mockRestore();
+      err.mockRestore();
+    }
+  });
+});
