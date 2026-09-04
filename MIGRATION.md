@@ -4,6 +4,26 @@ Tài liệu này viết cho đội/dev **bên ngoài** nhận migrate hệ thố
 
 > Đây là bản hướng dẫn kỹ thuật dựa trên phân tích code thật (đã verify từng điểm bên dưới bằng cách đọc source), **không phải một migration đã chạy thử thành công trên Dokploy** — đội nhận việc cần tự dựng và test lại từng bước.
 
+## Cập nhật 2026-09-04: phần lớn việc trong tài liệu này ĐÃ ĐƯỢC VIẾT SẴN trong repo
+
+Tài liệu bên dưới vẫn đúng như một bản đồ, nhưng đừng làm lại từ đầu — code đã có, đã test, và đã chạy thật ở local:
+
+| Việc trong bảng ánh xạ | Đã có ở đâu |
+|---|---|
+| Adapter cho `env.DB` (giữ SQLite, phương án (a)) | `worker/src/db/libsqlAdapter.ts` — libSQL, **19/19 migration chạy nguyên văn**, không sửa một câu query nào trong 133 chỗ gọi DB |
+| Entrypoint Node thay `export default { fetch, scheduled }` | `worker/src/node/nodeServer.ts`, `main.ts`, `entry.ts` (`@hono/node-server`) |
+| Shim `ExecutionContext.waitUntil` | `worker/src/node/nodeServer.ts` |
+| 3 Cron Triggers | `worker/src/node/cron.ts` (`node-cron`, in-process; **`timezone: "UTC"`** vì cron gốc viết theo UTC) |
+| Thay `wrangler d1 migrations apply` | `worker/src/node/migrate.ts` (chạy lúc boot, idempotent, dùng chính bảng `d1_migrations` như wrangler) |
+| Đóng gói | `worker/Dockerfile`, `frontend/Dockerfile` + `nginx.conf`, `docker-compose.yml` ở root |
+| Kiểm tra sau khi dựng | `cd worker && npm run build:node && npm run smoke:node` — 18 check đi hết luồng qua HTTP thật |
+
+Hai điều **chưa** kiểm chứng: Docker chưa từng build thật (máy phát triển không có Docker), và đoạn gọi LLM chưa chạy thật ngoài Workers (chưa có key ở môi trường local). Chi tiết trạng thái và việc còn lại: `handoff/HANDOFF.md`; biến môi trường + các bẫy: `MEMORY.md` mục "Chay ngoai Cloudflare".
+
+Hai điểm đã lạc hậu so với bảng bên dưới, đọc theo bản mới này:
+- **LLM**: hạ tầng đích (Dokploy nội bộ VNG) **không gọi được ra internet**, nên 2 provider proxy hiện tại sẽ chết. Đường duy nhất là gateway nội bộ, đã thêm vào catalog dưới tên `vng_lite`. Đừng đổi slot sang `vng_lite` bằng migration khi Cloudflare còn chạy production — Cloudflare edge không với tới gateway đó.
+- **Số migration**: nay là `0001`–`0019`, không phải `0001`–`0015`.
+
 ## Vì sao không "docker run" là xong
 
 Backend hiện tại (`worker/`) không phải Node.js app thông thường — nó là **Cloudflare Worker**, chạy trên V8 isolate runtime riêng của Cloudflare, dùng 2 API chỉ tồn tại trên nền tảng đó:

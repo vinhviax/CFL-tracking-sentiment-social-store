@@ -2,7 +2,56 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
-## 🎯 Trạng thái tại 2026-09-04 cuối phiên 8 — ĐANG MIGRATE SANG DOKPLOY (1/4 việc code đã xong)
+## 🎯 Trạng thái tại 2026-09-04 cuối phiên 9 — CODE MIGRATION SANG DOKPLOY ĐÃ XONG 4/4
+
+Bối cảnh không đổi và đừng bàn lại: **Dokploy VNG là hạ tầng bắt buộc**, container **không gọi được ra internet** nên LLM chỉ dùng được gateway nội bộ (`vng_lite`, model `gemini/gemini-3.5-flash-lite`). Số liệu tốc độ 6 model đã đo, đừng đo lại — xem `MEMORY.md`.
+
+| | Việc | Trạng thái |
+|---|---|---|
+| 1 | Lớp adapter DB (`worker/src/db/libsqlAdapter.ts`) | ✅ xong (`446bb11`, phiên 8) |
+| 2 | Entrypoint Node (`@hono/node-server`) + shim `waitUntil` | ✅ xong (`2cee0f7`) |
+| 3 | 3 cron sang `node-cron` trong tiến trình | ✅ xong (`fabbf2c`) |
+| 4 | Dockerfile + `docker-compose`, chạy thử trọn luồng ở local | ✅ xong (`3bd09fb`) |
+
+Test **375/375 pass** (từ 336), `tsc --noEmit` sạch. Kiến trúc + biến môi trường + gotcha đã ghi vào `MEMORY.md` mục "Chay ngoai Cloudflare"; ở đây chỉ ghi tiến độ.
+
+### Đã chạy thật trọn luồng ở local: 18/18 check
+
+```powershell
+cd worker
+npm run build:node
+npm run smoke:node
+```
+
+`worker/scripts/smoke-node.mjs` boot thẳng `dist/server.js` trên file libSQL thật rồi đi hết luồng qua HTTP: 19 migration áp lúc boot → 3 cron lên lịch UTC → `/api/health` → khóa admin từ chối ghi khi không có key → **upload CSV Facebook thật qua đường multipart** (2 dòng vào, dòng `Store` bị bỏ đúng như thiết kế) → đọc lại qua `/api/comments` đúng `source_type` → `/api/runs` → `/api/processing/jobs` (chính route sẽ vỡ nếu thiếu shim `executionCtx`) → `/api/ingest/status` → `/api/stats/overview` → `POST /api/processing/drain` → **restart trên cùng file DB**: 0 migration áp lại, dữ liệu còn nguyên.
+
+Giữ script này. Nó là thứ trả lời được "app có chạy ngoài Workers không" bằng cách chạy thật, và sẽ là bài kiểm tra đầu tiên sau khi dựng container trên Dokploy.
+
+### Hai thứ CHƯA kiểm chứng được ở phiên này (đừng báo là xong)
+
+1. **Docker chưa từng build thật** — máy này không có Docker (`docker` không có trong PATH, không có service). `worker/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml` đã viết xong nhưng chưa ai `docker build` lần nào. Việc đầu tiên trên máy có Docker: `docker compose build && docker compose up`, rồi chạy lại `smoke:node` trỏ vào container.
+2. **Đoạn gọi LLM chưa chạy** — không có key ở local, nên hàng đợi ghi log `"slot suy luận đang không có provider khả dụng"` và để comment nguyên trạng. Điều **đã** kiểm chứng là tiến trình KHÔNG chết vì việc đó (container phải sống khi gateway không với tới). Muốn thử thật: tự set `LLM_VNG_LITE_API_KEY` rồi trỏ cả 2 slot sang `vng_lite` qua `POST /api/llm-config` — đọc kỹ cái bẫy ngay dưới trước khi làm.
+
+### ⚠️ Bẫy cutover: đừng viết migration đổi slot sang `vng_lite` lúc này
+
+Cloudflare vẫn đang chạy production, và **Cloudflare edge không gọi được gateway nội bộ VNG**. Một migration `UPDATE llm_agent_configs` sang `vng_lite` sẽ làm chết LLM của production ngay lần `d1 migrations apply` kế tiếp. Chỉ đổi slot **sau khi** đã cắt sang Dokploy, và đổi qua UI `/api/llm-config` (hoặc migration chạy riêng bên đó).
+
+### Việc tiếp theo (theo thứ tự)
+
+1. **Build + chạy Docker** trên máy có Docker (xem mục "chưa kiểm chứng" #1).
+2. **Frontend**: `VITE_API_BASE` được nướng vào bundle lúc build (`frontend/src/api/client.js`), nên URL API là **build arg**, không phải biến runtime — đổi URL là phải build lại image. `docker-compose.yml` đã truyền sẵn arg này.
+3. **Xuất dữ liệu từ D1** (87.534 comment, ~310MB) — bắt buộc đọc D1 nên phải chờ quota reset **07:00 GMT+7** hằng ngày. Nhớ dọn trước 433.865 dòng `processing_logs` không mang token (giữ 18.235 dòng có token — nguồn duy nhất tính chi phí LLM). Khi nạp dump vào libSQL thì đặt `RUN_MIGRATIONS=false`: dump mang theo schema và cả các dòng `d1_migrations` của nó.
+4. Dựng service trên Dokploy, đổi slot LLM sang `vng_lite`, verify bằng `smoke:node`.
+
+### Trạng thái Cloudflare (vẫn đang chạy production)
+
+Version đang chạy: **`e50a0bb1-52a7-4c62-a32e-6c5135eab5c1`**. Phiên 9 **không deploy gì lên Cloudflare** — mọi thay đổi đều là thêm đường vào thứ hai, `export default { fetch, scheduled }` trong `index.ts` còn nguyên. Nếu app trả HTTP 500: kiểm tra `/api/meta` còn sống (không đụng D1) + `/api/health` trả 500 = **hết quota D1**, không phải bug mới.
+
+### Cảnh báo còn nguyên: J: lỗi git
+
+`J:\My Drive\CFL\Agent\Tracking Store Social` vẫn `error: bad tree object HEAD`. Phiên 7, 8, 9 đều làm việc + commit từ **G:** (`G:\CFM\Research\Crossfire Legends Sea`). Coi G: là workspace chính cho tới khi J: được clone lại. Phiên 9 **chưa push** — 4 commit đang nằm ở local G:.
+
+## Trạng thái tại 2026-09-04 cuối phiên 8 — ĐANG MIGRATE SANG DOKPLOY (1/4 việc code đã xong)
 
 ### Bối cảnh đã thay đổi hẳn: Dokploy là BẮT BUỘC, không phải lựa chọn
 

@@ -92,6 +92,65 @@ Moi slot co 1 dong trong bang `llm_slot_state` (migration `0015`) theo doi `tier
 
 BYO (nguoi dung tu nhap key qua header `x-cfl-llm-config`) van hoat dong nhu cu, doc lap hoan toan voi co che leo thang tren.
 
+## Chay ngoai Cloudflare: entrypoint Node + cron + Docker (tu 2026-09-04)
+
+Duong vao thu hai cho cung mot app. `worker/src/index.ts` VAN export default handler
+kieu Workers de ban tren Cloudflare tiep tuc chay production; chi them `export const app`
+de phia Node dung lai dung Hono instance do, khong dung lai route table.
+
+Module trong `worker/src/node/`:
+
+- `nodeEnv.ts`: dung `Env` tu `process.env`. `NODE_VAR_DEFAULTS` phat bieu lai vars cua
+  `wrangler.jsonc` (container khong co file do). **Co test doc `wrangler.jsonc` so tung
+  gia tri** de 2 runtime khong am tham lech nhau khi ca hai con ton tai. `LIBSQL_URL` la
+  BAT BUOC, khong mac dinh: mac dinh kieu `file:./data/app.db` se boot sach roi tra loi
+  moi request bang "chua co du lieu", khong the phan biet voi mat du lieu.
+- `nodeServer.ts`: shim `executionCtx`. 5 route giao drain cho `c.executionCtx.waitUntil`
+  va Hono nem "This context has no ExecutionContext" neu khong ai cap. Shim chi con mot
+  viec that su can: **bat rejection** — unhandled rejection giet ca tien trinh Node,
+  trong khi tren Workers no chi lam hong dung invocation do. Cung o day: `@hono/node-server`
+  truyen `{ incoming, outgoing }` lam env, nen phai tu goi `app.fetch(request, env, ctx)`,
+  neu khong `c.env.DB` undefined o ca 133 cho goi DB.
+- `cron.ts`: 3 cron Cloudflare chay in-process bang `node-cron`. **`timezone: "UTC"` la
+  bat buoc** — cron Cloudflare viet theo UTC, con node-cron theo dong ho HOST, container
+  o Asia/Ho_Chi_Minh se chay daily ingest som 7 tieng ma khong co dau hieu gi la sai.
+  `noOverlap: true` vi sweep 5 phut co the chay lau hon 5 phut khi backlog lon.
+  `PROCESSING_SWEEP_CRON` da them vao `index.ts` de 3 bieu thuc co 1 nguon su that.
+- `migrate.ts`: thay `wrangler d1 migrations apply`. Chay luc boot, TRUOC request dau
+  tien. Bang theo doi **co y dat dung ten `d1_migrations` nhu wrangler**: dump xuat tu D1
+  mang theo cac dong `d1_migrations`, dung chung ten thi dump khoi phuc vao tu noi cho
+  runner biet cai gi da ap; dat ten khac se ap lai ca 19 migration len bang dang co du lieu.
+- `main.ts` (boot: DB -> migrate -> server -> cron) va `entry.ts` (process + SIGTERM).
+
+Bien moi truong phia Node: `LIBSQL_URL` (bat buoc), `LIBSQL_AUTH_TOKEN`, `PORT` (8787),
+`HOST`, `CRON_ENABLED` (mac dinh true; **phai la false o replica thu hai**, neu khong moi
+daily ingest va moi sweep chay 2 lan), `RUN_MIGRATIONS` (mac dinh true; false khi dang
+khoi phuc dump), `MIGRATIONS_DIR` (mac dinh `<cwd>/migrations`).
+
+Lenh:
+
+```powershell
+cd worker
+npm run build:node   # esbuild bundle -> dist/server.js
+npm run smoke:node   # e2e that: boot + CSV + doc lai + restart (18 check)
+npm run start:node
+```
+
+Build bang esbuild `--bundle --packages=external`, KHONG dung `tsc`: source import khong
+co duoi file (`./routes/admin`), Node ESM tu choi kieu nay con esbuild resolve duoc.
+
+Docker: `worker/Dockerfile`, `frontend/Dockerfile` (+ `nginx.conf`), `docker-compose.yml`
+o root. `node:22-slim` chu khong alpine vi `@libsql/client` nap native binding, glibc it
+rui ro hon. Khong co container database rieng: libSQL che do file la file SQLite, tien
+trinh API la nguoi ghi duy nhat — dung khi va chi khi chay 1 container API.
+**`VITE_API_BASE` cua frontend nuong vao bundle luc build** (`frontend/src/api/client.js`),
+nen doi API URL la phai build lai image, khong phai doi bien runtime.
+
+**BAY chua cham vao, doc truoc khi cutover**: dung them migration UPDATE `llm_agent_configs`
+sang `vng_lite` khi Cloudflare con chay production — Cloudflare edge KHONG goi duoc gateway
+noi bo VNG, migration do se lam chet LLM cua production. Doi slot sang `vng_lite` chi khi
+da cat sang Dokploy, va doi qua UI `/api/llm-config` (hoac migration chay rieng ben do).
+
 ## Secrets
 
 Khong commit secret. Khong nhap secret thay user.
