@@ -143,6 +143,8 @@ export default {
 export const DAILY_INGEST_CRON = "45 6 * * *";
 /** 14:00 GMT+7, 15 minutes after the ingest, so a long ingest does not overlap it. */
 export const DAILY_SLOT_RESET_CRON = "0 7 * * *";
+/** Keeps the processing queue moving without a browser polling the Ingest page. */
+export const PROCESSING_SWEEP_CRON = "*/5 * * * *";
 
 /**
  * Give both LLM slots a fresh day.
