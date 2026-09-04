@@ -31,8 +31,8 @@ interface ProviderSecretRow {
 }
 
 /**
- * Credentials for a non-BYO provider. gemini_viax rides the worker's own LLM_VIAX_*
- * configuration; anything else comes from llm_provider_secrets.
+ * Credentials for a non-BYO provider. gemini_viax and vng_lite ride the worker's own
+ * environment; anything else comes from llm_provider_secrets.
  */
 async function loadProviderCredentials(
   env: Env,
@@ -40,6 +40,12 @@ async function loadProviderCredentials(
 ): Promise<{ apiKey?: string | null; endpoint?: string | null }> {
   if (providerId === "gemini_viax") {
     return { apiKey: env.LLM_VIAX_API_KEY, endpoint: env.LLM_VIAX_BASE_URL };
+  }
+  // Returned even when unset, deliberately without the Viax fallback below: the Viax
+  // proxies are unreachable from the VNG network this provider exists for, so falling
+  // back would report a ready slot that fails every call.
+  if (providerId === "vng_lite") {
+    return { apiKey: env.LLM_VNG_LITE_API_KEY, endpoint: env.LLM_VNG_LITE_BASE_URL };
   }
   try {
     const row = await env.DB.prepare(

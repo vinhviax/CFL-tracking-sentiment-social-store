@@ -11,6 +11,9 @@ export interface Env {
   PROCESSING_QUEUE_CONCURRENCY?: string;
   PROCESSING_JOB_MAX_BATCHES?: string;
   LLM_VIAX_BASE_URL?: string; // not secret - just an endpoint URL
+  // VNG's internal LLM gateway. The only LLM reachable from a Dokploy container, whose
+  // network blocks the tunnel domains the Viax proxies use.
+  LLM_VNG_LITE_BASE_URL?: string; // not secret - just an endpoint URL
 
   // secrets (wrangler secret put)
   // Shared password gating every write under Ingest & Cài đặt. Unset leaves the
@@ -22,4 +25,5 @@ export interface Env {
   // Credential for the Viax proxy. Other providers get theirs from
   // llm_provider_secrets, or from the caller for the bring-your-own-key ones.
   LLM_VIAX_API_KEY?: string;
+  LLM_VNG_LITE_API_KEY?: string;
 }

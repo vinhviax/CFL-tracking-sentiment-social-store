@@ -34,6 +34,34 @@ const STUDIO_ENDPOINTS = {
 
 export const LLM_PROVIDERS: LlmProviderSpec[] = [
   {
+    id: "vng_lite",
+    label: "VNG Lite (nội bộ)",
+    // The gateway is OpenAI-compatible: /v1/chat/completions accepts the same body and
+    // returns choices[0].message.content plus a usage block, so OpenAIProvider works
+    // unchanged. Verified against the live endpoint 2026-09-04.
+    transport: "openai",
+    byo: false,
+    // Ordered by measured speed on a real 20-comment classification batch (2026-09-04),
+    // because that is what decides whether a run finishes at all:
+    //   gemini-3.5-flash-lite 4.7s · gpt-5.4-mini 4.9s · 3.1-flash-lite 5.0s
+    //   gemini-3.6-flash 19.9s (only with reasoning_effort=none; 68.8s without)
+    //   deepseek-v4-flash 38.3s — it ignores reasoning_effort=none entirely
+    // The leaders spend zero reasoning tokens; the slow ones burn 1,500-2,500 of them
+    // per batch. Keep a lite model first: the code sends no reasoning_effort, so a
+    // reasoning-heavy default would silently cost 8x the latency.
+    models: [
+      "gemini/gemini-3.5-flash-lite",
+      "gpt-5.4-mini",
+      "gemini-3.1-flash-lite-preview",
+      "gemini/gemini-3.6-flash",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "claude-sonnet-4-6",
+      "claude-opus-4-6",
+      "gemini-3.1-pro-preview",
+    ],
+  },
+  {
     id: "gemini_viax",
     label: "Gemini by Viax",
     transport: "openai", // the Viax proxy is OpenAI-compatible whatever model it fronts

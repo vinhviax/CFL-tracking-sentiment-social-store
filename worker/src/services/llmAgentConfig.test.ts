@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  describeSlotResolution,
   getSlotSelection,
   isSlotConfigured,
   listLlmAgentConfigs,
@@ -56,8 +57,9 @@ function fakeEnv(opts: {
 }
 
 describe("provider catalog exposed to the client", () => {
-  test("offers exactly the six providers", () => {
+  test("offers exactly the seven providers", () => {
     expect(llmCatalogPayload().map((p) => p.id)).toEqual([
+      "vng_lite",
       "gemini_viax",
       "openai_viax",
       "anthropic_direct",
@@ -75,6 +77,44 @@ describe("provider catalog exposed to the client", () => {
     expect(serialized).not.toContain("googleapis.com");
     expect(serialized).not.toContain("api.openai.com");
     for (const provider of llmCatalogPayload()) expect(provider).not.toHaveProperty("endpoint");
+  });
+
+  /**
+   * The VNG internal gateway is the only LLM a Dokploy container can reach — its
+   * network blocks the tunnel proxies the Viax providers use. Measured 2026-09-04 on a
+   * real 20-comment batch: the lite models answer in ~5s with no reasoning tokens,
+   * while deepseek-v4-flash takes ~38s and burns ~2,500 of them, so the list is
+   * ordered fastest-first and the lite model leads.
+   */
+  test("offers the VNG internal gateway with its measured-fastest model first", () => {
+    const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
+    expect(byId.vng_lite).toBeDefined();
+    expect(byId.vng_lite.byo).toBe(false);
+    expect(byId.vng_lite.needs_api_key).toBe(false);
+    expect(byId.vng_lite.models[0]).toBe("gemini/gemini-3.5-flash-lite");
+    expect(byId.vng_lite.models).toContain("gpt-5.4-mini");
+    // The gateway speaks OpenAI's wire format, so no new provider class is needed.
+    expect(byId.vng_lite.model_options[0]).toEqual({
+      value: "gemini/gemini-3.5-flash-lite",
+      label: "gemini-3.5-flash-lite",
+    });
+  });
+
+  test("the VNG gateway's endpoint and key come from the worker's own config", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
+      env: { LLM_VNG_LITE_BASE_URL: "https://lite.example/v1", LLM_VNG_LITE_API_KEY: "vng-key" },
+    });
+
+    const resolution = await describeSlotResolution(env, "simple");
+
+    expect(resolution.provider).toBe("vng_lite");
+    expect(resolution.has_endpoint).toBe(true);
+    expect(resolution.has_api_key).toBe(true);
+    expect(resolution.ready).toBe(true);
+    // Never falls back to the Viax proxy: that endpoint is unreachable from Dokploy,
+    // so silently using it would look configured while failing every call.
+    expect(resolution.model).toBe("gemini-3.5-flash-lite");
   });
 
   test("only the Viax providers pin a model list; BYO ones are free-form", () => {
