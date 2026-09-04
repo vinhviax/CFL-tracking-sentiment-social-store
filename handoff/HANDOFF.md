@@ -2,19 +2,16 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
-## 🔴 Trạng thái tại 2026-09-03 (phiên 7) — CODE ĐÃ PUSH NHƯNG CHƯA DEPLOY, production đang lỗi
+## ✅ Trạng thái tại 2026-09-04 07:03 GMT+7 (phiên 7, tiếp) — ĐÃ DEPLOY, production đã sống lại
 
-**Việc đầu tiên phải làm khi mở máy: chạy 2 lệnh dưới đây, đúng thứ tự này.** Quota D1 reset lúc **00:00 UTC = 07:00 sáng GMT+7**. Trước giờ đó thì cả 2 lệnh đều fail.
+Migration + deploy chạy tự động qua lịch hẹn (`CronCreate`, one-shot 07:03 GMT+7 ngay sau khi quota D1 reset lúc 00:00 UTC) — không cần người can thiệp.
 
-```bash
-cd worker
-npx wrangler d1 migrations apply cfl-feedback --remote   # BẮT BUỘC chạy trước
-npx wrangler deploy                                       # chỉ chạy sau khi lệnh trên xong
-```
+- Migration: cả 3 migration mới (`0017`, `0018`, `0019`) áp dụng thành công ngay lần đầu — quota đã reset đúng giờ.
+- Deploy: thành công. **Version ID `3530a5be-65f4-4fd6-9482-be277bd93d6a`**.
+- Verify `/api/health`: `status: ok`, cả 2 slot LLM (`reasoning`/`openai_viax`, `simple`/`gemini_viax`) đều `ready: true`.
+- Verify `/api/runs?limit=20` (chính endpoint gây lỗi hôm qua): trả về đúng dữ liệu. Lần gọi đầu 4.75s (phải đếm lại cả 20 run vì `counts_updated_at` còn NULL — lần đầu sau migration), lần gọi thứ 2 ngay sau đó nhanh hơn (~2s, không phải đếm lại) — xác nhận cơ chế cache trong `runCounters.ts` hoạt động đúng như thiết kế.
 
-**Tuyệt đối không deploy trước khi migration xong.** Code mới trong `routes/runs.ts` ghi vào các cột chỉ tồn tại sau migration `0018`; deploy trước sẽ làm `/api/runs` trả 500 ngay cả khi quota đã reset. Migration `0017` sẽ đọc ~487k dòng để dựng index và `0019` đọc ~87k — tốn khoảng 11% quota ngày, một lần duy nhất, đây là bình thường.
-
-Sau khi deploy, verify: `Invoke-RestMethod ".../api/health"` phải trả `status: ok`, rồi mở trang Ingest và kiểm tra cột "Phân tích"/"Dịch" vẫn hiện đúng số như trước.
+**Việc còn lại**: theo dõi vài ngày xem D1 row-read/ngày có ổn định ở mức thấp không (trước đây ~1 triệu dòng/lần mở trang Ingest, giờ kỳ vọng vài trăm dòng). Không có lệnh đo trực tiếp usage/ngày qua CLI — nếu cần, kiểm tra qua Cloudflare Dashboard → Workers & Pages → D1 → Metrics.
 
 ### Chuyện gì đã xảy ra
 
