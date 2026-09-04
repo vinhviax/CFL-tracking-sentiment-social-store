@@ -45,7 +45,10 @@ import {
 } from "./taxonomy";
 import type { Env } from "./types";
 
-const app = new Hono<{ Bindings: Env }>();
+// Exported so the Node entrypoint (src/node/) can serve the very same instance rather
+// than rebuilding the route table. The Workers default export below stays for as long
+// as the Cloudflare deployment is the one serving production.
+export const app = new Hono<{ Bindings: Env }>();
 
 // Pages is a different origin, so the browser's own-provider header has to be
 // allow-listed explicitly — the default allowed set does not include it.
