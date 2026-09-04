@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "build:node": "esbuild src/node/entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server.js",
     "start:node": "node dist/server.js",
-    "smoke:node": "node scripts/smoke-node.mjs"
+    "smoke:node": "node scripts/smoke-node.mjs",
+    "build:import": "esbuild src/node/sqlDumpImport.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/sqlDumpImport.js",
+    "smoke:import": "node scripts/smoke-import.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

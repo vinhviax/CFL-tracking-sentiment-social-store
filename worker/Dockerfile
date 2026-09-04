@@ -34,6 +34,14 @@ COPY package.json ./
 # `wrangler d1 migrations apply` here, so the schema is created from these files.
 COPY migrations ./migrations
 
+# The database file's directory, created here so a fresh named volume mounted at /data
+# inherits this ownership from the image. Without it the volume belongs to root, the
+# `node` user below cannot create the file, and the container dies on boot with EACCES.
+# A *bind* mount ignores this — the host directory's ownership wins, so chown it to uid
+# 1000 on the host (or drop the USER line) if you mount a host path instead.
+RUN mkdir -p /data && chown node:node /data
+VOLUME ["/data"]
+
 # LIBSQL_URL has no default on purpose: booting against an empty file would answer every
 # request with "no data", which looks exactly like data loss. Set it in compose/Dokploy.
 EXPOSE 8787

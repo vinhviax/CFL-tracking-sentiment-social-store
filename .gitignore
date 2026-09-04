@@ -6,6 +6,9 @@ key_api.env
 
 # Data & outputs
 data/
+# Dumps exported from D1 contain real user comments — never commit one.
+d1-dump/
+*.sql.gz
 *.xlsx
 *.csv
 *.db
