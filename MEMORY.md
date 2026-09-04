@@ -146,10 +146,56 @@ trinh API la nguoi ghi duy nhat — dung khi va chi khi chay 1 container API.
 **`VITE_API_BASE` cua frontend nuong vao bundle luc build** (`frontend/src/api/client.js`),
 nen doi API URL la phai build lai image, khong phai doi bien runtime.
 
+Da kiem chung 2 stage cua Dockerfile bang cach **dien lai tung buoc o local** (npm ci
+tree sach -> esbuild bundle -> `npm prune --omit=dev` -> chay `dist/server.js` chi voi
+node_modules production, 24 package/24MB): boot duoc, migrate duoc, `/api/meta`,
+`/api/health`, `/api/processing/jobs` deu tra loi, va lenh HEALTHCHECK trong Dockerfile
+exit 0. Chua `docker build` that vi may phat trien khong co Docker.
+
+**Bay Docker da sua**: `USER node` khong ghi duoc vao volume `/data` (named volume thuoc
+root) -> container chet luc boot voi EACCES. Da `mkdir /data && chown node:node /data`
+trong image de named volume ke thua quyen. Neu dung **bind mount** thi quyen cua host
+thang: phai chown uid 1000 ben host, hoac bo dong `USER`.
+
 **BAY chua cham vao, doc truoc khi cutover**: dung them migration UPDATE `llm_agent_configs`
 sang `vng_lite` khi Cloudflare con chay production — Cloudflare edge KHONG goi duoc gateway
 noi bo VNG, migration do se lam chet LLM cua production. Doi slot sang `vng_lite` chi khi
 da cat sang Dokploy, va doi qua UI `/api/llm-config` (hoac migration chay rieng ben do).
+
+## Chuyen du lieu D1 -> libSQL (cong cu tu 2026-09-04)
+
+```powershell
+cd worker
+node scripts/d1-export.mjs C:\Temp\cfl-d1-dump-20260904   # xuat tu D1, resume duoc
+npm run build:import
+node scripts/libsql-import.mjs C:\Temp\cfl-d1-dump-20260904 file:C:\Temp\cfl-feedback-libsql\cfl-feedback.db
+npm run smoke:import   # dien tap tron ven, KHONG can D1
+```
+
+`src/node/sqlDumpImport.ts` doc dump theo chunk (file ~300MB, khong the doc ca file roi
+split `;`). Bo tach statement biet dau `;` nam trong string, dau nhay escape kieu `''`,
+va ranh gioi chunk roi dung vao giua 2 thu do — co test cho ca 3.
+
+**Bay da xu ly, dung pha lai:**
+
+- **Dump theo tung bang thi thu tu alphabet nap `comments` TRUOC `posts`** -> vo foreign
+  key ngay dong dau. Phai tat enforcement trong luc replay. `PRAGMA defer_foreign_keys`
+  ma wrangler emit KHONG giup: no chi co hieu luc trong 1 transaction, con import la
+  hang nghin transaction.
+- **Da tat thi phai kiem tra lai bang `PRAGMA foreign_key_check`, va phai chay o cuoi CA
+  LUOT** (khong phai cuoi tung file, vi bang cha co the den o file sau). Thieu buoc nay
+  thi mot dump copy thieu dong van "nap thanh cong" — mat du lieu am tham.
+- **`SELECT COUNT(*)` de ghi manifest chinh la thu dot het quota** con lai ngay 04/09:
+  D1 tinh theo so dong QUET nen dem 1 bang lon ton bang xuat ca bang. Nay dem so dong
+  bang cach dem chuoi `INSERT INTO` trong file dump, 0 luot doc D1.
+- **`_cf_KV` la bang noi bo cua Cloudflare**: co trong `sqlite_master` nhung moi query
+  vao no tra `not authorized: SQLITE_AUTH [code: 7500]`. **Trung code 7500 voi loi het
+  quota**, phan biet bang PHAN CHU trong `notes`, khong phai bang code. Da loc bo.
+- **Goi wrangler qua `npx` can shell tren Windows va shell lam hong argument
+  `--command`** co dau cach/dau nhay (wrangler bao "You must provide either --command or
+  --file"). Goi thang `node node_modules/wrangler/bin/wrangler.js`.
+- Nap dump vao roi thi app phai chay `RUN_MIGRATIONS=false`: dump mang theo ca schema va
+  cac dong `d1_migrations`.
 
 ## Secrets
 
