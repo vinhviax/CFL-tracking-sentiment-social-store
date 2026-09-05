@@ -196,6 +196,17 @@ va ranh gioi chunk roi dung vao giua 2 thu do — co test cho ca 3.
   --file"). Goi thang `node node_modules/wrangler/bin/wrangler.js`.
 - Nap dump vao roi thi app phai chay `RUN_MIGRATIONS=false`: dump mang theo ca schema va
   cac dong `d1_migrations`.
+- **Chay script tu Git Bash phai dung duong dan kieu Windows.** `/c/Temp/...` lam libSQL
+  chet voi `ConnectionFailed(... : 14)`. Dung `C:/Temp/...` cho thu muc dump va
+  `file:C:/Temp/.../cfl-feedback.db` cho URL (ca `file:///C:/...` cung duoc).
+
+**Da chay that 2026-09-05 (khong con la ly thuyet):** toan bo 20 bang xuat sach trong
+~2 phut, dump 117MB o `C:\Temp\cfl-d1-dump-20260904`; import 320.330 statement trong ~37
+giay, `PRAGMA foreign_key_check` 0 vi pham; file libSQL **98MB** (D1 bao 316MB vi tinh ca
+index/overhead). So dong khop 100% giua manifest va DB sau import (19/19 bang doi chieu
+duoc; `analyses` doi chieu rieng voi D1: 85.567 = 85.567). App boot voi
+`RUN_MIGRATIONS=false` doc duoc du lieu that: 89.378 comment, 85.567 da phan tich, 30,2%
+tieu cuc.
 
 ## Secrets
 
