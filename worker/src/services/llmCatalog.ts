@@ -1,9 +1,14 @@
 // The closed set of LLM providers the app offers, and what each one needs.
 //
-// Endpoints live here rather than in the client so the UI never has to render a
-// real URL, and the two "by Viax" entries keep their credentials server-side
-// (llm_provider_secrets / the LLM_VIAX_API_KEY secret). The four BYO entries take
-// the user's own key per request and are never persisted — see resolveLlmProvider.
+// Since 2026-09-14 that set is one entry: VNG's internal gateway. The two Viax proxies
+// and the three studio endpoints were removed because nothing on this network can reach
+// them — keeping them listed only offered ways to configure a slot that fails every
+// call. Bring-your-own-key goes with them: normalizeByoOverride only accepts a provider
+// marked `byo`, and none is, so the x-cfl-llm-config header is inert.
+//
+// Endpoints live here rather than in the client so the UI never has to render a real
+// URL; the gateway's own endpoint and key come from the worker's environment
+// (LLM_VNG_LITE_BASE_URL / LLM_VNG_LITE_API_KEY).
 
 /** Wire format to speak, independent of who is hosting the model. */
 export type LlmTransport = "openai" | "anthropic" | "gemini";
@@ -26,12 +31,6 @@ export interface LlmProviderSpec {
   models: string[];
 }
 
-const STUDIO_ENDPOINTS = {
-  anthropic: "https://api.anthropic.com/v1",
-  gemini: "https://generativelanguage.googleapis.com/v1beta",
-  openai: "https://api.openai.com/v1",
-};
-
 export const LLM_PROVIDERS: LlmProviderSpec[] = [
   {
     id: "vng_lite",
@@ -41,77 +40,27 @@ export const LLM_PROVIDERS: LlmProviderSpec[] = [
     // unchanged. Verified against the live endpoint 2026-09-04.
     transport: "openai",
     byo: false,
-    // Ordered by measured speed on a real 20-comment classification batch (2026-09-04),
-    // because that is what decides whether a run finishes at all:
-    //   gemini-3.5-flash-lite 4.7s · gpt-5.4-mini 4.9s · 3.1-flash-lite 5.0s
-    //   gemini-3.6-flash 19.9s (only with reasoning_effort=none; 68.8s without)
-    //   deepseek-v4-flash 38.3s — it ignores reasoning_effort=none entirely
-    // The leaders spend zero reasoning tokens; the slow ones burn 1,500-2,500 of them
-    // per batch. Keep a lite model first: the code sends no reasoning_effort, so a
-    // reasoning-heavy default would silently cost 8x the latency.
+    // Exactly what GET /v1/models returned on 2026-09-14 — not a wishlist. "Gemini 3.7
+    // Flash" was asked for and the gateway does not serve it; naming a model it does
+    // not have is what silently dropped 31,322 comments to the keyword fallback for
+    // twelve days in July, so the list is pinned to the verified menu.
+    //
+    // Ordered by what the slots use, then by measured speed on a real 20-comment batch
+    // (2026-09-04): 3.5-flash-lite 4.7s · gpt-5.4-mini 4.9s · 3.1-flash-lite 5.0s ·
+    // 3.6-flash 19.9s with reasoning_effort=none and 68.8s without · deepseek-v4-flash
+    // 38.3s, which ignores reasoning_effort entirely. The fast ones spend zero
+    // reasoning tokens; the slow ones burn 1,500-2,500 per batch.
     models: [
-      "gemini/gemini-3.5-flash-lite",
-      "gpt-5.4-mini",
-      "gemini-3.1-flash-lite-preview",
       "gemini/gemini-3.6-flash",
+      "gemini/gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite-preview",
+      "gpt-5.4-mini",
       "deepseek-v4-flash",
       "deepseek-v4-pro",
       "claude-sonnet-4-6",
       "claude-opus-4-6",
       "gemini-3.1-pro-preview",
     ],
-  },
-  {
-    id: "gemini_viax",
-    label: "Gemini by Viax",
-    transport: "openai", // the Viax proxy is OpenAI-compatible whatever model it fronts
-    byo: false,
-    // Newest first — that is what the slots default to. The older flash-agent name is
-    // kept selectable rather than deleted so a model the proxy turns out not to serve
-    // can be reverted from the UI in seconds instead of needing a deploy.
-    models: ["ag/gemini-3.6-flash-high", "ag/gemini-3-flash-agent"],
-  },
-  {
-    id: "openai_viax",
-    label: "OpenAI by Viax",
-    transport: "openai",
-    byo: false,
-    // Bare names, no "codex-lb/" prefix: that prefix is how the rpi7jss proxy routes,
-    // and sending it to agent-shop returns 403 model_not_allowed. Configuring the
-    // prefixed name against this endpoint is what silently dropped analysis to the
-    // keyword fallback for 31,322 comments between 2026-07-17 and 2026-07-29.
-    models: ["gpt-5.6-terra", "gpt-5.6-luna"],
-  },
-  {
-    id: "anthropic_direct",
-    label: "Anthropic chính chủ",
-    transport: "anthropic",
-    byo: true,
-    endpoint: STUDIO_ENDPOINTS.anthropic,
-    models: [],
-  },
-  {
-    id: "gemini_direct",
-    label: "Gemini chính chủ",
-    transport: "gemini",
-    byo: true,
-    endpoint: STUDIO_ENDPOINTS.gemini,
-    models: [],
-  },
-  {
-    id: "openai_direct",
-    label: "OpenAI chính chủ",
-    transport: "openai",
-    byo: true,
-    endpoint: STUDIO_ENDPOINTS.openai,
-    models: [],
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    transport: "openai",
-    byo: true,
-    models: [],
   },
 ];
 
@@ -121,10 +70,17 @@ export type LlmAgentSlot = "reasoning" | "simple";
 
 export const LLM_SLOTS: LlmAgentSlot[] = ["reasoning", "simple"];
 
-/** What each slot uses when the user has never chosen anything. */
+/**
+ * What each slot uses when the user has never chosen anything.
+ *
+ * Split by measured cost per 20-comment batch on this gateway: reasoning (classify,
+ * insight, taxonomy) gets the stronger 3.6-flash at 19.9s — and only because the
+ * request now sends reasoning_effort=none, without which it is 68.8s. Translation runs
+ * the 4.7s lite model, since it is the higher-volume of the two.
+ */
 export const LLM_SLOT_DEFAULTS: Record<LlmAgentSlot, { provider: string; model: string }> = {
-  reasoning: { provider: "openai_viax", model: "gpt-5.6-terra" },
-  simple: { provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" },
+  reasoning: { provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
+  simple: { provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
 };
 
 export function isLlmAgentSlot(value: unknown): value is LlmAgentSlot {

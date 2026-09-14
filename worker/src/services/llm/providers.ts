@@ -182,6 +182,12 @@ export class OpenAIProvider implements LLMProvider {
       temperature: jsonMode ? 0 : 0.3,
     };
     if (jsonMode) body.response_format = { type: "json_object" };
+    // Gemini only, and only because it was measured: on the VNG gateway a 20-comment
+    // batch through gemini-3.6-flash took 68.8s untouched and 19.9s with this set
+    // (2026-09-04). The 1,900+ reasoning tokens it spends otherwise buy nothing for a
+    // classification prompt. Kept off everything else — deepseek ignored the parameter
+    // when measured, and an unrecognised parameter is a 400 on some gateways.
+    if (/gemini/i.test(this.model)) body.reasoning_effort = "none";
 
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",

@@ -18,12 +18,12 @@ describe("Worker LLM configuration", () => {
     expect(config).not.toContain("LLM_BASE_URL");
   });
 
-  test("keeps the Viax proxy endpoint, which the catalog's Gemini by Viax entry needs", () => {
-    expect(workerConfig()).toContain('"LLM_VIAX_BASE_URL"');
+  test("keeps the VNG gateway endpoint, the only one any slot can use", () => {
+    expect(workerConfig()).toContain('"LLM_VNG_LITE_BASE_URL"');
   });
 
   test("the documented slot defaults are the ones the code ships", () => {
-    expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "openai_viax", model: "gpt-5.6-terra" });
-    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" });
+    expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "vng_lite", model: "gemini/gemini-3.6-flash" });
+    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" });
   });
 });

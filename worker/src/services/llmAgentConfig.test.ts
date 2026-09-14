@@ -48,8 +48,10 @@ function fakeEnv(opts: {
   return {
     env: {
       DB,
-      LLM_VIAX_BASE_URL: "https://viax.example/v1",
-      LLM_VIAX_API_KEY: "viax-key",
+      // The only credentials the app reads now: one gateway, from the worker's own
+      // environment. LLM_VIAX_* went with the providers that used them.
+      LLM_VNG_LITE_BASE_URL: "https://lite.example/v1",
+      LLM_VNG_LITE_API_KEY: "vng-key",
       ...opts.env,
     } as any,
     writes,
@@ -57,46 +59,46 @@ function fakeEnv(opts: {
 }
 
 describe("provider catalog exposed to the client", () => {
-  test("offers exactly the seven providers", () => {
-    expect(llmCatalogPayload().map((p) => p.id)).toEqual([
-      "vng_lite",
-      "gemini_viax",
-      "openai_viax",
-      "anthropic_direct",
-      "gemini_direct",
-      "openai_direct",
-      "custom",
-    ]);
+  test("offers the VNG gateway and nothing else", () => {
+    // The two Viax proxies and the three studio endpoints were removed 2026-09-14:
+    // every one of them lives on a domain this network cannot reach, so listing them
+    // only offered ways to configure a slot that fails every call.
+    expect(llmCatalogPayload().map((p) => p.id)).toEqual(["vng_lite"]);
   });
 
-  test("never leaks an endpoint, for stock providers as much as user-made ones", () => {
+  test("never leaks an endpoint", () => {
     const serialized = JSON.stringify(llmCatalogPayload());
-    expect(serialized).not.toContain("rpi7jss");
-    expect(serialized).not.toContain("agent-shop");
-    expect(serialized).not.toContain("api.anthropic.com");
-    expect(serialized).not.toContain("googleapis.com");
-    expect(serialized).not.toContain("api.openai.com");
+    expect(serialized).not.toContain("lite-aawp");
+    expect(serialized).not.toContain("vnggames.net");
     for (const provider of llmCatalogPayload()) expect(provider).not.toHaveProperty("endpoint");
   });
 
   /**
-   * The VNG internal gateway is the only LLM a Dokploy container can reach — its
-   * network blocks the tunnel proxies the Viax providers use. Measured 2026-09-04 on a
-   * real 20-comment batch: the lite models answer in ~5s with no reasoning tokens,
-   * while deepseek-v4-flash takes ~38s and burns ~2,500 of them, so the list is
-   * ordered fastest-first and the lite model leads.
+   * The model list is not a guess: GET /v1/models on the live gateway 2026-09-14
+   * returned exactly these ten. "Gemini 3.7 Flash" was asked for and is not among
+   * them — configuring a name the gateway does not serve is what silently dropped
+   * 31,322 comments to the keyword fallback for twelve days in July.
    */
-  test("offers the VNG internal gateway with its measured-fastest model first", () => {
+  test("lists exactly what the gateway serves, reasoning's model first", () => {
     const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
-    expect(byId.vng_lite).toBeDefined();
     expect(byId.vng_lite.byo).toBe(false);
     expect(byId.vng_lite.needs_api_key).toBe(false);
-    expect(byId.vng_lite.models[0]).toBe("gemini/gemini-3.5-flash-lite");
-    expect(byId.vng_lite.models).toContain("gpt-5.4-mini");
+    expect(byId.vng_lite.needs_endpoint).toBe(false);
+    expect(byId.vng_lite.models).toEqual([
+      "gemini/gemini-3.6-flash",
+      "gemini/gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite-preview",
+      "gpt-5.4-mini",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "claude-sonnet-4-6",
+      "claude-opus-4-6",
+      "gemini-3.1-pro-preview",
+    ]);
     // The gateway speaks OpenAI's wire format, so no new provider class is needed.
     expect(byId.vng_lite.model_options[0]).toEqual({
-      value: "gemini/gemini-3.5-flash-lite",
-      label: "gemini-3.5-flash-lite",
+      value: "gemini/gemini-3.6-flash",
+      label: "gemini-3.6-flash",
     });
   });
 
@@ -117,37 +119,28 @@ describe("provider catalog exposed to the client", () => {
     expect(resolution.model).toBe("gemini-3.5-flash-lite");
   });
 
-  test("only the Viax providers pin a model list; BYO ones are free-form", () => {
-    const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
-    // The retired flash-agent model stays listed on purpose: if the newer one turns out
-    // not to be served, the slot can be switched back from the UI without a deploy.
-    expect(byId.gemini_viax.models).toEqual(["ag/gemini-3.6-flash-high", "ag/gemini-3-flash-agent"]);
-    expect(byId.openai_viax.models).toEqual(["gpt-5.6-terra", "gpt-5.6-luna"]);
-    expect(byId.anthropic_direct.models).toEqual([]);
-    expect(byId.custom.models).toEqual([]);
-  });
-
   test("model options carry the short name for display", () => {
-    const openaiViax = llmCatalogPayload().find((p) => p.id === "openai_viax")!;
-    expect(openaiViax.model_options).toEqual([
-      { value: "gpt-5.6-terra", label: "gpt-5.6-terra" },
-      { value: "gpt-5.6-luna", label: "gpt-5.6-luna" },
+    const vngLite = llmCatalogPayload().find((p) => p.id === "vng_lite")!;
+    expect(vngLite.model_options.slice(0, 2)).toEqual([
+      { value: "gemini/gemini-3.6-flash", label: "gemini-3.6-flash" },
+      { value: "gemini/gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite" },
     ]);
   });
 
-  test("only Custom asks for an endpoint, and only BYO providers ask for a key", () => {
-    const byId = Object.fromEntries(llmCatalogPayload().map((p) => [p.id, p]));
-    expect(byId.custom.needs_endpoint).toBe(true);
-    expect(byId.anthropic_direct.needs_endpoint).toBe(false);
-    expect(byId.gemini_viax.needs_api_key).toBe(false);
-    expect(byId.openai_direct.needs_api_key).toBe(true);
+  test("no provider is bring-your-own any more, so the UI asks for no credentials", () => {
+    // Removing the BYO entries is what disables the x-cfl-llm-config header path:
+    // normalizeByoOverride only accepts a provider the catalog marks byo.
+    expect(llmCatalogPayload().every((p) => !p.byo && !p.needs_api_key && !p.needs_endpoint)).toBe(true);
   });
 });
 
 describe("slot defaults", () => {
-  test("reasoning defaults to OpenAI by Viax on terra, simple to Gemini by Viax", () => {
-    expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "openai_viax", model: "gpt-5.6-terra" });
-    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" });
+  test("both slots run on the VNG gateway, split by measured cost per batch", () => {
+    // Reasoning gets the stronger 3.6-flash: 19.9s per 20-comment batch, and only
+    // because the request now sends reasoning_effort=none (68.8s without it).
+    // Translation gets the 4.7s lite model — it is the bulk of the calls.
+    expect(LLM_SLOT_DEFAULTS.reasoning).toEqual({ provider: "vng_lite", model: "gemini/gemini-3.6-flash" });
+    expect(LLM_SLOT_DEFAULTS.simple).toEqual({ provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" });
   });
 
   test("an absent row falls back to the default", async () => {
@@ -166,31 +159,38 @@ describe("slot defaults", () => {
   });
 
   test("a stored row wins when its provider is still valid", async () => {
-    const { env } = fakeEnv({ slotRow: { slot: "simple", provider: "openai_viax", model: "gpt-5.6-luna" } });
-    expect(await getSlotSelection(env, "simple")).toEqual({ provider: "openai_viax", model: "gpt-5.6-luna" });
+    const { env } = fakeEnv({ slotRow: { slot: "simple", provider: "vng_lite", model: "gpt-5.4-mini" } });
+    expect(await getSlotSelection(env, "simple")).toEqual({ provider: "vng_lite", model: "gpt-5.4-mini" });
+  });
+
+  test("a row naming a provider that was removed falls back instead of stranding the slot", async () => {
+    // Exactly what the live rows looked like before migration 0020 ran: the escape
+    // route for any container that boots on a database still holding an old selection.
+    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" } });
+    expect(await getSlotSelection(env, "reasoning")).toEqual(LLM_SLOT_DEFAULTS.reasoning);
   });
 });
 
 describe("saving a slot", () => {
-  test("stores a valid Viax provider and model", async () => {
+  test("stores a valid provider and model", async () => {
     const { env, writes } = fakeEnv();
-    await saveLlmAgentConfig(env, "reasoning", { provider: "openai_viax", model: "gpt-5.6-luna" });
-    expect(writes[0].slice(0, 3)).toEqual(["reasoning", "openai_viax", "gpt-5.6-luna"]);
+    await saveLlmAgentConfig(env, "reasoning", { provider: "vng_lite", model: "gpt-5.4-mini" });
+    expect(writes[0].slice(0, 3)).toEqual(["reasoning", "vng_lite", "gpt-5.4-mini"]);
   });
 
-  test("refuses a BYO provider, since its key is never written down", async () => {
-    const { env, writes } = fakeEnv();
-    await expect(saveLlmAgentConfig(env, "reasoning", { provider: "custom", model: "whatever" }))
-      .rejects.toThrow(/không lưu được/i);
-    await expect(saveLlmAgentConfig(env, "simple", { provider: "anthropic_direct", model: "claude-x" }))
-      .rejects.toThrow(/không lưu được/i);
-    expect(writes).toHaveLength(0);
-  });
-
-  test("refuses a model that does not belong to the chosen provider", async () => {
+  test("refuses a model the gateway does not serve", async () => {
+    // The guard that would have caught "gemini/gemini-3.7-flash", which was asked for
+    // and turned out not to exist on the gateway.
     const { env } = fakeEnv();
-    await expect(saveLlmAgentConfig(env, "simple", { provider: "gemini_viax", model: "gpt-5.6-terra" }))
+    await expect(saveLlmAgentConfig(env, "simple", { provider: "vng_lite", model: "gemini/gemini-3.7-flash" }))
       .rejects.toThrow(/không thuộc/i);
+  });
+
+  test("refuses a provider that is no longer in the catalog", async () => {
+    const { env, writes } = fakeEnv();
+    await expect(saveLlmAgentConfig(env, "reasoning", { provider: "openai_viax", model: "gpt-5.6-terra" }))
+      .rejects.toThrow(/không hợp lệ/i);
+    expect(writes).toHaveLength(0);
   });
 
   test("refuses an unknown provider", async () => {
@@ -202,15 +202,15 @@ describe("saving a slot", () => {
 
 describe("what the UI receives", () => {
   test("carries provider label and short model name, and no secrets", async () => {
-    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" } });
+    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" } });
     const configs = await listLlmAgentConfigs(env);
     const serialized = JSON.stringify(configs);
 
     expect(configs[0]).toMatchObject({
       slot: "reasoning",
-      provider: "openai_viax",
-      provider_label: "OpenAI by Viax",
-      model_label: "gpt-5.6-terra",
+      provider: "vng_lite",
+      provider_label: "VNG Lite (nội bộ)",
+      model_label: "gemini-3.6-flash",
     });
     expect(serialized).not.toContain("viax-key");
     expect(serialized).not.toContain("https://");
@@ -221,58 +221,50 @@ describe("what the UI receives", () => {
   });
 });
 
-describe("per-request BYO provider", () => {
-  test("a complete BYO config is used ahead of the stored slot", async () => {
-    const { env } = fakeEnv({ slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" } });
+describe("the stored slot is now the only way a provider gets chosen", () => {
+  test("resolves the slot's own provider — this is what cron does", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
+    });
+    const provider = await resolveLlmProvider(env, "simple", null);
+    expect(provider?.name).toBe("vng_lite");
+    expect(provider?.model).toBe("gemini/gemini-3.5-flash-lite");
+  });
+
+  /**
+   * Bring-your-own-key is off, and this is how: the header path only accepts a provider
+   * the catalog marks `byo`, and no catalog entry is byo any more. Left as behaviour
+   * rather than deleting the plumbing, so re-enabling it later is one catalog entry.
+   */
+  test("a BYO header is ignored whatever it names, because no provider accepts one", () => {
+    expect(
+      normalizeByoOverride({
+        provider: "anthropic_direct",
+        model: "claude-sonnet-4-5",
+        api_key: "user-key",
+        endpoint_url: "https://api.anthropic.com/v1",
+      })
+    ).toBeNull();
+    expect(normalizeByoOverride({ provider: "custom", model: "m", api_key: "k", endpoint_url: "https://x/v1" })).toBeNull();
+    expect(normalizeByoOverride({ provider: "vng_lite", model: "m", api_key: "k" })).toBeNull();
+    expect(normalizeByoOverride(null)).toBeNull();
+  });
+
+  test("a BYO header cannot push a request off the VNG gateway", async () => {
+    const { env } = fakeEnv({
+      slotRow: { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
+    });
     const provider = await resolveLlmProvider(env, "reasoning", {
       provider: "anthropic_direct",
       model: "claude-sonnet-4-5",
       api_key: "user-key",
       endpoint_url: "https://api.anthropic.com/v1",
     });
-    expect(provider?.name).toBe("anthropic");
-    expect(provider?.model).toBe("claude-sonnet-4-5");
+    expect(provider?.name).toBe("vng_lite");
+    expect(provider?.model).toBe("gemini/gemini-3.6-flash");
   });
 
-  test("no BYO config falls back to the stored slot — this is what cron does", async () => {
-    const { env } = fakeEnv({
-      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
-    });
-    const provider = await resolveLlmProvider(env, "simple", null);
-    expect(provider?.name).toBe("gemini_viax");
-    expect(provider?.model).toBe("ag/gemini-3-flash-agent");
-  });
-
-  test("openai_viax uses its own stored credential rather than the shared proxy", async () => {
-    const { env } = fakeEnv({
-      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
-      secretRow: { provider: "openai_viax", endpoint_url: "https://agent-shop.example/v1", api_key: "shop-key" },
-    });
-    const provider = await resolveLlmProvider(env, "reasoning");
-    expect(provider?.name).toBe("openai_viax");
-  });
-
-  test("an incomplete BYO config is ignored rather than half-applied", () => {
-    expect(normalizeByoOverride({ provider: "custom", model: "m", api_key: "k" })).toBeNull(); // custom needs an endpoint
-    expect(normalizeByoOverride({ provider: "anthropic_direct", model: "m" })).toBeNull(); // no key
-    expect(normalizeByoOverride({ provider: "anthropic_direct", api_key: "k" })).toBeNull(); // no model
-    expect(normalizeByoOverride({ provider: "openai_viax", model: "m", api_key: "k" })).toBeNull(); // not a BYO provider
-    expect(normalizeByoOverride(null)).toBeNull();
-  });
-
-  test("a BYO provider other than Custom uses the studio endpoint, not one from the client", () => {
-    const byo = normalizeByoOverride({
-      provider: "gemini_direct",
-      model: "gemini-3-pro",
-      api_key: "k",
-      endpoint_url: "https://attacker.example/v1",
-    });
-    expect(byo?.endpoint_url).toBe("https://generativelanguage.googleapis.com/v1beta");
-  });
-
-  test("the header parses valid JSON and shrugs off anything else", () => {
-    const value = JSON.stringify({ provider: "custom", model: "m", api_key: "k", endpoint_url: "https://x.example/v1" });
-    expect(parseByoHeader(value)).toMatchObject({ provider: "custom", model: "m" });
+  test("the header parser still shrugs off malformed input", () => {
     expect(parseByoHeader("not json")).toBeNull();
     expect(parseByoHeader("")).toBeNull();
     expect(parseByoHeader(undefined)).toBeNull();
@@ -282,41 +274,47 @@ describe("per-request BYO provider", () => {
 describe("resolveLlmProviderChain — stateful escalation, not a per-call safety net", () => {
   test("a healthy slot resolves its own configured (primary) provider only", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotRow: { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
       slotStateRow: { tier: "primary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
     });
     const chain = await resolveLlmProviderChain(env, "reasoning");
     expect(chain).toHaveLength(1);
-    expect(chain[0].name).toBe("openai_viax");
-    expect(chain[0].model).toBe("gpt-5.6-terra");
+    expect(chain[0].name).toBe("vng_lite");
+    expect(chain[0].model).toBe("gemini/gemini-3.6-flash");
   });
 
-  test("an escalated slot resolves to its fixed secondary instead of the configured primary", async () => {
+  /**
+   * With one gateway and one model per slot, escalating no longer switches anything —
+   * the secondary tier is the same provider on the same model. That makes the three
+   * failures before it, and the three after, a six-attempt budget rather than a
+   * fallback. Pinned as a test because it is a deliberate choice, not an oversight:
+   * the instruction was this model for both slots, and a silent switch to a different
+   * one under failure is exactly the kind of surprise that hides a broken config.
+   */
+  test("escalating keeps the same provider and model — six attempts, not a fallback", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotRow: { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
       slotStateRow: { tier: "secondary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
     });
     const chain = await resolveLlmProviderChain(env, "reasoning");
     expect(chain).toHaveLength(1);
-    expect(chain[0].name).toBe("gemini_viax");
-    // Pinned: the reasoning slot's Gemini backup must follow the same model the simple
-    // slot runs, or a model retirement silently leaves the escalation path on a dead one.
-    expect(chain[0].model).toBe("ag/gemini-3.6-flash-high");
+    expect(chain[0].name).toBe("vng_lite");
+    expect(chain[0].model).toBe("gemini/gemini-3.6-flash");
   });
 
-  test("simple escalates to openai_viax/gpt-5.6-luna — a different model from the reasoning slot's primary", async () => {
+  test("the simple slot escalates onto its own model too", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+      slotRow: { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
       slotStateRow: { tier: "secondary", consecutive_failures: 0, last_failure_at: null, exhausted_date: null },
     });
     const chain = await resolveLlmProviderChain(env, "simple");
-    expect(chain[0].name).toBe("openai_viax");
-    expect(chain[0].model).toBe("gpt-5.6-luna");
+    expect(chain[0].name).toBe("vng_lite");
+    expect(chain[0].model).toBe("gemini/gemini-3.5-flash-lite");
   });
 
   test("a slot that gave up today resolves to no provider at all", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "reasoning", provider: "openai_viax", model: "gpt-5.6-terra" },
+      slotRow: { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
       slotStateRow: { tier: "exhausted", consecutive_failures: 0, last_failure_at: null, exhausted_date: "2020-01-01" },
     });
     expect(await resolveLlmProviderChain(env, "reasoning")).toEqual([]);
@@ -324,13 +322,13 @@ describe("resolveLlmProviderChain — stateful escalation, not a per-call safety
 
   test("simple mid its post-failure backoff window resolves to no provider", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+      slotRow: { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
       slotStateRow: { tier: "primary", consecutive_failures: 1, last_failure_at: new Date().toISOString(), exhausted_date: null },
     });
     expect(await resolveLlmProviderChain(env, "simple")).toEqual([]);
   });
 
-  test("a BYO override bypasses escalation state entirely, even mid-backoff", async () => {
+  test("an exhausted slot stays exhausted: a BYO header is no longer a way around it", async () => {
     const { env } = fakeEnv({
       slotStateRow: { tier: "exhausted", consecutive_failures: 0, last_failure_at: null, exhausted_date: "2020-01-01" },
     });
@@ -340,28 +338,23 @@ describe("resolveLlmProviderChain — stateful escalation, not a per-call safety
       api_key: "user-key",
       endpoint_url: "https://api.anthropic.com/v1",
     });
-    expect(chain[0]?.name).toBe("anthropic");
+    expect(chain).toEqual([]);
   });
 });
 
 describe("isSlotConfigured", () => {
   test("true when the slot's own provider can be built, regardless of escalation state", async () => {
     const { env } = fakeEnv({
-      slotRow: { slot: "simple", provider: "gemini_viax", model: "ag/gemini-3-flash-agent" },
+      slotRow: { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
     });
     expect(await isSlotConfigured(env, "simple")).toBe(true);
-  });
-
-  test("a BYO override is checked on its own terms", async () => {
-    const { env } = fakeEnv();
-    expect(await isSlotConfigured(env, "simple", { provider: "custom", model: "m", api_key: "k", endpoint_url: "https://x.example/v1" })).toBe(true);
   });
 });
 
 describe("saving a slot resets its escalation state", () => {
   test("a manual provider change writes to llm_slot_state after the config row", async () => {
     const { env, writes } = fakeEnv();
-    await saveLlmAgentConfig(env, "simple", { provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
+    await saveLlmAgentConfig(env, "simple", { provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" });
     // writes[0] is the llm_agent_configs upsert (checked elsewhere); resetSlotEscalation
     // follows with an ensureRow (INSERT OR IGNORE) and the reset UPDATE.
     expect(writes.length).toBeGreaterThanOrEqual(3);

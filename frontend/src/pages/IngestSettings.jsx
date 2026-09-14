@@ -229,7 +229,7 @@ function defaultSlotState(slot, llmConfig) {
   const saved = llmConfig?.configs?.find((item) => item.slot === slot);
   const fallback = llmConfig?.defaults?.[slot] || {};
   return {
-    provider: saved?.provider || fallback.provider || "openai_viax",
+    provider: saved?.provider || fallback.provider || "vng_lite",
     model: saved?.model || fallback.model || "",
     api_key: "",
     endpoint_url: "",

@@ -31,32 +31,20 @@ interface ProviderSecretRow {
 }
 
 /**
- * Credentials for a non-BYO provider. gemini_viax and vng_lite ride the worker's own
- * environment; anything else comes from llm_provider_secrets.
+ * Credentials for the gateway.
+ *
+ * One provider, one source: the worker's own environment. The llm_provider_secrets
+ * lookup that used to back the Viax entries went with them — no catalog entry reads it
+ * any more, and getSlotSelection never hands this a provider the catalog does not have.
+ *
+ * Returned even when unset, with no fallback to anything else: a slot that reports
+ * ready while every call fails is worse than one that reports unconfigured.
  */
-async function loadProviderCredentials(
+function loadProviderCredentials(
   env: Env,
-  providerId: string
-): Promise<{ apiKey?: string | null; endpoint?: string | null }> {
-  if (providerId === "gemini_viax") {
-    return { apiKey: env.LLM_VIAX_API_KEY, endpoint: env.LLM_VIAX_BASE_URL };
-  }
-  // Returned even when unset, deliberately without the Viax fallback below: the Viax
-  // proxies are unreachable from the VNG network this provider exists for, so falling
-  // back would report a ready slot that fails every call.
-  if (providerId === "vng_lite") {
-    return { apiKey: env.LLM_VNG_LITE_API_KEY, endpoint: env.LLM_VNG_LITE_BASE_URL };
-  }
-  try {
-    const row = await env.DB.prepare(
-      `SELECT provider, endpoint_url, api_key FROM llm_provider_secrets WHERE provider = ?`
-    ).bind(providerId).first<ProviderSecretRow>();
-    if (row) return { apiKey: row.api_key, endpoint: row.endpoint_url };
-  } catch (e: any) {
-    if (!String(e?.message || e).includes("no such table")) throw e;
-  }
-  // No stored credential: fall back to the shared Viax proxy rather than nothing.
-  return { apiKey: env.LLM_VIAX_API_KEY, endpoint: env.LLM_VIAX_BASE_URL };
+  _providerId: string
+): { apiKey?: string | null; endpoint?: string | null } {
+  return { apiKey: env.LLM_VNG_LITE_API_KEY, endpoint: env.LLM_VNG_LITE_BASE_URL };
 }
 
 async function getSlotRow(env: Env, slot: LlmAgentSlot): Promise<SlotRow | null> {
@@ -163,9 +151,18 @@ export async function saveLlmAgentConfig(env: Env, slot: LlmAgentSlot, input: { 
  * different OpenAI models on purpose: the reasoning slot's own primary is terra, so
  * the simple slot falls back to luna instead of competing for the same model.
  */
+/**
+ * The tier a slot escalates to after three consecutive failures.
+ *
+ * Same gateway, same model as the primary — because there is only one gateway and the
+ * instruction was one model per slot. That turns escalation from "switch provider" into
+ * a six-attempt budget before the slot stands down for the day, which is the honest
+ * behaviour: quietly answering with a different model than the one configured would
+ * hide a broken config rather than surface it.
+ */
 const SLOT_SECONDARY: Record<LlmAgentSlot, { provider: string; model: string }> = {
-  reasoning: { provider: "gemini_viax", model: "ag/gemini-3.6-flash-high" },
-  simple: { provider: "openai_viax", model: "gpt-5.6-luna" },
+  reasoning: LLM_SLOT_DEFAULTS.reasoning,
+  simple: LLM_SLOT_DEFAULTS.simple,
 };
 
 async function buildSlotTierProvider(

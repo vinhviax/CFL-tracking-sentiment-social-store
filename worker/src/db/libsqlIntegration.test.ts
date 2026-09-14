@@ -24,7 +24,7 @@ beforeAll(async () => {
 
   // Apply every migration in filename order, exactly as wrangler does.
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
-  expect(files.length).toBeGreaterThanOrEqual(19);
+  expect(files.length).toBeGreaterThanOrEqual(20);
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     try {
@@ -39,6 +39,34 @@ beforeAll(async () => {
 });
 
 describe("the migrations themselves run on libSQL", () => {
+  /**
+   * 0020 is the one that actually moves a running deployment onto the VNG gateway:
+   * the catalog default in code is only read when a slot has no row, and 0012 seeded
+   * one for each. Asserted against a real migrated database because the same omission
+   * has now been made twice (0013 and 0016 both exist to fix it).
+   */
+  test("0020 leaves both slots on the VNG gateway with its escalation state cleared", async () => {
+    const slots = await db
+      .prepare("SELECT slot, provider, model FROM llm_agent_configs ORDER BY slot")
+      .bind()
+      .all<{ slot: string; provider: string; model: string }>();
+    expect(slots.results).toEqual([
+      { slot: "reasoning", provider: "vng_lite", model: "gemini/gemini-3.6-flash" },
+      { slot: "simple", provider: "vng_lite", model: "gemini/gemini-3.5-flash-lite" },
+    ]);
+
+    // A slot left at 'exhausted' by a dead provider would refuse to call the new
+    // gateway until the 07:00 UTC reset cron — a day of looking broken for no reason.
+    const state = await db
+      .prepare("SELECT slot, tier, consecutive_failures, exhausted_date FROM llm_slot_state ORDER BY slot")
+      .bind()
+      .all<{ slot: string; tier: string; consecutive_failures: number; exhausted_date: string | null }>();
+    expect(state.results).toEqual([
+      { slot: "reasoning", tier: "primary", consecutive_failures: 0, exhausted_date: null },
+      { slot: "simple", tier: "primary", consecutive_failures: 0, exhausted_date: null },
+    ]);
+  });
+
   test("every table the app queries exists after migrating", async () => {
     const res = await db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")

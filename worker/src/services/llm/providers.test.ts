@@ -86,6 +86,54 @@ describe("OpenAIProvider", () => {
     expect(body.stream_options).toBeUndefined();
     expect(body.stream).toBeUndefined();
   });
+
+  /**
+   * Measured on a real 20-comment batch against the VNG gateway (2026-09-04):
+   * gemini-3.6-flash takes 68.8s left alone and 19.9s with reasoning_effort=none —
+   * 3.5x, on the slot that does the bulk of the work. The reasoning tokens it spends
+   * otherwise (1,900+ per batch) buy nothing for a classification prompt.
+   */
+  test("asks a Gemini model to skip reasoning, because it is 3.5x faster", async () => {
+    let sentBody = "";
+    const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
+      sentBody = String(init?.body || "");
+      return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = new OpenAIProvider("gemini/gemini-3.6-flash", "key", "https://example.test/v1", "vng_lite");
+    await provider.completeJson("system", "user");
+
+    expect(JSON.parse(sentBody).reasoning_effort).toBe("none");
+  });
+
+  test("sends it on text completions too, not just JSON ones", async () => {
+    let sentBody = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body?: string }) => {
+      sentBody = String(init?.body || "");
+      return new Response(JSON.stringify({ choices: [{ message: { content: "hi" } }] }), { status: 200 });
+    }));
+
+    const provider = new OpenAIProvider("gemini/gemini-3.5-flash-lite", "key", "https://example.test/v1", "vng_lite");
+    await provider.completeText("system", "user");
+
+    expect(JSON.parse(sentBody).reasoning_effort).toBe("none");
+  });
+
+  test("leaves it off for non-Gemini models, which either ignore or reject it", async () => {
+    // deepseek-v4-flash ignored the parameter outright when measured; an unknown
+    // parameter is a 400 on some gateways, so it goes only where it was verified.
+    let sentBody = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body?: string }) => {
+      sentBody = String(init?.body || "");
+      return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), { status: 200 });
+    }));
+
+    const provider = new OpenAIProvider("gpt-5.4-mini", "key", "https://example.test/v1", "vng_lite");
+    await provider.completeJson("system", "user");
+
+    expect(JSON.parse(sentBody).reasoning_effort).toBeUndefined();
+  });
 });
 
 describe("GeminiProvider", () => {
