@@ -25,6 +25,16 @@ Sau khi chuyển sang 3.6-flash, 5 batch liên tiếp ghi `0/20 qua LLM`, không
 
 Đã sửa (`services/llm/base.ts`): nhận cả 2 kiểu, ép về number trước khi trả ra. Kiểm chứng lại bằng chính gateway thật: **20/20 qua**.
 
+**Đã xác nhận chạy thật trên production sau khi deploy bản sửa** (09:26 UTC 14/09):
+
+```
+09:26:45 | success | 9291ms | out=1949 | Analysis batch 5/5 completed
+09:26:36 | success | 9774ms | out=2005 | Analysis batch 3/5 completed
+09:26:36 | success | 9432ms | out=1930 | Analysis batch 4/5 completed
+```
+
+Số comment đã phân tích tăng **85.567 → 85.787** và tiếp tục chạy. Mỗi batch 20 comment mất ~9,3–9,8 giây — nhanh hơn con số 19,9s đo hồi 04/09.
+
 **Bài học ghi vào MEMORY**: đổi model xong phải kiểm tra có batch `success` thật trong `processing_logs`. Đừng dừng ở `/api/health` báo `ready: true` — `ready` chỉ nghĩa là "có credential", không phải "gọi được và parse được".
 
 ### Hai chi tiết vận hành mới biết
