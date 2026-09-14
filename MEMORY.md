@@ -56,12 +56,21 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 
 ## Repo va workspace
 
-- GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git`
-- Branch lam viec hien tai: `main`
-- Workspace dang lam: `J:\My Drive\CFL\Agent\Tracking Store Social`
-- Checkout verify/deploy can nam ngoai Google Drive. Ban dung hien tai: **`C:\Temp\cfl-export-20260720-1442`** (co ca `worker/` va `frontend/`, da `npm ci`; kiem tra 2026-07-29: `worker/src`, `frontend/src`, `wrangler.jsonc` khop J:). Truoc khi build/deploy luon `diff -rq` voi J: — **ban copy cu chua code cu van chay duoc, nen deploy tu ban sai se am tham day code lac hau len production**. (Ban cu `C:\Temp\cfl-feedback-worker-20e9c35-20260716` da xoa 2026-07-29 vi dung chinh cai bay nay.)
-- Workspace chinh hien tai: `J:\My Drive\CFL\Agent\Tracking Store Social`
-- Workspace cu: `G:\CFM\Research\Crossfire Legends Sea`
+- GitHub: `https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git` (private)
+- Branch: `main`. **GitHub la nguon su that duy nhat** — moi thu can thiet de lam viec
+  tiep deu nam trong repo.
+- **Workspace chinh: `G:\CFM\Research\Crossfire Legends Sea`** (clone that tren o local).
+  Tu phien 7 (2026-09-03) tro di moi thay doi va commit deu lam o day.
+- **`J:\My Drive\CFL\Agent\Tracking Store Social` DA HONG GIT** (`error: bad tree object
+  HEAD`, lap lai duoc, dung canh bao co san ve git tren Google Drive). Da lac hau rat
+  nhieu commit. **Dung dung J:** cho toi khi clone lai.
+- Tren may KHAC: chi can `git clone` repo ra o local bat ky (dung dat trong Google
+  Drive/OneDrive — `node_modules` bi loi sync, `vitest` treo vo han), roi
+  `cd worker && npm ci` va `cd frontend && npm ci`. Khong can file nao ngoai repo.
+- **File chi ton tai tren may cu, KHONG co trong repo va KHONG con can nua**:
+  `C:\Temp\cfl-d1-dump-20260904\` (dump D1 117MB) va
+  `C:\Temp\cfl-feedback-libsql\cfl-feedback.db` (98MB). Du lieu da nam tren volume
+  Dokploy roi, chi can neu phai nap lai tu dau.
 
 ## Cloudflare config
 

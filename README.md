@@ -20,7 +20,26 @@
 
 ## Kiến trúc
 
-Hệ thống production hiện tại chạy hoàn toàn trên **Cloudflare**:
+> **Cập nhật 2026-09-14 — production đã chuyển sang Dokploy nội bộ VNG.**
+> Ứng dụng chạy bằng **Node + Docker** trên Dokploy, database là **libSQL** (file SQLite
+> trên volume), LLM dùng **gateway nội bộ VNG**. Bản Cloudflare (Worker + D1 + Pages) vẫn
+> còn chạy song song nhưng không còn là production. Cùng một codebase chạy được cả hai:
+> `worker/src/index.ts` vẫn export handler kiểu Workers, còn `worker/src/node/` là
+> entrypoint Node. Sơ đồ dưới mô tả bản Cloudflare — thay "Cloudflare Worker" bằng
+> "container Node trên Dokploy" và "D1" bằng "libSQL" là ra kiến trúc hiện tại.
+>
+> | | Production hiện tại (Dokploy) | Bản cũ (Cloudflare) |
+> |---|---|---|
+> | Backend | container Node, `worker/Dockerfile` | Cloudflare Worker |
+> | Database | libSQL, file trên volume `/data` | Cloudflare D1 |
+> | Frontend | nginx tĩnh, `frontend/Dockerfile` | Cloudflare Pages |
+> | Cron | `node-cron` trong tiến trình (UTC) | Cron Triggers |
+> | LLM | gateway nội bộ VNG (`vng_lite`) | proxy Viax |
+>
+> Chi tiết vận hành (địa chỉ, tên service, biến môi trường, các bẫy đã gặp) nằm ở
+> `MEMORY.md` mục "Dokploy production". Lộ trình migrate xem `MIGRATION.md`.
+
+Sơ đồ bản Cloudflare:
 
 ```
 ┌─────────────────┐      ┌──────────────────────┐      ┌────────────────┐
@@ -109,7 +128,28 @@ MEMORY.md                     # kiến trúc/config/secret/gotcha kỹ thuật, 
 
 ## Chạy local
 
-Yêu cầu: Node.js, tài khoản Cloudflare đã đăng nhập `wrangler` (`npx wrangler login`).
+Yêu cầu: Node.js. Không cần tài khoản Cloudflare nếu chỉ chạy bản Node.
+
+**Cách khuyến nghị — chạy đúng bản đang ở production (Node + libSQL):**
+
+```bash
+cd worker
+npm ci
+npm run build:node                     # esbuild bundle -> dist/server.js
+LIBSQL_URL=file:./data/cfl.db npm run start:node
+```
+
+Chạy trọn luồng để kiểm chứng (tự tạo DB tạm, ingest CSV thật, đọc lại qua API, restart):
+
+```bash
+cd worker
+npm run build:node && npm run smoke:node     # 18 check
+npm run smoke:import                         # 10 check, diễn tập nạp dump
+```
+
+Biến môi trường phía Node: `LIBSQL_URL` (**bắt buộc**, không có mặc định), `PORT` (8787), `CRON_ENABLED` (mặc định `true`), `RUN_MIGRATIONS` (mặc định `true`), `MIGRATIONS_DIR`.
+
+**Bản Cloudflare (cũ):**
 
 ```bash
 cd worker
@@ -129,23 +169,27 @@ Frontend đọc biến `VITE_API_BASE` (xem `.env.development`) để biết đ�
 
 ## Biến môi trường & secrets
 
-Không có secret nào được commit vào repo. Danh sách **tên** biến cần cấu hình trên Cloudflare Worker (giá trị thật đặt bằng `wrangler secret put <TÊN>`, không đặt trong file):
+Không có secret nào được commit vào repo. Trên Dokploy đặt ở tab **Environment** của service; trên Cloudflare đặt bằng `wrangler secret put <TÊN>`.
 
 | Tên | Mục đích |
 |---|---|
 | `ADMIN_PASSWORD` | Mật khẩu chung mở khóa phần ghi của tab Ingest & Cài đặt. Chưa set = workspace mở cho mọi người có link. |
-| `LLM_VIAX_API_KEY` | Key cho proxy LLM nội bộ ("by Viax"). |
+| `LLM_VNG_LITE_API_KEY` | Key gateway LLM nội bộ VNG — **bắt buộc**, không có nó thì không slot nào gọi được. |
 | `SENSORTOWER_API_KEY` | Key gọi Sensor Tower API. |
 | `FB_PAGE_ID` | ID Fanpage Facebook cần theo dõi. |
 | `FB_ACCESS_TOKEN` | Page Access Token của Fanpage trên. |
 
-Các biến không nhạy cảm (batch size, endpoint base URL của proxy LLM, lịch cron) nằm trong `worker/wrangler.jsonc` mục `vars`.
+Các biến không nhạy cảm (batch size, endpoint base URL gateway, lịch cron) nằm trong `worker/wrangler.jsonc` mục `vars` cho bản Cloudflare, và trong `NODE_VAR_DEFAULTS` (`worker/src/node/nodeEnv.ts`) cho bản Node — có test đọc thẳng `wrangler.jsonc` so từng giá trị để 2 runtime không âm thầm lệch nhau. Mẫu đầy đủ cho Docker/Dokploy: `.env.example` ở root.
 
 Backend FastAPI legacy dùng file `.env` riêng (xem `.env.example` ở root) — không dùng ở production hiện tại.
 
 ## Database & migrations
 
-Cloudflare D1 (SQLite), tên database `cfl-feedback`. Migration nằm ở `worker/migrations/`, đánh số tuần tự (hiện tại tới `0015`). Áp dụng bằng:
+Migration nằm ở `worker/migrations/`, đánh số tuần tự (hiện tại tới `0020`). **Cùng một bộ file SQL chạy được cả trên D1 lẫn libSQL** — không phải sửa dòng nào khi migrate, đó là lý do chọn libSQL thay vì Postgres.
+
+Bản Node (production hiện tại): migration **tự chạy lúc khởi động**, trước request đầu tiên, và idempotent nên restart không tốn gì. Theo dõi bằng bảng `d1_migrations` — cố ý đặt trùng tên với wrangler để dump xuất từ D1 khôi phục vào là tự biết migration nào đã áp. Tắt bằng `RUN_MIGRATIONS=false` (dùng khi đang khôi phục dump mang sẵn schema).
+
+Bản Cloudflare:
 
 ```bash
 cd worker
@@ -153,21 +197,28 @@ npx wrangler d1 migrations apply cfl-feedback --local    # môi trường dev lo
 npx wrangler d1 migrations apply cfl-feedback --remote   # production
 ```
 
+Chuyển dữ liệu giữa 2 bên bằng `worker/scripts/d1-export.mjs` (xuất từ D1, resume được) và `worker/scripts/libsql-import.mjs` (nạp vào libSQL, kiểm tra khóa ngoại sau khi nạp xong).
+
 Các bảng chính: `comments` (dữ liệu gốc + dedupe hash), `posts` (bài viết Facebook), `analyses` + `analysis_corrections` (kết quả phân loại LLM và chỉnh sửa thủ công), `comment_translations` (bản dịch zh-CN), `ingest_runs` + `ingest_cursors`, `processing_queue` + `processing_logs` (hàng đợi xử lý nền), `llm_agent_configs` + `llm_slot_state` + `llm_provider_secrets` (cấu hình/trạng thái leo thang LLM), `taxonomy_subtopics` + `feedback_memories` + `memory_evidence` (bộ nhớ chủ đề con), `saved_insights`, `app_settings`.
 
 ## LLM provider
 
-Có 1 catalog cố định 6 provider (`worker/src/services/llmCatalog.ts`), chia làm 2 nhóm:
+Từ 2026-09-14, catalog (`worker/src/services/llmCatalog.ts`) chỉ còn **1 provider**: `vng_lite` — gateway nội bộ VNG (`https://lite-aawp.vnggames.net/v1`, chuẩn OpenAI-compatible). Endpoint và key giữ phía server (biến môi trường), người dùng không phải nhập gì.
 
-- **"by Viax"** (`gemini_viax`, `openai_viax`) — endpoint/key giữ phía server, người dùng chỉ chọn qua UI, không cần tự nhập key.
-- **Bring-your-own-key** (`anthropic_direct`, `gemini_direct`, `openai_direct`, `custom`) — người dùng tự nhập API key + (với `custom`) endpoint riêng, chỉ áp dụng cho tab trình duyệt đang mở (giữ trong `sessionStorage`, gửi qua header, không lưu server).
+Đã bỏ 2 proxy "by Viax" và 3 endpoint "chính chủ" + `custom`: mạng nội bộ không gọi ra được domain nào trong số đó, để lại chỉ là bẫy cấu hình một slot chắc chắn thất bại mọi lần gọi. Bring-your-own-key tắt theo (không còn provider nào `byo: true`).
 
 Hệ thống chia công việc LLM thành 2 "slot":
 
-- `reasoning` — phân tích/phân loại comment, sinh report, insight.
-- `simple` — dịch zh-CN.
+| Slot | Dùng cho | Model | Tốc độ đo thật (batch 20 comment) |
+|---|---|---|---|
+| `reasoning` | phân tích/phân loại comment, report, insight, taxonomy | `gemini/gemini-3.6-flash` | 9,3–9,8s |
+| `simple` | dịch zh-CN | `gemini/gemini-3.5-flash-lite` | 4,3–4,5s |
 
-Mỗi slot có cơ chế leo thang tự động: dùng provider chính → lỗi liên tiếp 3 lần → chuyển sang provider phụ → lỗi thêm 3 lần → dừng gọi LLM cho tới khi cron reset (14:00 GMT+7 hằng ngày). Không còn fallback bằng rule/từ khóa như phiên bản cũ — comment lỗi sẽ giữ nguyên trạng thái chưa xử lý chờ retry.
+Code gửi `reasoning_effort: "none"` cho model có chữ `gemini` trong tên — đo thật cho thấy 3.6-flash mất 68,8s nếu không có tham số này và 19,9s khi có. Không gửi cho model khác (deepseek phớt lờ nó, và tham số lạ là lỗi 400 với một số gateway).
+
+Mỗi slot có cơ chế leo thang: lỗi liên tiếp 3 lần → chuyển sang tầng phụ → lỗi thêm 3 lần → dừng gọi LLM cho tới khi cron reset (14:00 GMT+7 hằng ngày). Vì chỉ còn 1 gateway và 1 model mỗi slot, **tầng phụ trùng luôn tầng chính** — leo thang giờ là ngân sách 6 lần thử chứ không còn đổi provider. Không có fallback bằng rule/từ khóa: comment lỗi giữ nguyên trạng thái chưa xử lý chờ retry.
+
+**Đổi model thì phải làm 2 việc, không chỉ 1**: sửa catalog trong code **và** thêm migration `UPDATE llm_agent_configs` — bảng đã có dòng seed từ migration `0012` và code ưu tiên dòng trong DB (tiền lệ `0013`, `0016`, `0020`). Và luôn hỏi `GET /v1/models` trước để lấy đúng tên model gateway thật sự phục vụ, đừng đoán theo tên thương mại.
 
 ## Khóa quản trị (admin lock)
 
@@ -192,6 +243,33 @@ npm run build                     # vite build
 
 ## Deploy
 
+### Dokploy (production hiện tại)
+
+Hai service trong project `CFL / production` trên `https://host.vnggames.ai`:
+
+| Service | Build | Domain |
+|---|---|---|
+| `cfl-feedback-api` | `worker/Dockerfile`, context `worker` | `cfl-feedback-api.103.245.249.96.nip.io` (port 8787) |
+| `cfl-feedback-web` | `frontend/Dockerfile`, context `frontend` | `cfl-feedback.103.245.249.96.nip.io` (port 80) |
+
+Quy trình: push lên `main` → vào Dokploy bấm **Deploy** → chờ build xong → **Stop rồi Start**.
+
+Hai điều bắt buộc phải biết, cả hai đều đã cắn một lần:
+
+- **Autodeploy bật nhưng webhook không bắn.** Push không kích hoạt gì, luôn phải bấm Deploy tay.
+- **Container không tự nhận image mới sau khi build xong**, và **Reload cũng không đủ** — phải Stop → Start (gián đoạn ~15 giây). Deploy báo "Done" chỉ nghĩa là image đã build.
+
+Kiểm tra sau deploy — **không dừng ở `/api/health`**, vì `ready: true` chỉ nghĩa là "có credential", không phải "gọi được LLM và parse được kết quả":
+
+```bash
+curl https://cfl-feedback-api.103.245.249.96.nip.io/api/health
+curl https://cfl-feedback-api.103.245.249.96.nip.io/api/stats/overview
+# và quan trọng nhất: phải thấy batch level=success thật
+curl "https://cfl-feedback-api.103.245.249.96.nip.io/api/processing/jobs/<id>/logs?limit=5"
+```
+
+### Cloudflare (bản cũ, còn chạy song song)
+
 ```bash
 cd worker
 npx wrangler deploy
@@ -203,13 +281,6 @@ npm run build
 npx wrangler pages deploy ./dist --project-name=cfl-feedback --branch main
 ```
 
-Sau deploy, kiểm tra nhanh:
-
-```bash
-curl https://<worker-domain>/api/health
-curl https://<worker-domain>/api/admin/status
-```
-
 ## Taxonomy phân loại
 
 Chủ đề lớn (topic) là danh sách cố định trong `worker/src/taxonomy.ts`, gồm các nhóm như hiệu năng/kỹ thuật (lag/FPS, crash, mạng), tài khoản/thanh toán, gameplay (chế độ chơi, bắn súng, ghép trận, rank, cân bằng), kinh tế trong game (gacha, vật phẩm, phần thưởng), cộng đồng (chat, hành vi, hack/cheat), vận hành (sự kiện, cập nhật, CSKH), và một nhóm dùng để so sánh với các phiên bản/khu vực khác của game.
@@ -218,8 +289,10 @@ Chủ đề con (subtopic) được LLM phát hiện động sau mỗi lần ch�
 
 ## Giới hạn kỹ thuật cần biết
 
-- Cloudflare D1 giới hạn số bound parameter/statement thấp — query `IN (...)` phải chunk (~90 item/lần).
-- Cloudflare Workers giới hạn số subrequest/invocation — việc kéo Facebook/Sensor Tower phải giới hạn page/range hợp lý.
+- Cloudflare D1 giới hạn số bound parameter/statement thấp — query `IN (...)` phải chunk (~90 item/lần). Ràng buộc này giữ nguyên trong code dù libSQL không có giới hạn đó, vì code vẫn chạy chung cho cả 2 runtime.
+- Cloudflare Workers giới hạn số subrequest/invocation — việc kéo Facebook/Sensor Tower phải giới hạn page/range hợp lý. Trên container Node không còn giới hạn này, nhưng chưa nới vì chưa cần.
+- **Mọi vòng lặp xử lý theo lô phải giới hạn ngay trong SQL**, không "tải hết rồi cắt trong bộ nhớ" — chi phí đọc tính theo số dòng *quét*. Lần vi phạm gần nhất tốn ~N²/100 dòng đọc cho một run N comment và làm sập production một ngày.
+- **LLM có thể trả `id` kiểu string** (`"id": "255087"`). Parser đã ép kiểu, nhưng đây là loại lỗi rơi sạch 100% kết quả mà không báo gì — khi đổi model phải kiểm tra `processing_logs` có batch `success` thật.
 - Giới hạn nạp CSV: 60.000 dòng/lần, vượt quá sẽ hết bộ nhớ (128MB) khi decode file trước khi kịp chạm giới hạn subrequest.
 - Dependency `xlsx` phải cài từ `cdn.sheetjs.com`, không dùng bản trên npm registry (có lỗ hổng bảo mật chưa vá).
 

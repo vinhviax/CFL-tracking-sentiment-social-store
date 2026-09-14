@@ -2,6 +2,51 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
+---
+
+## 🚀 BẮT ĐẦU TỪ ĐÂY (đọc trước, nhất là khi làm trên máy mới)
+
+**Dự án đang ở đâu:** production đã chạy trên **Dokploy nội bộ VNG** với dữ liệu thật (89.378 comment), LLM đã chuyển sang gateway nội bộ VNG. Việc migrate rời Cloudflare coi như **xong phần kỹ thuật**; còn lại là dọn dẹp và cắt Cloudflare.
+
+**Thứ tự đọc bắt buộc:** `AGENT.md` → `MEMORY.md` → file này (mục đầu tiên) → rồi mới đọc code.
+
+**Set up trên máy mới:**
+
+```bash
+git clone https://github.com/vinhviax/CFL-tracking-sentiment-social-store.git
+cd CFL-tracking-sentiment-social-store/worker && npm ci
+cd ../frontend && npm ci
+```
+
+- **Đừng đặt repo trong Google Drive/OneDrive** — `node_modules` bị lỗi sync, `vitest` treo vô hạn. Đây là lý do `J:\My Drive\...` bị bỏ (giờ còn hỏng git luôn).
+- Mọi thứ cần thiết đều nằm trong repo. Không cần file nào ở ngoài.
+
+**Verify là đang chạy đúng:**
+
+```bash
+cd worker
+npx vitest run          # 392/392 pass
+npx tsc --noEmit        # sạch
+npm run build:node && npm run smoke:node    # 18 check, chạy trọn luồng thật
+cd ../frontend && node --test src/pages/*.test.js   # 68/68
+```
+
+**Production đang sống ở:**
+
+| | URL |
+|---|---|
+| API | `https://cfl-feedback-api.103.245.249.96.nip.io` |
+| Web | `https://cfl-feedback.103.245.249.96.nip.io` |
+| Dokploy | `https://host.vnggames.ai` → project `CFL` / env `production` |
+
+**3 quy tắc quan trọng nhất rút ra từ các lần đã cắn:**
+
+1. **Đừng tin `/api/health`.** `ready: true` chỉ nghĩa là "có credential", không phải "gọi được LLM và parse được". Sau mỗi thay đổi liên quan LLM, phải xem `processing_logs` có batch `level=success` thật.
+2. **Đổi model LLM = sửa code + thêm migration `UPDATE llm_agent_configs`.** Chỉ sửa code là vô tác dụng (bảng đã có dòng seed từ `0012`; tiền lệ `0013`, `0016`, `0020`). Và hỏi `GET /v1/models` để lấy tên model thật trước, đừng đoán.
+3. **Deploy Dokploy: bấm Deploy tay (webhook không bắn), rồi Stop → Start** (Reload không đủ, container không tự nhận image mới).
+
+---
+
 ## 🎯 Trạng thái tại 2026-09-14 (cuối phiên) — ĐÃ CHUYỂN HẲN SANG LLM NỘI BỘ VNG
 
 Yêu cầu: bỏ toàn bộ LLM khác, chỉ dùng gateway VNG. Đã làm xong (commit `04a973c`, `d79aed8`).
