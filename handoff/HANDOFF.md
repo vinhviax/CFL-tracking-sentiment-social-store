@@ -2,7 +2,37 @@
 
 Bàn giao tiến độ cho agent/session tiếp theo. Kiến trúc, config, secrets, gotcha kỹ thuật nằm ở `MEMORY.md` — file này chỉ ghi **tiến độ và việc cần làm tiếp**, không lặp lại giải thích kiến trúc.
 
-## 🎯 Trạng thái tại 2026-09-14 — ĐÃ CHẠY THẬT TRÊN DOKPLOY VỚI DỮ LIỆU THẬT
+## 🎯 Trạng thái tại 2026-09-14 (cuối phiên) — ĐÃ CHUYỂN HẲN SANG LLM NỘI BỘ VNG
+
+Yêu cầu: bỏ toàn bộ LLM khác, chỉ dùng gateway VNG. Đã làm xong (commit `04a973c`, `d79aed8`).
+
+### Cấu hình LLM hiện tại
+
+| Slot | Provider | Model | Tốc độ đo thật |
+|---|---|---|---|
+| `reasoning` (phân tích, Insight, taxonomy) | `vng_lite` | `gemini/gemini-3.6-flash` | 19,9s/batch 20 comment |
+| `simple` (dịch zh-CN) | `vng_lite` | `gemini/gemini-3.5-flash-lite` | 4,7s/batch |
+
+Catalog từ 7 provider còn **1**. Bỏ 2 proxy Viax + 3 endpoint "chính chủ" + `custom` — mạng này không gọi ra được domain nào trong số đó. Bring-your-own-key tắt theo (không còn provider nào `byo: true`).
+
+### ⚠️ "Gemini 3.7 Flash" KHÔNG tồn tại trên gateway
+
+Đã hỏi `GET /v1/models` trước khi cấu hình. Gateway chỉ có 10 model, gemini flash mới nhất là `3.6-flash`. Nếu cứ cấu hình 3.7 thì gateway từ chối và hệ thống hỏng âm thầm. **Luôn hỏi model list trước khi đổi model**, đừng đoán theo tên.
+
+### 🔴 Bẫy đã bắt được: LLM trả `id` kiểu string → rớt sạch 100% kết quả
+
+Sau khi chuyển sang 3.6-flash, 5 batch liên tiếp ghi `0/20 qua LLM`, không lỗi, không manh mối. Tái hiện bằng code thật gọi thẳng gateway: model trả `{"id":"255087", ...}` — **nội dung phân loại hoàn toàn đúng, chỉ `id` là string**. `validateClassification` từ chối ngay dòng đầu vì `typeof raw.id !== "number"`, trong khi mọi field khác đều có giá trị dự phòng → vứt sạch cả 20/20.
+
+Đã sửa (`services/llm/base.ts`): nhận cả 2 kiểu, ép về number trước khi trả ra. Kiểm chứng lại bằng chính gateway thật: **20/20 qua**.
+
+**Bài học ghi vào MEMORY**: đổi model xong phải kiểm tra có batch `success` thật trong `processing_logs`. Đừng dừng ở `/api/health` báo `ready: true` — `ready` chỉ nghĩa là "có credential", không phải "gọi được và parse được".
+
+### Hai chi tiết vận hành mới biết
+
+- **Autodeploy bật nhưng webhook KHÔNG bắn.** Push lên GitHub không kích hoạt deploy — mọi lần đều phải bấm Deploy tay trong UI Dokploy.
+- **Gateway có cache**: gọi lại đúng body trả về trong ~100ms thay vì vài giây. Đừng nhầm tưởng batch nhanh bất thường là lỗi.
+
+## Trạng thái tại 2026-09-14 — ĐÃ CHẠY THẬT TRÊN DOKPLOY VỚI DỮ LIỆU THẬT
 
 **Production trên Dokploy đã sống, có dữ liệu thật.** `cfl-feedback-api` và `cfl-feedback-web` đã Deploy trên Dokploy (project `CFL / production`), domain `https://cfl-feedback-api.103.245.249.96.nip.io` — verify vừa xong:
 

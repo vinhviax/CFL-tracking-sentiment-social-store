@@ -78,14 +78,45 @@ Worker config nam o `worker/wrangler.jsonc`.
 - Endpoint/key cua provider `openai_viax` (`agent-shop.clawd.io.vn`) nam trong bang D1 `llm_provider_secrets`, KHONG nam trong wrangler.jsonc/env.
 - Tai khoan Cloudflare hien dang **Free plan** (xac nhan 2026-08-14 khi deploy bi tu choi voi loi "CPU limits are not supported for the Free plan"). `wrangler.jsonc` tung co `limits.cpu_ms = 60000` de tranh loi giai ma+hash file CSV Facebook lon vuot qua 30s CPU mac dinh — da **xoa dong nay 2026-08-14 de deploy duoc tren Free plan**, gio quay lai gioi han CPU mac dinh (30s). Neu upload lai file CSV Facebook rat lon (~17k dong nhu run #133) va thay loi timeout/giai ma o buoc ingest, day la nguyen nhan — nguoi dung da duoc bao va chap nhan chia nho file khi upload thay vi nang lai limit (can Cloudflare plan tra phi moi cau hinh lai duoc `limits.cpu_ms`).
 
-## LLM: catalog provider + co che leo thang co trang thai (tu 2026-07-30)
+## LLM: chi con gateway VNG (tu 2026-09-14)
 
-Kien truc "custom provider override" cu (D1 slot override tro thang toi `agent-shop.clawd.io.vn` voi model prefix `codex-lb/`) **da bi thay the hoan toan**. Gio la 1 catalog co dinh 6 provider (`worker/src/services/llmCatalog.ts`), 2 slot co dinh:
+Catalog **chi con 1 provider**: `vng_lite`. Da bo 2 proxy Viax (`openai_viax`,
+`gemini_viax`) va 3 endpoint "chinh chu" (`anthropic_direct`, `gemini_direct`,
+`openai_direct`) + `custom` — mang nay khong goi ra duoc domain nao trong so do, de lai
+chi la bay cau hinh mot slot chac chan that bai moi lan goi.
 
-- `reasoning` (phan tich comment, xuat report HTML, Insight, gameplay-mode verify, taxonomy discovery): chinh = `openai_viax`/`gpt-5.6-terra`, phu = `gemini_viax`/`ag/gemini-3.6-flash-high`.
-- `simple` (dich zh-CN): chinh = `gemini_viax`/`ag/gemini-3.6-flash-high`, phu = `openai_viax`/`gpt-5.6-luna`.
+- `reasoning` (phan tich comment, report HTML, Insight, gameplay-mode verify, taxonomy):
+  `vng_lite`/`gemini/gemini-3.6-flash`
+- `simple` (dich zh-CN): `vng_lite`/`gemini/gemini-3.5-flash-lite`
+- Tang phu (`SLOT_SECONDARY`) **trung luon tang chinh** — leo thang gio la ngan sach 6
+  lan thu truoc khi slot nghi ca ngay, khong con doi provider.
+- **Bring-your-own-key tat theo**: `normalizeByoOverride` chi nhan provider co
+  `byo: true`, gio khong con cai nao. Plumbing giu nguyen, bat lai chi can them 1 entry.
 
-Model cua `gemini_viax` doi tu `ag/gemini-3-flash-agent` sang `ag/gemini-3.6-flash-high` ngay 2026-08-14 (migration `0016`). Ten cu VAN con trong catalog de doi lai duoc tu UI khong can deploy. **Doi model trong catalog code la KHONG DU**: bang `llm_agent_configs` da co dong seed tu migration `0012`, va `getSlotSelection` uu tien dong trong D1 — phai co migration UPDATE kem theo, neu khong production van goi model cu (tien le: `0013`).
+**Doi model trong catalog code la KHONG DU**: bang `llm_agent_configs` da co dong seed
+tu migration `0012`, va `getSlotSelection` uu tien dong trong DB — phai co migration
+UPDATE kem theo (tien le `0013`, `0016`, va `0020` lan nay). `0020` con reset ca
+`llm_slot_state` ve `primary`: slot da bo cuoc voi provider cu se ngoi o tier
+`exhausted` va tu choi goi gateway moi cho den cron reset 07:00 UTC.
+
+### BAY: LLM tra `id` kieu string lam rot sach 100% ket qua (bat duoc 2026-09-14)
+
+Sau khi chuyen sang `gemini-3.6-flash`, 5 batch lien tiep ghi `0/20 qua LLM`, khong loi,
+khong manh moi. Tai hien bang code that goi thang gateway: model tra
+
+```
+{"id":"255087","topic_main":"gacha_rate","sentiment":"negative",...}
+```
+
+Noi dung phan loai HOAN TOAN DUNG, chi co `id` la string. `validateClassification`
+(`services/llm/base.ts`) tu choi ngay dong dau vi `typeof raw.id !== "number"`, trong
+khi moi field khac deu co gia tri du phong -> vut sach ca 20/20. **Da sua: parser nhan
+ca 2 kieu va ep ve number truoc khi tra ra** (Map khop ket qua voi comment dat khoa bang
+id number, khoa string khong khop cai nao).
+
+Bai hoc rong hon: doi model xong phai **kiem tra co batch `success` that trong
+`processing_logs`**, khong duoc dung o `/api/health` bao `ready: true` — `ready` chi
+nghia la "co credential", khong phai "goi duoc va parse duoc".
 
 ## Provider `vng_lite` - gateway LLM noi bo VNG (tu 2026-09-04)
 
@@ -107,7 +138,21 @@ Them vao catalog vi **container Dokploy KHONG goi duoc ra ngoai**, nen 2 provide
 | `deepseek-v4-flash` + `reasoning_effort=low` | 28,2 | 3.200 | 1.628 |
 | `deepseek-v4-flash` (mac dinh) | 38,3 | 4.131 | 2.528 |
 
-Tat ca tra JSON dung 20/20. **`reasoning_effort` chi co tac dung voi gemini** (68,8s -> 19,9s); deepseek phot lo hoan toan gia tri `none`. Code khong gui `reasoning_effort`, nen danh sach model trong catalog xep model lite dung dau - de model nang suy luan lam mac dinh se am tham cham gap 8 lan.
+Tat ca tra JSON dung 20/20. **`reasoning_effort` chi co tac dung voi gemini** (68,8s -> 19,9s); deepseek phot lo hoan toan gia tri `none`.
+
+**Tu 2026-09-14 code CO gui `reasoning_effort: "none"`** — nhung chi cho model co chu
+`gemini` trong ten (`OpenAIProvider` trong `services/llm/providers.ts`). Khong gui cho
+model khac: deepseek phot lo no, va tham so la voi mot so gateway la loi 400.
+
+**Danh sach model that su co tren gateway** (`GET /v1/models`, kiem tra 2026-09-14 — 10
+model): `gemini/gemini-3.6-flash`, `gemini/gemini-3.5-flash-lite`,
+`gemini-3.1-flash-lite-preview`, `gemini-3.1-pro-preview`, `gpt-5.4-mini`,
+`deepseek-v4-flash`, `deepseek-v4-pro`, `claude-sonnet-4-6`, `claude-opus-4-6`,
+`anthropoic/claude-sonnet-5`. **KHONG co "Gemini 3.7 Flash"** — da hoi truoc khi cau
+hinh, dung cach nay thay vi doan ten model.
+
+Gateway **co cache**: goi lai dung body se tra ve trong ~100ms thay vi vai giay. Dung
+nham tuong batch nhanh bat thuong la loi.
 
 ## Lop adapter libSQL (`worker/src/db/libsqlAdapter.ts`, tu 2026-09-04)
 
