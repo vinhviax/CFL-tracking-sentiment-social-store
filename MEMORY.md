@@ -14,12 +14,45 @@ He thong keo/nhap data, dedupe comment, phan loai bang LLM, dich zh-CN, luu vao 
 
 ## Kien truc hien tai
 
-- `worker/`: Cloudflare Worker production, Hono + D1.
-- `frontend/`: React + Vite, deploy Cloudflare Pages.
+- `worker/`: Hono + D1/libSQL. Chay duoc ca tren Cloudflare Worker (ban cu) va Node/Docker
+  tren Dokploy (ban moi, xem muc "Dokploy production" ben duoi).
+- `frontend/`: React + Vite, deploy duoc ca Cloudflare Pages va Docker+nginx tren Dokploy.
 - `backend/`: FastAPI legacy/du phong, khong phai backend production hien tai.
-- Database production: Cloudflare D1 `cfl-feedback`.
-- API production: `https://cfl-feedback-worker.vinhviax.workers.dev`
-- Frontend production: `https://cfl-feedback.pages.dev`
+- **Dang trong giai doan cutover (tu 2026-09-14)**: Dokploy da chay THAT voi du lieu that
+  (89.378 comment), Cloudflare van con song song lam production cu. Xem muc "Dokploy
+  production" de biet trang thai chinh xac va viec con lai truoc khi tat Cloudflare hoan
+  toan.
+- Database production cu: Cloudflare D1 `cfl-feedback`.
+- API production cu: `https://cfl-feedback-worker.vinhviax.workers.dev`
+- Frontend production cu: `https://cfl-feedback.pages.dev`
+
+## Dokploy production (tu 2026-09-14)
+
+- Dashboard: `https://host.vnggames.ai`, project **CFL**, environment **production**.
+- Service API: `cfl-feedback-api` — nguon GitHub qua `Viax-GitHub-App`, repo
+  `vinhviax/CFL-tracking-sentiment-social-store`, branch `main`, Dockerfile
+  `worker/Dockerfile`, context `worker`. Domain:
+  `https://cfl-feedback-api.103.245.249.96.nip.io` (port 8787, HTTPS Let's Encrypt).
+  Volume `cfl-feedback-data` -> `/data`.
+- Service Frontend: `cfl-feedback-web` — Dockerfile `frontend/Dockerfile`, context
+  `frontend`, build arg `VITE_API_BASE=https://cfl-feedback-api.103.245.249.96.nip.io`.
+  Domain: `https://cfl-feedback.103.245.249.96.nip.io` (port 80).
+- Autodeploy dang BAT cho ca 2 service — push len `main` la tu dong build+deploy, khong
+  can vao tay bam Deploy (tru khi can theo doi log build).
+- Bien moi truong da set tren `cfl-feedback-api`: `LIBSQL_URL=file:/data/cfl-feedback.db`,
+  `PORT=8787`, `CRON_ENABLED=true`, `RUN_MIGRATIONS=true`, `ADMIN_PASSWORD`,
+  `LLM_VNG_LITE_API_KEY`, `SENSORTOWER_API_KEY` (da dien). `FB_PAGE_ID`/`FB_ACCESS_TOKEN`
+  con trong (chi can khi muon cron tu keo Facebook).
+- **Dokploy Docker Terminal (qua trinh duyet tu dong) KHONG dung duoc**: go chu vao duoc
+  nhung phim Enter khong gui toi container de thuc thi lenh (da thu nhieu cach). Volume
+  cua Application KHONG co tinh nang upload file (chi doi ten/xoa mount, da kiem tra het
+  Advanced/Volumes). Neu can dua file vao container ma khong co SSH host: xem lai cach
+  lam trong `handoff/HANDOFF.md` (endpoint tam `POST /__node-admin/replace-db` da dung
+  xong va xoa sach, commit `f425ab0`/`119ddff` — co the lam lai neu can, code van con
+  trong git history).
+- **Sau khi da chay on dinh tren Dokploy, doi 2 slot LLM sang `vng_lite` qua UI
+  `/api/llm-config`** (khong con la viec nguy hiem nua vi Cloudflare khong con la
+  production duy nhat — bay cutover cu chi ap dung khi Cloudflare con la production).
 
 ## Repo va workspace
 
