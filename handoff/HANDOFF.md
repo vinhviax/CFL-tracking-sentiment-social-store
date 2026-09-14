@@ -8,10 +8,12 @@ Yêu cầu: bỏ toàn bộ LLM khác, chỉ dùng gateway VNG. Đã làm xong (
 
 ### Cấu hình LLM hiện tại
 
-| Slot | Provider | Model | Tốc độ đo thật |
+| Slot | Provider | Model | Tốc độ đo THẬT trên production 14/09 |
 |---|---|---|---|
-| `reasoning` (phân tích, Insight, taxonomy) | `vng_lite` | `gemini/gemini-3.6-flash` | 19,9s/batch 20 comment |
-| `simple` (dịch zh-CN) | `vng_lite` | `gemini/gemini-3.5-flash-lite` | 4,7s/batch |
+| `reasoning` (phân tích, Insight, taxonomy) | `vng_lite` | `gemini/gemini-3.6-flash` | **9,3–9,8s**/batch 20 comment (đo 04/09 là 19,9s) |
+| `simple` (dịch zh-CN) | `vng_lite` | `gemini/gemini-3.5-flash-lite` | **4,3–4,5s**/batch (đo 04/09 là 4,7s) |
+
+Cả 2 slot đều đã có batch `success` thật trong `processing_logs` — không dừng ở `/api/health`.
 
 Catalog từ 7 provider còn **1**. Bỏ 2 proxy Viax + 3 endpoint "chính chủ" + `custom` — mạng này không gọi ra được domain nào trong số đó. Bring-your-own-key tắt theo (không còn provider nào `byo: true`).
 
