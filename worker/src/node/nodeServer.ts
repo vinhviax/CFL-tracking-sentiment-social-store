@@ -6,6 +6,7 @@
 import { serve } from "@hono/node-server";
 import { app } from "../index";
 import type { Env } from "../types";
+import { createReplaceDbHandler } from "./dbReplace";
 
 /**
  * Stand-in for Workers' ExecutionContext.
@@ -33,14 +34,44 @@ export function createNodeExecutionContext(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+export interface NodeFetchHandlerOptions {
+  /**
+   * TEMPORARY (see dbReplace.ts). Absolute path to the live database file. When set,
+   * POST /__node-admin/replace-db is handled here, before the request ever reaches the
+   * app. Unset in normal operation — only passed while this escape hatch is in use.
+   */
+  replaceDbPath?: string;
+  /** Closes the app's own open DB connection before a replace-db swap. See dbReplace.ts. */
+  closeDb?: () => void;
+}
+
 /**
  * A fetch handler bound to one env, the way Workers bound one per deployment.
  *
  * @hono/node-server would otherwise pass `{ incoming, outgoing }` as `env`, which would
  * make `c.env.DB` undefined in all 133 database call sites.
  */
-export function createNodeFetchHandler(env: Env) {
-  return (request: Request) => app.fetch(request, env, createNodeExecutionContext());
+export function createNodeFetchHandler(env: Env, options: NodeFetchHandlerOptions = {}) {
+  const replaceDb = options.replaceDbPath
+    ? createReplaceDbHandler({
+        dbPath: options.replaceDbPath,
+        adminPassword: env.ADMIN_PASSWORD ?? "",
+        closeDb: options.closeDb,
+      })
+    : null;
+
+  return async (request: Request) => {
+    if (replaceDb) {
+      try {
+        const replaced = await replaceDb(request);
+        if (replaced) return replaced;
+      } catch (e) {
+        console.error('replace-db failed', e);
+        return Response.json({ detail: String((e as Error)?.message || e) }, { status: 500 });
+      }
+    }
+    return app.fetch(request, env, createNodeExecutionContext());
+  };
 }
 
 export interface RunningServer {
@@ -51,15 +82,16 @@ export interface RunningServer {
 /**
  * Start listening. Port 0 lets the OS pick, which is how the test avoids a fixed port.
  */
-export function startNodeServer(options: {
-  env: Env;
-  port: number;
-  hostname?: string;
-}): Promise<RunningServer> {
+export function startNodeServer(
+  options: { env: Env; port: number; hostname?: string } & NodeFetchHandlerOptions
+): Promise<RunningServer> {
   return new Promise((resolve, reject) => {
     const server = serve(
       {
-        fetch: createNodeFetchHandler(options.env),
+        fetch: createNodeFetchHandler(options.env, {
+          replaceDbPath: options.replaceDbPath,
+          closeDb: options.closeDb,
+        }),
         port: options.port,
         hostname: options.hostname,
       },

@@ -37,9 +37,18 @@ export async function startApp(
     }
   }
 
+  // TEMPORARY (see dbReplace.ts): off unless explicitly turned on. Lets a locally-built
+  // libSQL file replace this container's database over HTTP when there is no SSH to the
+  // host and no upload UI for the volume. Delete this block with dbReplace.ts once the
+  // data move for this deploy is done.
+  const replaceDbPath =
+    (source.ENABLE_DB_REPLACE ?? "false").toLowerCase() === "true"
+      ? source.LIBSQL_URL!.replace(/^file:/, "")
+      : undefined;
+
   let server;
   try {
-    server = await startNodeServer({ env, port, hostname: source.HOST });
+    server = await startNodeServer({ env, port, hostname: source.HOST, replaceDbPath, closeDb });
   } catch (e) {
     closeDb();
     throw e;

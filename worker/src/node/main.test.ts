@@ -111,3 +111,67 @@ describe("startApp and the schema", () => {
     }
   });
 });
+
+describe("the replace-db escape hatch (temporary — see dbReplace.ts)", () => {
+  // Skipped on win32: empirically verified (not assumed) that the native libsql
+  // binding does not release its Windows file handle when the wrapping server object
+  // graph is still reachable, even after closeDb() AND a forced global.gc() — Windows
+  // keeps EPERM-ing the rename regardless. This is orthogonal to correctness: the
+  // actual deploy target is a Linux container, where POSIX rename() succeeds
+  // unconditionally regardless of any open file descriptor. dbReplace.test.ts already
+  // covers the swap logic itself against a real filesystem, with no OS caveat.
+  test.skipIf(process.platform === "win32")(
+    "ENABLE_DB_REPLACE=true wires it up against the real LIBSQL_URL file path",
+    async () => {
+    const { mkdtempSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "cfl-main-replace-"));
+    const dbFile = join(dir, "cfl-feedback.db");
+    writeFileSync(dbFile, "placeholder");
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { schedule } = fakeScheduler();
+    const app = await startApp(
+      {
+        LIBSQL_URL: `file:${dbFile}`,
+        PORT: "0",
+        RUN_MIGRATIONS: "false",
+        CRON_ENABLED: "false",
+        ADMIN_PASSWORD: "secret",
+        ENABLE_DB_REPLACE: "true",
+      },
+      { schedule }
+    );
+    try {
+      const body = Buffer.concat([Buffer.from("SQLite format 3\0"), Buffer.from("real data")]);
+      const res = await fetch(`http://127.0.0.1:${app.port}/__node-admin/replace-db`, {
+        method: "POST",
+        headers: { "X-CFL-Admin-Key": "secret" },
+        body,
+      });
+      expect(res.status).toBe(200);
+      expect(readFileSync(dbFile)).toEqual(body);
+    } finally {
+      await app.shutdown();
+      log.mockRestore();
+    }
+  }
+  );
+
+  test("off by default, so a normal boot never exposes it", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const app = await startApp({ LIBSQL_URL: ":memory:", PORT: "0", CRON_ENABLED: "false" }, {});
+    try {
+      const res = await fetch(`http://127.0.0.1:${app.port}/__node-admin/replace-db`, {
+        method: "POST",
+        headers: { "X-CFL-Admin-Key": "whatever" },
+      });
+      // Falls through to the real app, which has no such route.
+      expect(res.status).toBe(404);
+    } finally {
+      await app.shutdown();
+      log.mockRestore();
+    }
+  });
+});
