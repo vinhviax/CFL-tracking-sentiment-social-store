@@ -20,7 +20,14 @@ export interface Classification {
 
 /** Validate + coerce a raw parsed record into a safe Classification, same rules as the Pydantic model. */
 export function validateClassification(raw: any): Classification | null {
-  if (typeof raw?.id !== "number") return null;
+  // The id is ours — put into the prompt and matched on the way back — so accept it in
+  // whichever JSON type the model echoes it in. gemini-3.6-flash quotes it
+  // (`"id": "255087"`), and rejecting on that alone dropped five straight batches as
+  // "0/20 qua LLM" on 2026-09-14 while every classification in them was correct.
+  // Coerced rather than passed through: the result Map is keyed by the numeric id, and
+  // a string key matches no comment at all.
+  const id = typeof raw?.id === "number" ? raw.id : Number(String(raw?.id ?? "").trim());
+  if (!Number.isFinite(id) || String(raw?.id ?? "").trim() === "") return null;
   const topic_main = isTopic(raw.topic_main) ? raw.topic_main : "other";
   const topics_sub = Array.isArray(raw.topics_sub)
     ? raw.topics_sub.filter((t: string) => isTopic(t)).slice(0, 2)
@@ -32,7 +39,7 @@ export function validateClassification(raw: any): Classification | null {
     ? String(raw.urgency).toLowerCase()
     : "none";
   return {
-    id: raw.id,
+    id,
     topic_main,
     topics_sub,
     sentiment,

@@ -136,3 +136,43 @@ describe("ClassifierService.classify — no keyword fallback", () => {
     expect(result.servedBy).toEqual({ provider: "gemini_viax", model: "ag/gemini-3-flash-agent" });
   });
 });
+
+/**
+ * Caught in production 2026-09-14, reproduced against the live gateway with the real
+ * prompt: gemini-3.6-flash answers `"id": "255087"` — a string — while every other
+ * field is correct. validateClassification rejected the whole record on the id type
+ * alone, so five batches in a row logged "0/20 qua LLM" with no error and no clue,
+ * while the model was doing its job perfectly.
+ *
+ * The id is ours: we put it in the prompt and match on it coming back. A model that
+ * quotes a number is not returning wrong data, it is returning the same number in a
+ * JSON type we did not ask precisely enough for — so the parser accommodates it.
+ */
+describe("validateClassification and the id the model echoes back", () => {
+  test("accepts a numeric id quoted as a string, which is what 3.6-flash returns", async () => {
+    const { validateClassification } = await import("./base");
+    const parsed = validateClassification({
+      id: "255087",
+      topic_main: "gacha_rate",
+      sentiment: "negative",
+      urgency: "medium",
+      summary: "Phàn nàn tỷ lệ gacha",
+      confidence: 0.95,
+    });
+    expect(parsed).not.toBeNull();
+    // Coerced, not passed through: the Map that matches results back to comments is
+    // keyed by the numeric id, so a string key would silently match nothing.
+    expect(parsed!.id).toBe(255087);
+    expect(typeof parsed!.id).toBe("number");
+    expect(parsed!.topic_main).toBe("gacha_rate");
+  });
+
+  test("still rejects an id that is not a number in any form", async () => {
+    const { validateClassification } = await import("./base");
+    expect(validateClassification({ id: "khong-phai-so", topic_main: "other" })).toBeNull();
+    expect(validateClassification({ id: "", topic_main: "other" })).toBeNull();
+    expect(validateClassification({ id: null, topic_main: "other" })).toBeNull();
+    expect(validateClassification({ topic_main: "other" })).toBeNull();
+    expect(validateClassification({ id: NaN, topic_main: "other" })).toBeNull();
+  });
+});
